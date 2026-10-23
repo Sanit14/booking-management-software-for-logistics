@@ -90,6 +90,7 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
   const health = await waitUp(port);
   assert.equal(health.app, 'booking-manager');
   assert.equal(health.state, 'ready');
+  assert.equal(health.schemaVersion, 1);
   assert.equal(health.dataRoot, s.root);
   assert.equal(health.dbPath, s.dbPath);
   assert.ok(fs.statSync(s.dbPath).size > 0, 'a fresh WAL database is never 0 bytes');
@@ -117,6 +118,34 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
   assert.equal(bytes.subarray(0, 16).toString('latin1'), 'SQLite format 3\0');
   assert.equal(fs.existsSync(s.dbPath + '-wal'), false, 'WAL folded into the database on clean close');
   assert.match(fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8'), /\tstop\t/);
+  // A clean stop leaves the guard its baseline: how many records the database held.
+  assert.equal(JSON.parse(fs.readFileSync(markerPath(s.programDir, s.root), 'utf8')).businessRows, 0);
+}));
+
+test('keeper: marker says records existed but the database has none = safe mode, nothing is touched', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const first = startKeeper(s.root, port, s.programData);
+  await waitUp(port);
+  assert.equal(await shutdown(port), true);
+  await within(first.exited, 10000);
+
+  // Pretend the database held 5 records when it was last closed, so the empty one now looks swapped or wiped.
+  const marker = markerPath(s.programDir, s.root);
+  fs.writeFileSync(marker, JSON.stringify({ ...JSON.parse(fs.readFileSync(marker, 'utf8')), businessRows: 5 }));
+  const dbBefore = fs.readFileSync(s.dbPath);
+
+  const again = startKeeper(s.root, port, s.programData);
+  const health = await waitUp(port);
+  assert.equal(health.state, 'safe-mode');
+  assert.equal(health.reason, 'marker-with-no-rows');
+  assert.equal(health.schemaVersion, undefined);
+  assert.match(fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8'), /\tguard-trip\t/);
+
+  assert.equal(await shutdown(port), true);
+  assert.equal(await within(again.exited, 10000), 0);
+  assert.ok(fs.readFileSync(s.dbPath).equals(dbBefore), 'the database file is byte for byte as it was');
+  assert.equal(JSON.parse(fs.readFileSync(marker, 'utf8')).businessRows, 5, 'the marker keeps its baseline');
 }));
 
 test('keeper: marker + deleted database = safe mode, nothing is created', () => run(async () => {

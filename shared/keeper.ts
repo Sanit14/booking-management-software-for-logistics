@@ -3,10 +3,10 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 1;
+export const KEEPER_VERSION = 2;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
-export type GuardReason = 'marker-without-database' | 'marker-with-empty-database';
+export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows';
 
 /** GET /health when the keeper is up. `safe-mode` = a database existed here before and is now gone or empty. */
 export interface KeeperHealth {
@@ -14,6 +14,8 @@ export interface KeeperHealth {
   state: 'ready' | 'safe-mode';
   reason?: GuardReason;
   keeperVersion: number;
+  /** The database's schema version; absent in safe mode, where the database is not touched. */
+  schemaVersion?: number;
   dataRoot: string;
   dbPath: string;
   startedAt: string;

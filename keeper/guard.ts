@@ -35,7 +35,24 @@ export function inspectBeforeOpen(programDirPath: string, root: string, dbPath: 
   return decideOpen(sizeOrNull(markerPath(programDirPath, root)) !== null, sizeOrNull(dbPath));
 }
 
-export function writeMarker(programDirPath: string, root: string, dbPath: string): void {
+// businessRows = LRs + memos + masters at the time of writing; it lets the guard spot a database that opens
+// fine but has been emptied or swapped for a blank one.
+export function writeMarker(programDirPath: string, root: string, dbPath: string, businessRows: number): void {
   fs.mkdirSync(programDirPath, { recursive: true });
-  fs.writeFileSync(markerPath(programDirPath, root), JSON.stringify({ root, dbPath, at: new Date().toISOString() }));
+  fs.writeFileSync(markerPath(programDirPath, root), JSON.stringify({ root, dbPath, at: new Date().toISOString(), businessRows }));
+}
+
+/** Rows the marker says the database had; 0 for a marker from session 1.2 (no count) or one that cannot be read. */
+export function readMarkerRows(programDirPath: string, root: string): number {
+  try {
+    const n = (JSON.parse(fs.readFileSync(markerPath(programDirPath, root), 'utf8')) as { businessRows?: unknown }).businessRows;
+    return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** The database opened, but had records before and has none now: do not carry on as if nothing happened. */
+export function blankReason(markerRows: number, businessRows: number): GuardReason | null {
+  return markerRows > 0 && businessRows === 0 ? 'marker-with-no-rows' : null;
 }

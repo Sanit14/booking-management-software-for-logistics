@@ -32,3 +32,12 @@ One line per decision, newest at the bottom. Details live in the Spec and Build 
 - 2026-10-23 · Keeper tests spawn the keeper as Electron-as-node (rebuilt better-sqlite3 loads only there); pure logic never imports it. `npm run check` wipes and recompiles `dist-electron` before `node --test`.
 - 2026-10-23 · `better-sqlite3` 12.11.1 is rebuilt for Electron 22.3.27 by `postinstall` (`@electron/rebuild` 4.2.0, works on dev Node 20.19; needs VS Build Tools and a short path).
 - 2026-10-23 · Keeper client opens a fresh connection per request (`agent: false`); seat name = Windows user name, sent as `X-BM-Seat`.
+- 2026-10-24 · Schema v1 lives in `keeper/migrations.ts`: ordered migrations, one transaction each with its `schema_version` row; a shipped migration is never edited; a database newer than the keeper is refused. `KEEPER_VERSION` 2.
+- 2026-10-24 · Charge options live in `settings` as `chargeRule_option1|option2|blank` (JSON in paise, DM's CartageRule shape); only hamali depends on quantity, godown bhada/insurance/delivery are flat per LR.
+- 2026-10-24 · `parseRupees` is strict (Western or Indian comma grouping, at most 2 decimals, anything else is an error); `taxPaise` is the only tax code, round half up; money functions refuse non-integer or negative paise.
+- 2026-10-24 · `nextNumber` takes the year from the record's own date, must run inside the saving transaction, and a rolled-back save does not burn a number; `writeAudit` likewise needs a transaction, and `audit_log` refuses UPDATE and DELETE by trigger.
+- 2026-10-24 · `lrs.uid` / `memos.uid` are caller-made TEXT UNIQUE; `audit_log.entity_id` is TEXT; `firms.station_id` is nullable; memo money/count columns are CHECK ≥ 0.
+- 2026-10-24 · Blank-database guard also compares business-row counts: the marker stores `businessRows` (written on open and on clean stop); marker > 0 and the opened database has 0 → safe mode `marker-with-no-rows`, nothing migrated or written.
+- 2026-10-24 · All schema v1 tables are `STRICT`; `lr_date`/`memo_date` are ISO text and `lr_year`/`challan_year` must equal the date's year; `nameKey` is NFC-normalised.
+- 2026-10-24 · The guard's `businessRows` baseline is raised every 5 minutes while the keeper runs (never lowered), so a crash on day one cannot leave it at 0.
+- 2026-10-24 · Database tests are `*.dbtest.ts`, run by `scripts/test-db.cjs` under Electron-as-node as part of `npm run check`; pure tests stay `*.test.ts` under system Node.

@@ -9,8 +9,9 @@ const rootRefused: Record<RootRefusal, (path: string) => string> = {
 };
 
 const safeModeReason: Record<GuardReason, string> = {
-  'marker-without-database': 'is missing',
-  'marker-with-empty-database': 'is empty',
+  'marker-without-database': 'is missing, but one was there before',
+  'marker-with-empty-database': 'is empty, but one was there before',
+  'marker-with-no-rows': 'has no records, but it had records before',
 };
 
 const contactAdmin = 'Do not enter data. Please contact the administrator.';
@@ -21,11 +22,11 @@ export const strings = {
   keeperStarting: 'Starting the database service…',
   keeperStatus(s: KeeperStatus): string {
     if (s.kind === 'connected') {
-      return `Keeper connected · data: ${s.health.dbPath} · seat: ${s.seat} · v${s.health.keeperVersion}`;
+      return `Keeper connected · data: ${s.health.dbPath} · seat: ${s.seat} · v${s.health.keeperVersion} · schema v${s.health.schemaVersion ?? '?'}`;
     }
     if (s.kind === 'safe-mode') {
-      const why = s.health.reason ? safeModeReason[s.health.reason] : 'is not usable';
-      return `Safe mode: the database at ${s.health.dbPath} ${why}, and a database was there before. No new one was created and a backup must be restored. ${contactAdmin} · seat: ${s.seat}`;
+      const why = s.health.reason ? safeModeReason[s.health.reason] : 'cannot be used';
+      return `Safe mode: the database at ${s.health.dbPath} ${why}. Nothing was changed or created, and a backup must be restored. ${contactAdmin} · seat: ${s.seat}`;
     }
     switch (s.code) {
       case 'root-refused':

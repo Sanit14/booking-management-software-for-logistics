@@ -6,12 +6,14 @@
 import http from 'node:http';
 import path from 'node:path';
 import { APP_ID, KEEPER_VERSION, type GuardReason, type KeeperHealth } from '../shared';
-import { closeDatabase, openDatabase, type Db } from './db';
-import { inspectBeforeOpen, writeMarker } from './guard';
+import { businessRows, closeDatabase, openDatabase, raiseMarker, type Db } from './db';
+import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './guard';
 import { makeLog } from './log';
+import { migrate } from './migrations';
 import { logPath, programDir } from './paths';
 
 const HOST = '127.0.0.1';
+const MARKER_REFRESH_MS = 5 * 60 * 1000;
 
 function main(): void {
   const [dataRoot, portArg] = process.argv.slice(2);
@@ -29,6 +31,7 @@ function main(): void {
   // this is set; 'safe-mode' is just the conservative default.
   let state: 'ready' | 'safe-mode' = 'safe-mode';
   let reason: GuardReason | undefined;
+  let schemaVersion: number | undefined;
   let db: Db | null = null;
   let stopping = false;
 
@@ -37,11 +40,22 @@ function main(): void {
     if (stopping) return finish?.(0); // a second /shutdown while the first is replying: reply too
     stopping = true;
     let code = 0;
-    try {
-      if (db) closeDatabase(db);
-    } catch (e) {
+    const failed = (what: string) => (e: unknown) => {
       code = 1;
-      log('stop-failed', { why, error: String((e as Error)?.message ?? e) });
+      log(what, { why, error: String((e as Error)?.message ?? e) });
+    };
+    if (db) {
+      // The guard's baseline for the next start. A failure here must not skip the checkpoint below.
+      try {
+        writeMarker(programDirPath, dataRoot, dbPath, businessRows(db));
+      } catch (e) {
+        failed('marker-write-failed')(e);
+      }
+      try {
+        closeDatabase(db);
+      } catch (e) {
+        failed('stop-failed')(e);
+      }
     }
     log('stop', { why, code });
     (finish ?? process.exit)(code);
@@ -62,6 +76,7 @@ function main(): void {
       if (url === '/health' && req.method === 'GET') {
         const health: KeeperHealth = { app: APP_ID, state, keeperVersion: KEEPER_VERSION, dataRoot, dbPath, startedAt };
         if (reason) health.reason = reason;
+        if (schemaVersion !== undefined) health.schemaVersion = schemaVersion;
         return send(res, 200, health);
       }
       if (url === '/shutdown') {
@@ -102,10 +117,31 @@ function main(): void {
         log('guard-trip', { dataRoot, dbPath, reason });
         return;
       }
-      db = openDatabase(dbPath);
-      writeMarker(programDirPath, dataRoot, dbPath);
+      const opened = openDatabase(dbPath);
+      // Opens fine but has no records although it had before (emptied, or swapped for a blank file): safe mode.
+      // Nothing is migrated or written, and db stays null so a later stop() does not refresh the marker either.
+      const blank = blankReason(readMarkerRows(programDirPath, dataRoot), businessRows(opened));
+      if (blank) {
+        opened.close();
+        state = 'safe-mode';
+        reason = blank;
+        log('guard-trip', { dataRoot, dbPath, reason });
+        return;
+      }
+      db = opened;
+      schemaVersion = migrate(db);
+      let markedRows = businessRows(db);
+      writeMarker(programDirPath, dataRoot, dbPath, markedRows);
+      // Records entered since the last marker would be forgotten by a crash: keep the baseline rising.
+      setInterval(() => {
+        try {
+          if (db) markedRows = raiseMarker(db, programDirPath, dataRoot, dbPath, markedRows);
+        } catch (e) {
+          log('marker-refresh-failed', String((e as Error)?.message ?? e));
+        }
+      }, MARKER_REFRESH_MS).unref();
       state = 'ready';
-      log('database-open', { dbPath, action: decision.action });
+      log('database-open', { dbPath, action: decision.action, schemaVersion });
     } catch (e) {
       log('keeper-fatal', String((e as Error)?.message ?? e));
       try {

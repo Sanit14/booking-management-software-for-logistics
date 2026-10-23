@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { decideOpen, inspectBeforeOpen, markerPath, writeMarker } from './guard';
+import { blankReason, decideOpen, inspectBeforeOpen, markerPath, readMarkerRows, writeMarker } from './guard';
 
 test('no marker + no file: create', () => {
   assert.deepEqual(decideOpen(false, null), { action: 'create' });
@@ -42,7 +42,7 @@ test('inspectBeforeOpen reads the real marker and file', () => {
 
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(dbPath, 'x'.repeat(100));
-  writeMarker(programDir, root, dbPath);
+  writeMarker(programDir, root, dbPath, 0);
   assert.deepEqual(inspectBeforeOpen(programDir, root, dbPath), { action: 'open' });
 
   fs.writeFileSync(dbPath, '');
@@ -50,4 +50,23 @@ test('inspectBeforeOpen reads the real marker and file', () => {
 
   fs.rmSync(dbPath);
   assert.equal(inspectBeforeOpen(programDir, root, dbPath).action, 'safe-mode');
+});
+
+test('blankReason: records before, none now = safe mode; otherwise carry on', () => {
+  assert.equal(blankReason(5, 0), 'marker-with-no-rows');
+  assert.equal(blankReason(5, 1), null);
+  assert.equal(blankReason(5, 5), null);
+  assert.equal(blankReason(0, 0), null); // a genuinely new database
+});
+
+test('the marker keeps the business row count; a 1.2 marker or a damaged one counts as 0', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-guard-'));
+  const root = 'D:\\BM';
+  assert.equal(readMarkerRows(dir, root), 0); // no marker
+  writeMarker(dir, root, 'D:\\BM\\booking.db', 5);
+  assert.equal(readMarkerRows(dir, root), 5);
+  fs.writeFileSync(markerPath(dir, root), JSON.stringify({ root, dbPath: 'x', at: 'then' })); // written by 1.2
+  assert.equal(readMarkerRows(dir, root), 0);
+  fs.writeFileSync(markerPath(dir, root), '{not json');
+  assert.equal(readMarkerRows(dir, root), 0);
 });
