@@ -11,7 +11,7 @@
 - `shared/keeper.ts`: `KeeperHealth`, `KeeperStatus`, error codes, and the constants `APP_ID`, `KEEPER_PORT`, `KEEPER_VERSION`. The screen gets **codes**; all wording is in `src/strings.ts`.
 - Data root: `BM_DATA_ROOT` (dev/tests, never saved) → `%ProgramData%\BookingManager\root.json` → default `C:\BookingManagerData` (pointer written). Logs: `%ProgramData%\BookingManager\logs\keeper.log`. Blank-db marker: `%ProgramData%\BookingManager\db-<hash of root>.json`.
 - Default File/Edit/View menu removed (`Menu.setApplicationMenu(null)`; `GetMenu` on the window returns 0).
-- `npm run check` = typecheck → ESLint → delete `dist-electron` → compile → `node --test`. Proven in 1.2 with a deliberately failing `*.test.ts` (check went red, test deleted, green).
+- `npm run check` = typecheck → ESLint → delete `dist-electron` → compile → `node --test` run from inside `dist-electron` (so it never picks up the compiled copies in `.claude\worktrees\*`, which doubled the count to 48 in the main folder). Proven in 1.2 with a deliberately failing `*.test.ts` (check went red, test deleted, green).
 - `npm install` runs `postinstall` = `electron-rebuild -f -w better-sqlite3` (compiles for Electron 22.3.27 / ABI 110; needs VS Build Tools + Python; ran fine on dev Node 20.19 although `@electron/rebuild` 4.2.0 declares Node ≥ 22.12).
 
 ## Things to know (will bite later)
