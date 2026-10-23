@@ -1,0 +1,31 @@
+{
+  "name": "booking-manager",
+  "productName": "Booking Manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Booking Manager for Sundeep Freight Movers",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "dev": "tsc -p tsconfig.node.json && concurrently -k -n vite,app \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron . --dev\"",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.node.json",
+    "check": "npm run typecheck && eslint . --max-warnings 0 && node --test"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "16.18.126",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "concurrently": "9.2.5",
+    "electron": "22.3.27",
+    "eslint": "9.39.5",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.0",
+    "vite": "7.3.7",
+    "wait-on": "8.0.5"
+  }
+}

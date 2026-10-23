@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-electron/
+build/out/
+release/
+*.db
+*.db-wal
+*.db-shm
+*.log
+.env
+.env.*
+.claude/hooks/.stop-rounds.json
+.claude/settings.local.json

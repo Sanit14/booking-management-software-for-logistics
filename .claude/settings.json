@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node .claude/hooks/check-on-stop.cjs", "timeout": 600 }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": ["Bash(git commit:*)", "Bash(git push:*)"]
+  }
+}

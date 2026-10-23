@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Loading Memo</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+<style>
+body{margin:0}
+a{color:#144D52}a:hover{color:#0F3A3E}
+</style>
+</helmet>
+<div style="position: relative; width: 1024px; height: 768px; overflow: hidden; box-sizing: border-box; display: flex; background: #EEF4F3; font-family: 'Plus Jakarta Sans', sans-serif; color: #16323B">
+
+<aside aria-label="Navigation" style="width: 204px; flex-shrink: 0; box-sizing: border-box; display: flex; flex-direction: column; padding: 14px 12px; background: #FFFFFF; border-right: 1px solid #D3E2E0">
+<div style="display: flex; align-items: center; gap: 9px; padding: 0 2px">
+<div style="width: 38px; height: 38px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #144D52">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E66C32" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"></path><path d="M15 18H9"></path><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"></path><circle cx="17" cy="18" r="2"></circle><circle cx="7" cy="18" r="2"></circle></svg>
+</div>
+<div style="min-width: 0">
+<div style="font-size: 15px; font-weight: 800; line-height: 19px; color: #144D52">Booking Manager</div>
+<div style="font-size: 12px; font-weight: 600; line-height: 16px; color: #4E6B73">Sundeep Freight Movers</div>
+</div>
+</div>
+
+<button type="button" style="margin-top: 16px; height: 46px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 10px; background: #C4531B; color: #FFFFFF; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 16px; font-weight: 700; cursor: pointer">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+Quick LR
+<span style="display: inline-flex; align-items: center; height: 22px; padding: 0 6px; border: 1px solid rgba(255,255,255,0.5); border-bottom-width: 2px; border-radius: 5px; background: rgba(255,255,255,0.14); font-family: Inter, sans-serif; font-size: 12px; font-weight: 600">Ctrl+L</span>
+</button>
+
+<div style="margin: 20px 0 6px; padding: 0 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: #5B7880">MAIN</div>
+<nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px">
+<a href="A-Dashboard.dc.html" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: #2E4A52; font-size: 15px; font-weight: 600; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>
+Dashboard</a>
+<a href="A-LREntry.dc.html" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: #2E4A52; font-size: 15px; font-weight: 600; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"></path><path d="M14 2v5h5"></path><path d="M12 12v6"></path><path d="M9 15h6"></path></svg>
+LR Entry
+<span style="margin-left: auto; min-width: 26px; height: 22px; padding: 0 7px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: 11px; background: #C4531B; color: #FFFFFF; font-family: Inter, sans-serif; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums">42</span></a>
+<a href="A-Memo.dc.html" aria-current="page" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid #E66C32; border-radius: 0 8px 8px 0; background: #FDEEE6; color: #B34A15; font-size: 15px; font-weight: 700; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B34A15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"></path><path d="M15 18H9"></path><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"></path><circle cx="17" cy="18" r="2"></circle><circle cx="7" cy="18" r="2"></circle></svg>
+Loading Memo
+<span style="margin-left: auto; min-width: 26px; height: 22px; padding: 0 7px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: 11px; background: #C4531B; color: #FFFFFF; font-family: Inter, sans-serif; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums">17</span></a>
+</nav>
+
+<div style="margin: 18px 0 6px; padding: 0 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: #5B7880">ADMIN</div>
+<nav aria-label="Admin" style="display: flex; flex-direction: column; gap: 2px">
+<a href="#" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: #2E4A52; font-size: 15px; font-weight: 600; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 22h18"></path><path d="M6 18v-7"></path><path d="M10 18v-7"></path><path d="M14 18v-7"></path><path d="M18 18v-7"></path><path d="M12 2 20 7H4z"></path></svg>
+Firm Accounts</a>
+<a href="#" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: #2E4A52; font-size: 15px; font-weight: 600; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"></path><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"></path></svg>
+Wasuli</a>
+<a href="#" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: #2E4A52; font-size: 15px; font-weight: 600; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg>
+Reports</a>
+<a href="#" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: #2E4A52; font-size: 15px; font-weight: 600; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14a9 3 0 0 0 18 0V5"></path><path d="M3 12a9 3 0 0 0 18 0"></path></svg>
+Masters</a>
+<a href="#" style="height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 9px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: #2E4A52; font-size: 15px; font-weight: 600; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M1 14h6"></path><path d="M9 8h6"></path><path d="M17 16h6"></path></svg>
+Settings</a>
+</nav>
+
+<div style="margin-top: auto; padding: 10px 12px; border-radius: 10px; background: #EEF4F3; font-size: 13px; line-height: 18px; color: #4E6B73">
+<div style="font-weight: 700; color: #16323B">Seat PC02</div>
+<div>Thu 22-10-2026</div>
+<div>Keys: Settings, Shortcuts</div>
+</div>
+</aside>
+
+<main style="flex: 1; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; padding: 16px">
+
+<header style="height: 52px; flex-shrink: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-radius: 12px; background: #144D52; color: #FFFFFF">
+<h1 style="margin: 0; font-size: 22px; font-weight: 800">Loading Memo</h1>
+<span style="font-size: 14px; font-weight: 500; color: #CFE5E3">Tick the LRs going on one truck</span>
+</header>
+
+<section aria-label="Filters" style="height: 90px; flex-shrink: 0; box-sizing: border-box; display: flex; align-items: flex-end; gap: 10px; padding: 11px 14px; border: 1px solid #D3E2E0; border-radius: 12px; background: #FFFFFF">
+<label style="width: 118px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Booked from
+<input value="20-10-2026" style="width: 100%; height: 42px; box-sizing: border-box; padding: 0 9px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; color: #16323B; font-variant-numeric: tabular-nums"></label>
+<label style="width: 118px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">to
+<input value="22-10-2026" style="width: 100%; height: 42px; box-sizing: border-box; padding: 0 9px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; color: #16323B; font-variant-numeric: tabular-nums"></label>
+<div style="position: relative; width: 136px; flex-shrink: 0">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Station
+<input value="Nagpur" style="width: 100%; height: 42px; box-sizing: border-box; padding: 0 34px 0 12px; border: 2px solid #1D9699; border-radius: 8px; background: #E3F3F2; font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; color: #0F3F43"></label>
+<button type="button" aria-label="Clear station" style="position: absolute; right: 6px; bottom: 7px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 6px; background: transparent; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#144D52" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+</div>
+<div style="position: relative; width: 136px; flex-shrink: 0">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Consignor
+<input value="Any" style="width: 100%; height: 42px; box-sizing: border-box; padding: 0 34px 0 12px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; color: #4E6B73"></label>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; right: 12px; bottom: 12px"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+<div style="position: relative; width: 136px; flex-shrink: 0">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Consignee
+<input value="Any" style="width: 100%; height: 42px; box-sizing: border-box; padding: 0 34px 0 12px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; color: #4E6B73"></label>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; right: 12px; bottom: 12px"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+<button type="button" style="width: 60px; height: 42px; flex-shrink: 0; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #FFFFFF; color: #144D52; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">Clear</button>
+</section>
+
+<section aria-label="Pending LRs" style="height: 282px; flex-shrink: 0; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #D3E2E0; border-radius: 12px; background: #FFFFFF">
+<div style="height: 44px; flex-shrink: 0; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 16px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 800; color: #144D52">Pending LRs for Nagpur</h2>
+<span style="height: 24px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 12px; background: #FDEEE6; color: #B34A15; font-size: 13px; font-weight: 700">3 of 5 ticked</span>
+<span style="margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #4E6B73"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 6px; border: 1px solid #BFD3D1; border-bottom-width: 2px; border-radius: 5px; background: #FFFFFF; color: #16323B; font-family: Inter, sans-serif; font-size: 12px; font-weight: 600">Space</span>tick row</span>
+</div>
+<table style="width: 100%; border-collapse: collapse; table-layout: fixed">
+<colgroup><col style="width: 44px"><col style="width: 64px"><col style="width: 72px"><col style="width: 182px"><col style="width: 146px"><col style="width: 90px"><col style="width: 52px"><col style="width: 72px"><col></colgroup>
+<thead>
+<tr style="background: #144D52; color: #FFFFFF">
+<th style="height: 36px; padding: 0; text-align: center"><input type="checkbox" aria-label="Tick all" style="width: 18px; height: 18px; margin: 0; accent-color: #1D9699; vertical-align: middle"></th>
+<th style="height: 36px; padding: 0 8px; font-size: 13px; font-weight: 700; text-align: right">LR</th>
+<th style="height: 36px; padding: 0 8px; font-size: 13px; font-weight: 700; text-align: left">Date</th>
+<th style="height: 36px; padding: 0 10px; font-size: 13px; font-weight: 700; text-align: left">Consignor</th>
+<th style="height: 36px; padding: 0 10px; font-size: 13px; font-weight: 700; text-align: left">Consignee</th>
+<th style="height: 36px; padding: 0 10px; font-size: 13px; font-weight: 700; text-align: left">To</th>
+<th style="height: 36px; padding: 0 8px; font-size: 13px; font-weight: 700; text-align: right">Qty</th>
+<th style="height: 36px; padding: 0 8px; font-size: 13px; font-weight: 700; text-align: right">To pay</th>
+<th style="height: 36px; padding: 0 10px; font-size: 13px; font-weight: 700; text-align: right">Paid</th>
+</tr>
+</thead>
+<tbody style="font-size: 15px">
+<tr style="background: #E3F3F2">
+<td style="height: 40px; padding: 0; text-align: center; border-bottom: 1px solid #CFE5E3"><input type="checkbox" checked aria-label="Tick LR 1245" style="width: 20px; height: 20px; margin: 0; accent-color: #144D52; vertical-align: middle"></td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-weight: 700; font-variant-numeric: tabular-nums">1245</td>
+<td style="height: 40px; padding: 0 8px; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">22-10</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Shree Ganesh Traders</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Gupta Textiles</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3">Nagpur</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">20</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">3,200</td>
+<td style="height: 40px; padding: 0 10px; text-align: right; border-bottom: 1px solid #CFE5E3; color: #4E6B73">—</td>
+</tr>
+<tr style="background: #E3F3F2">
+<td style="height: 40px; padding: 0; text-align: center; border-bottom: 1px solid #CFE5E3"><input type="checkbox" checked aria-label="Tick LR 1246" style="width: 20px; height: 20px; margin: 0; accent-color: #144D52; vertical-align: middle"></td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-weight: 700; font-variant-numeric: tabular-nums">1246</td>
+<td style="height: 40px; padding: 0 8px; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">22-10</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Patil Hardware</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Jain Agencies</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3">Nagpur</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">4</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; color: #4E6B73">—</td>
+<td style="height: 40px; padding: 0 10px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">950</td>
+</tr>
+<tr style="background: #E3F3F2">
+<td style="height: 40px; padding: 0; text-align: center; border-bottom: 1px solid #CFE5E3"><input type="checkbox" checked aria-label="Tick LR 1238" style="width: 20px; height: 20px; margin: 0; accent-color: #144D52; vertical-align: middle"></td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-weight: 700; font-variant-numeric: tabular-nums">1238</td>
+<td style="height: 40px; padding: 0 8px; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">21-10</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Mahalaxmi Oil</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Verma Stores</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #CFE5E3">Nagpur</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">10</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #CFE5E3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">1,500</td>
+<td style="height: 40px; padding: 0 10px; text-align: right; border-bottom: 1px solid #CFE5E3; color: #4E6B73">—</td>
+</tr>
+<tr>
+<td style="height: 40px; padding: 0; text-align: center; border-bottom: 1px solid #E2ECEB"><input type="checkbox" aria-label="Tick LR 1231" style="width: 20px; height: 20px; margin: 0; accent-color: #144D52; vertical-align: middle"></td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #E2ECEB; font-family: Inter, sans-serif; font-weight: 700; font-variant-numeric: tabular-nums">1231</td>
+<td style="height: 40px; padding: 0 8px; border-bottom: 1px solid #E2ECEB; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">21-10</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #E2ECEB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Sai Kirana</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #E2ECEB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Om Stores</td>
+<td style="height: 40px; padding: 0 10px; border-bottom: 1px solid #E2ECEB">Nagpur</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #E2ECEB; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">6</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; border-bottom: 1px solid #E2ECEB; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">900</td>
+<td style="height: 40px; padding: 0 10px; text-align: right; border-bottom: 1px solid #E2ECEB; color: #4E6B73">—</td>
+</tr>
+<tr style="background: #F6FAF9">
+<td style="height: 40px; padding: 0; text-align: center"><input type="checkbox" aria-label="Tick LR 1226" style="width: 20px; height: 20px; margin: 0; accent-color: #144D52; vertical-align: middle"></td>
+<td style="height: 40px; padding: 0 8px; text-align: right; font-family: Inter, sans-serif; font-weight: 700; font-variant-numeric: tabular-nums">1226</td>
+<td style="height: 40px; padding: 0 8px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">20-10</td>
+<td style="height: 40px; padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Walk-in: A. Shaikh</td>
+<td style="height: 40px; padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Kale Brothers</td>
+<td style="height: 40px; padding: 0 10px">Nagpur</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">3</td>
+<td style="height: 40px; padding: 0 8px; text-align: right; color: #4E6B73">—</td>
+<td style="height: 40px; padding: 0 10px; text-align: right; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums">450</td>
+</tr>
+</tbody>
+</table>
+</section>
+
+<section aria-label="New loading memo" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #D3E2E0; border-radius: 12px; background: #FFFFFF">
+<div style="height: 48px; flex-shrink: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: #E3F3F2; border-bottom: 1px solid #CFE5E3">
+<h2 style="margin: 0; font-size: 17px; font-weight: 800; color: #144D52">New loading memo</h2>
+<div aria-live="polite" style="display: flex; align-items: baseline; gap: 22px; font-size: 13px; font-weight: 600; color: #3F5F66">
+<span>LRs <strong style="font-family: Inter, sans-serif; font-size: 20px; font-weight: 800; color: #144D52; font-variant-numeric: tabular-nums">3</strong></span>
+<span>Qty <strong style="font-family: Inter, sans-serif; font-size: 20px; font-weight: 800; color: #144D52; font-variant-numeric: tabular-nums">34</strong></span>
+<span>To pay <strong style="font-family: Inter, sans-serif; font-size: 20px; font-weight: 800; color: #144D52; font-variant-numeric: tabular-nums">₹4,700</strong></span>
+<span>Paid <strong style="font-family: Inter, sans-serif; font-size: 20px; font-weight: 800; color: #144D52; font-variant-numeric: tabular-nums">₹950</strong></span>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 14px; padding: 14px 16px">
+<div style="display: flex; gap: 12px">
+<label style="width: 110px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Challan no
+<input readonly value="1263" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #D3E2E0; border-radius: 8px; background: #E9F1F0; font-family: Inter, sans-serif; font-size: 22px; font-weight: 800; color: #144D52; font-variant-numeric: tabular-nums"></label>
+<div style="position: relative; flex: 1; min-width: 0">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Truck
+<input placeholder="Pick from master" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 34px 0 12px; border: 2px solid #1D9699; border-radius: 8px; outline: none; background: #FFFFFF; box-shadow: 0 0 0 4px rgba(29,150,153,0.25); font-family: Inter, sans-serif; font-size: 17px; color: #16323B"></label>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#144D52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; right: 12px; bottom: 13px"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+<div style="position: relative; flex: 1; min-width: 0">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Driver
+<input placeholder="Pick from master" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 34px 0 12px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; color: #16323B"></label>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; right: 12px; bottom: 13px"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+<label style="width: 130px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">From
+<input value="Yavatmal" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; color: #16323B"></label>
+<label style="width: 130px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">To
+<input value="Nagpur" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; color: #16323B"></label>
+</div>
+
+<div style="display: flex; align-items: flex-end; gap: 12px">
+<label style="width: 130px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Truck hire ₹
+<input placeholder="0" inputmode="numeric" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; text-align: right; color: #16323B; font-variant-numeric: tabular-nums"></label>
+<label style="width: 150px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; line-height: 18px; color: #144D52">Loading hamali ₹
+<input placeholder="0" inputmode="numeric" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #BFD3D1; border-radius: 8px; background: #F3F8F7; font-family: Inter, sans-serif; font-size: 17px; text-align: right; color: #16323B; font-variant-numeric: tabular-nums"></label>
+<p style="flex: 1; min-width: 0; margin: 0; display: flex; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 17px; color: #4E6B73">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4E6B73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+<span>If another seat loads a ticked LR first, saving stops and names it.</span></p>
+<button type="submit" style="width: 256px; height: 46px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 10px; border: none; border-radius: 10px; background: #C4531B; color: #FFFFFF; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 17px; font-weight: 800; cursor: pointer">Create memo (3 LRs)
+<span style="display: inline-flex; align-items: center; height: 22px; padding: 0 6px; border: 1px solid rgba(255,255,255,0.5); border-bottom-width: 2px; border-radius: 5px; background: rgba(255,255,255,0.14); font-family: Inter, sans-serif; font-size: 12px; font-weight: 600">F4</span></button>
+</div>
+</div>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1024,"height":768}}'>class Component extends DCLogic { renderVals() { return {}; } }</script>
+</body>
+</html>
