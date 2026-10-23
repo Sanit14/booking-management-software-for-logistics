@@ -25,3 +25,10 @@ One line per decision, newest at the bottom. Details live in the Spec and Build 
 - 2026-10-22 · Owner does all git commits and pushes; GitHub repo created after the first session/app test.
 - 2026-10-23 · Tooling pins (dev machine only): TypeScript 5.9.3 (typescript-eslint rejects ≥ 6.1), Vite 7.3.7 + plugin-react 5.2.0, ESLint 9.39.5, `@types/node` 16.18.126 so tsc rejects Node APIs newer than 16.17; all devDependencies, exact versions, `.npmrc` legacy-peer-deps.
 - 2026-10-23 · Electron 22 npm-audit advisories accepted (fix needs Electron 41, no Win7); app is offline and loads no remote content.
+- 2026-10-23 · Keeper = Electron exe run as plain Node (`ELECTRON_RUN_AS_NODE=1`), detached, binds 127.0.0.1:47715 before touching the database; a second keeper exits 0.
+- 2026-10-23 · Main checks the data root (refusal rules) before spawning the keeper; the keeper trusts its argument. The screen gets error codes; all wording lives in `src/strings.ts`.
+- 2026-10-23 · A running keeper older than `KEEPER_VERSION` is shut down and replaced; one on a different data root or another program on the port is an error, never "connected".
+- 2026-10-23 · Blank-database guard: marker per data root in `%ProgramData%\BookingManager`; marker + missing or 0-byte `booking.db` = safe mode, no new file.
+- 2026-10-23 · Keeper tests spawn the keeper as Electron-as-node (rebuilt better-sqlite3 loads only there); pure logic never imports it. `npm run check` wipes and recompiles `dist-electron` before `node --test`.
+- 2026-10-23 · `better-sqlite3` 12.11.1 is rebuilt for Electron 22.3.27 by `postinstall` (`@electron/rebuild` 4.2.0, works on dev Node 20.19; needs VS Build Tools and a short path).
+- 2026-10-23 · Keeper client opens a fresh connection per request (`agent: false`); seat name = Windows user name, sent as `X-BM-Seat`.

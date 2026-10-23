@@ -1,5 +1,6 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import path from 'node:path';
+import { initKeeperBridge } from './keeperBridge';
 
 const DEV_URL = 'http://127.0.0.1:5173'; // same host and port as vite.config.ts
 const dev = process.argv.includes('--dev'); // `npm run dev` passes it; without it the built dist/ is loaded
@@ -54,6 +55,8 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('window-all-closed', () => app.quit());
   void app.whenReady().then(() => {
+    Menu.setApplicationMenu(null); // no File/Edit/View bar; the app has its own navigation
+    initKeeperBridge(app.getPath('userData'));
     mainWindow = createWindow();
   });
 }

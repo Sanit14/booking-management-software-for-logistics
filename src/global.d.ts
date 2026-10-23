@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-// What electron/preload.ts exposes. The keeper bridge is added in session 1.2.
+// What electron/preload.ts exposes.
 interface Window {
-  bm: { version: string };
+  bm: { version: string; keeper: import('../shared').KeeperApi };
 }

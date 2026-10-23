@@ -11,5 +11,5 @@
     "rootDir": ".",
     "outDir": "dist-electron"
   },
-  "include": ["electron", "shared"]
+  "include": ["electron", "keeper", "shared"]
 }
