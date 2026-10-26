@@ -14,12 +14,13 @@ export interface ClientOptions {
   seat?: string;
 }
 
-function request(port: number, method: 'GET' | 'POST', urlPath: string, opts: ClientOptions): Promise<{ status: number; body: string }> {
+function request(port: number, method: 'GET' | 'POST', urlPath: string, opts: ClientOptions, body?: unknown): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const headers: Record<string, string | number> = {};
     // Header values must be latin-1; a Windows user name need not be.
     if (opts.seat) headers['X-BM-Seat'] = encodeURIComponent(opts.seat);
-    if (method === 'POST') Object.assign(headers, { 'Content-Type': 'application/json', 'Content-Length': 2 });
+    const payload = method === 'POST' ? JSON.stringify(body ?? {}) : undefined;
+    if (payload !== undefined) Object.assign(headers, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
     // agent: false = a fresh connection per call; a reused socket can be reset by a keeper that just restarted.
     const req = http.request({ host: HOST, port, path: urlPath, method, headers, agent: false }, (res) => {
       // Decode the stream, not each chunk: a multibyte character (₹, Devanagari) split across two chunks
@@ -32,7 +33,7 @@ function request(port: number, method: 'GET' | 'POST', urlPath: string, opts: Cl
     });
     req.on('error', reject);
     req.setTimeout(opts.timeoutMs ?? 3000, () => req.destroy(new Error('timeout')));
-    req.end(method === 'POST' ? '{}' : undefined);
+    req.end(payload);
   });
 }
 
@@ -61,4 +62,19 @@ export async function shutdown(port: number, opts: ClientOptions = {}): Promise<
   } catch {
     return false;
   }
+}
+
+/**
+ * One named keeper route that answers with JSON (the callers in electron/keeperBridge.ts name the routes; the
+ * screen never does). The body of a POST is sent as JSON. Throws if the keeper cannot be reached in time.
+ */
+export async function callJson(port: number, method: 'GET' | 'POST', urlPath: string, body?: unknown, opts: ClientOptions = {}): Promise<{ status: number; json: unknown }> {
+  const r = await request(port, method, urlPath, opts, body);
+  let json: unknown = null;
+  try {
+    json = JSON.parse(r.body);
+  } catch {
+    /* not JSON: the caller sees json === null */
+  }
+  return { status: r.status, json };
 }

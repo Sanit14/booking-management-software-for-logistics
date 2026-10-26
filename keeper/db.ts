@@ -21,12 +21,50 @@ export function openDatabase(dbPath: string): Db {
   return db;
 }
 
-const BUSINESS_TABLES = ['lrs', 'memos', 'stations', 'firms', 'trucks', 'drivers'];
+/**
+ * Opens an existing file the way the keeper uses it, and checks it. `damaged` when SQLite says the file is not
+ * a database (or corrupt) or `PRAGMA quick_check` is not `ok`; anything else (permissions, a locked file, no
+ * WAL support) is thrown, because it says nothing about the data and must not be answered with a restore.
+ */
+export function openChecked(dbPath: string): { db: Db } | { damaged: string } {
+  let db: Db | undefined;
+  try {
+    db = openDatabase(dbPath);
+    const result = db.pragma('quick_check', { simple: true });
+    if (result === 'ok') return { db };
+    db.close();
+    return { damaged: String(result) };
+  } catch (e) {
+    if (db?.open) db.close();
+    if (isDamage(e)) return { damaged: String((e as Error).message) };
+    throw e;
+  }
+}
 
-/** LRs + memos + masters. A table that does not exist yet (an older schema) counts as 0. */
+/** SQLite's own words for "this file is not a healthy database" (a bad sector shows up as a failed read). */
+export function isDamage(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && (code === 'SQLITE_NOTADB' || code === 'SQLITE_IOERR_READ' || code === 'SQLITE_IOERR_SHORT_READ' || code.startsWith('SQLITE_CORRUPT'));
+}
+
+export function hasTable(db: Pick<Db, 'prepare'>, table: string): boolean {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined;
+}
+
+/** Rows in a table; a table that does not exist yet (an older schema) counts as 0. */
+export function tableCount(db: Db, table: string): number {
+  return hasTable(db, table) ? (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n : 0;
+}
+
+const MASTER_TABLES = ['stations', 'firms', 'trucks', 'drivers'];
+
+export function masterRows(db: Db): number {
+  return MASTER_TABLES.reduce((sum, t) => sum + tableCount(db, t), 0);
+}
+
+/** LRs + memos + masters. */
 export function businessRows(db: Db): number {
-  const present = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name));
-  return BUSINESS_TABLES.filter((t) => present.has(t)).reduce((sum, t) => sum + (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n, 0);
+  return tableCount(db, 'lrs') + tableCount(db, 'memos') + masterRows(db);
 }
 
 /**

@@ -8,3 +8,6 @@ export function programDir(env: NodeJS.ProcessEnv = process.env): string {
 
 export const pointerPath = (programDirPath: string): string => path.join(programDirPath, 'root.json');
 export const logPath = (programDirPath: string): string => path.join(programDirPath, 'logs', 'keeper.log');
+
+// A different physical disk than the data root: a backup on the same disk as the database is not a backup.
+export const DEFAULT_BACKUP_DIR = 'D:\\BookingManagerBackups';

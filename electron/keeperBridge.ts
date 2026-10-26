@@ -5,14 +5,25 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ipcMain } from 'electron';
-import { KEEPER_PORT, KEEPER_VERSION, type KeeperErrorCode, type KeeperStatus, type RootRefusal } from '../shared';
-import { probe, shutdown } from '../keeper/client';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
+import {
+  KEEPER_PORT,
+  KEEPER_VERSION,
+  type BackupInfo,
+  type KeeperErrorCode,
+  type KeeperResult,
+  type KeeperStatus,
+  type RestorePreview,
+  type RootRefusal,
+} from '../shared';
+import { strings } from '../src/strings';
+import { callJson, probe, shutdown } from '../keeper/client';
 import { checkDataRoot, resolveDataRoot } from '../keeper/dataRoot';
 import { makeLog } from '../keeper/log';
 import { logPath, pointerPath, programDir } from '../keeper/paths';
 
-const START_WAIT_MS = 10000;
+// A big database is checked (and backed up) before the keeper says ready; the loop still gives up at once if the keeper it started dies.
+const START_WAIT_MS = 60000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // The Windows user name by default (each NComputing seat is its own Windows user); kept in this user's
@@ -88,7 +99,8 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
   }
 
   const deadline = Date.now() + START_WAIT_MS;
-  while (p.kind !== 'up') {
+  // 'starting' = the keeper has the port but is still checking, backing up and migrating the database.
+  while (p.kind !== 'up' || p.health.state === 'starting') {
     if (p.kind === 'foreign') throw new LauncherError('keeper-wrong-app', String(KEEPER_PORT));
     // Exit code 0 = another keeper took the port first; keep waiting for that one.
     if (spawned.exitCode !== undefined && spawned.exitCode !== 0) throw new LauncherError('keeper-unreachable', `exit ${spawned.exitCode}; see keeper.log`);
@@ -121,7 +133,32 @@ export function initKeeperBridge(userDataDir: string): void {
     return inflight;
   };
 
-  // The one route the screen can reach. Add routes here by name; there is no generic forwarder.
+  // A named keeper route, answered with the keeper's own KeeperResult. Only the handlers below call it.
+  const call = async <T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<KeeperResult<T>> => {
+    try {
+      const r = await callJson(KEEPER_PORT, method, url, body, { seat, timeoutMs: 60000 }); // a backup of a big file takes a while
+      const j = r.json as { ok?: unknown } | null;
+      if (j && typeof j.ok === 'boolean') return j as KeeperResult<T>;
+      return { ok: false, code: 'failed', detail: `the keeper answered ${r.status}` };
+    } catch (e) {
+      return { ok: false, code: 'keeper-unreachable', detail: String((e as Error)?.message ?? e) };
+    }
+  };
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+  // The routes the screen can reach. Add routes here by name; there is no generic forwarder.
   ipcMain.handle('keeper:health', status);
+  ipcMain.handle('keeper:backups-list', () => call<BackupInfo[]>('POST', '/backups/list'));
+  ipcMain.handle('keeper:backups-export', async (): Promise<KeeperResult<{ file: string }>> => {
+    const options = { title: strings.exportBackup, properties: ['openDirectory' as const, 'createDirectory' as const] };
+    const win = BrowserWindow.getFocusedWindow();
+    const chosen = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (chosen.canceled || chosen.filePaths.length === 0) return { ok: false, code: 'cancelled' };
+    return call('POST', '/backups/export', { dir: chosen.filePaths[0] });
+  });
+  ipcMain.handle('keeper:restore-preview', (_e, file: unknown) => call<RestorePreview>('POST', '/restore/preview', { file: text(file) }));
+  ipcMain.handle('keeper:restore-apply', (_e, file: unknown, token: unknown) =>
+    call<{ schemaVersion: number }>('POST', '/restore/apply', { file: text(file), confirmToken: text(token) }),
+  );
   void status(); // warm up before the screen asks
 }

@@ -7,9 +7,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { createRequire } from 'node:module';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { probe, shutdown } from './client';
+import { callJson, probe, shutdown } from './client';
 import { markerPath } from './guard';
 import type { KeeperHealth } from '../shared';
 
@@ -41,9 +42,9 @@ interface Running {
   exited: Promise<number | null>;
 }
 
-function startKeeper(root: string, port: number, programData: string): Running {
+function startKeeper(root: string, port: number, programData: string, backupDir: string): Running {
   const child = spawn(electronExe, [serverJs, root, String(port)], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PROGRAMDATA: programData },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PROGRAMDATA: programData, BM_BACKUP_DIR: backupDir },
     stdio: 'ignore',
     windowsHide: true,
   });
@@ -55,7 +56,7 @@ function startKeeper(root: string, port: number, programData: string): Running {
 async function waitUp(port: number): Promise<KeeperHealth> {
   for (let i = 0; i < 100; i++) {
     const p = await probe(port);
-    if (p.kind === 'up') return p.health;
+    if (p.kind === 'up' && p.health.state !== 'starting') return p.health;
     await sleep(150);
   }
   throw new Error('keeper did not come up');
@@ -79,13 +80,13 @@ function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-keeper-'));
   const root = path.join(dir, 'data');
   const programData = path.join(dir, 'pd');
-  return { dir, root, programData, programDir: path.join(programData, 'BookingManager'), dbPath: path.join(root, 'booking.db') };
+  return { dir, root, programData, programDir: path.join(programData, 'BookingManager'), dbPath: path.join(root, 'booking.db'), backupDir: path.join(dir, 'backups') };
 }
 
 test('keeper: start, one keeper per port, shutdown leaves an intact database', () => run(async () => {
   const s = sandbox();
   const port = await freePort();
-  const first = startKeeper(s.root, port, s.programData);
+  const first = startKeeper(s.root, port, s.programData, s.backupDir);
 
   const health = await waitUp(port);
   assert.equal(health.app, 'booking-manager');
@@ -100,7 +101,7 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
   assert.match(log, /\tdatabase-open\t/);
 
   // A second keeper on the same port exits quietly and does not take over.
-  const second = startKeeper(s.root, port, s.programData);
+  const second = startKeeper(s.root, port, s.programData, s.backupDir);
   assert.equal(await within(second.exited, 10000), 0);
   assert.equal((await waitUp(port)).startedAt, health.startedAt);
 
@@ -125,7 +126,7 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
 test('keeper: marker says records existed but the database has none = safe mode, nothing is touched', () => run(async () => {
   const s = sandbox();
   const port = await freePort();
-  const first = startKeeper(s.root, port, s.programData);
+  const first = startKeeper(s.root, port, s.programData, s.backupDir);
   await waitUp(port);
   assert.equal(await shutdown(port), true);
   await within(first.exited, 10000);
@@ -135,7 +136,7 @@ test('keeper: marker says records existed but the database has none = safe mode,
   fs.writeFileSync(marker, JSON.stringify({ ...JSON.parse(fs.readFileSync(marker, 'utf8')), businessRows: 5 }));
   const dbBefore = fs.readFileSync(s.dbPath);
 
-  const again = startKeeper(s.root, port, s.programData);
+  const again = startKeeper(s.root, port, s.programData, s.backupDir);
   const health = await waitUp(port);
   assert.equal(health.state, 'safe-mode');
   assert.equal(health.reason, 'marker-with-no-rows');
@@ -151,13 +152,13 @@ test('keeper: marker says records existed but the database has none = safe mode,
 test('keeper: marker + deleted database = safe mode, nothing is created', () => run(async () => {
   const s = sandbox();
   const port = await freePort();
-  const first = startKeeper(s.root, port, s.programData);
+  const first = startKeeper(s.root, port, s.programData, s.backupDir);
   await waitUp(port);
   assert.equal(await shutdown(port), true);
   await within(first.exited, 10000);
 
   fs.rmSync(s.dbPath);
-  const again = startKeeper(s.root, port, s.programData);
+  const again = startKeeper(s.root, port, s.programData, s.backupDir);
   const health = await waitUp(port);
   assert.equal(health.state, 'safe-mode');
   assert.equal(health.reason, 'marker-without-database');
@@ -167,4 +168,190 @@ test('keeper: marker + deleted database = safe mode, nothing is created', () => 
   assert.equal(await shutdown(port), true);
   assert.equal(await within(again.exited, 10000), 0);
   assert.equal(fs.existsSync(s.dbPath), false);
+}));
+
+// --- backups, damage check, restore ---------------------------------------------------------------------------
+
+const slow = { timeoutMs: 30000 };
+const post = (port: number, url: string, body: unknown) => callJson(port, 'POST', url, body, slow);
+const logOf = (s: ReturnType<typeof sandbox>) => fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8');
+const backupsIn = (dir: string) => fs.readdirSync(dir).filter((n) => /^booking-\d{8}-\d{4}\.db$/.test(n));
+const beforeRestoreIn = (dir: string) => fs.readdirSync(dir).filter((n) => n.startsWith('booking-before-restore-'));
+type Listing = { ok: true; value: { file: string; damaged: boolean }[] };
+
+/** Start a keeper, wait until it is ready (its first backup is taken on the way), stop it cleanly. */
+async function firstRun(s: ReturnType<typeof sandbox>, port: number): Promise<void> {
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+}
+
+test('keeper: the first backup of the day is made on start, shows in health and the log, and the folder holds only the .db', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  const health = await waitUp(port);
+  assert.equal(health.state, 'ready');
+  assert.ok(health.backup?.lastAt, 'last backup time is in /health');
+  assert.equal(health.backup?.failing, undefined);
+  assert.ok(Date.now() - new Date(health.backup?.lastAt ?? 0).getTime() < 60000, 'within a minute of start');
+  assert.equal(backupsIn(s.backupDir).length, 1);
+  assert.deepEqual(fs.readdirSync(s.backupDir), backupsIn(s.backupDir), 'no temp, -wal or -shm files');
+  assert.match(logOf(s), /\tbackup-ok\t.*"why":"start"/);
+
+  const list = (await post(port, '/backups/list', {})).json as Listing;
+  assert.equal(list.ok, true);
+  assert.deepEqual(list.value.map((b) => b.damaged), [false]);
+
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  assert.match(logOf(s), /"why":"stop"/, 'a backup on clean stop');
+}));
+
+test('keeper: an unwritable backup folder does not stop the keeper; health says backups are failing', () => run(async () => {
+  const s = sandbox();
+  fs.mkdirSync(s.dir, { recursive: true });
+  const blocker = path.join(s.dir, 'a-file');
+  fs.writeFileSync(blocker, 'x');
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, path.join(blocker, 'backups'));
+  const health = await waitUp(port);
+  assert.equal(health.state, 'ready', 'bookings can still be taken');
+  assert.ok(health.backup?.failing, 'the reason is reported');
+  assert.equal(health.backup?.lastAt, undefined);
+  assert.match(logOf(s), /\tbackup-failed\t/);
+  assert.equal(await shutdown(port), true);
+  assert.equal(await within(k.exited, 10000), 0, 'a failed backup is not a failed stop');
+}));
+
+test('keeper: deleted database = safe mode -> list, preview, restore -> ready again; a wrong token restores nothing', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  await firstRun(s, port);
+  fs.rmSync(s.dbPath);
+
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  const health = await waitUp(port);
+  assert.equal(health.state, 'safe-mode');
+  assert.equal(health.reason, 'marker-without-database');
+  assert.equal(fs.existsSync(s.dbPath), false);
+
+  const list = (await post(port, '/backups/list', {})).json as Listing;
+  assert.equal(list.ok, true);
+  const file = list.value[0].file;
+  assert.equal(list.value[0].damaged, false);
+
+  const preview = (await post(port, '/restore/preview', { file })).json as { ok: true; value: { token: string; live: string; backup: { schemaVersion: number } } };
+  assert.equal(preview.ok, true);
+  assert.equal(preview.value.live, 'missing');
+  assert.equal(preview.value.backup.schemaVersion, 1);
+
+  const bad = await post(port, '/restore/apply', { file, confirmToken: 'not-the-token' });
+  assert.equal(bad.status, 409);
+  assert.deepEqual(bad.json, { ok: false, code: 'bad-token' });
+  assert.equal(fs.existsSync(s.dbPath), false, 'nothing was restored');
+  assert.equal((await waitUp(port)).state, 'safe-mode');
+
+  const applied = await post(port, '/restore/apply', { file, confirmToken: preview.value.token });
+  assert.deepEqual(applied.json, { ok: true, value: { schemaVersion: 1 } });
+  const after = await waitUp(port);
+  assert.equal(after.state, 'ready');
+  assert.equal(after.schemaVersion, 1);
+  assert.equal(after.reason, undefined);
+  assert.ok(after.backup?.lastAt, 'the status line knows the backup it was restored from');
+  assert.match(logOf(s), /\trestore-applied\t/);
+  assert.deepEqual(beforeRestoreIn(s.backupDir), [], 'there was no live file to set aside');
+
+  // The marker was updated: a clean stop and start again goes straight to ready.
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  assert.equal(await shutdown(port), true);
+}));
+
+test('keeper: a database overwritten with random bytes = safe mode "damaged", left untouched, restore sets it aside and works', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  await firstRun(s, port);
+  const garbage = crypto.randomBytes(40);
+  fs.writeFileSync(s.dbPath, garbage);
+
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  const health = await waitUp(port);
+  assert.equal(health.state, 'safe-mode');
+  assert.equal(health.reason, 'damaged');
+  assert.ok(fs.readFileSync(s.dbPath).equals(garbage), 'nothing was migrated or written');
+  assert.match(logOf(s), /\tguard-trip\t.*damaged/);
+
+  const file = ((await post(port, '/backups/list', {})).json as Listing).value[0].file;
+  const preview = (await post(port, '/restore/preview', { file })).json as { ok: true; value: { token: string; live: string } };
+  assert.equal(preview.value.live, 'damaged');
+  const applied = await post(port, '/restore/apply', { file, confirmToken: preview.value.token });
+  assert.equal(applied.status, 200);
+  assert.equal((await waitUp(port)).state, 'ready');
+
+  const saved = beforeRestoreIn(s.backupDir);
+  assert.equal(saved.length, 1, 'the damaged file is kept, not deleted');
+  assert.ok(fs.readFileSync(path.join(s.backupDir, saved[0])).equals(garbage));
+
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+}));
+
+test('keeper: restore is not available outside safe mode, and only to our own client', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const file = ((await post(port, '/backups/list', {})).json as Listing).value[0].file;
+
+  for (const url of ['/restore/preview', '/restore/apply']) {
+    const r = await post(port, url, { file, confirmToken: 'x' });
+    assert.equal(r.status, 409, url);
+    assert.deepEqual(r.json, { ok: false, code: 'not-in-safe-mode' });
+  }
+  // JSON content type and POST are required on every named write route, as on /shutdown.
+  const status = await new Promise<number>((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: '/restore/apply', method: 'POST', headers: { 'Content-Type': 'text/plain' }, agent: false }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on('error', reject);
+    req.end('{}');
+  });
+  assert.equal(status, 405);
+  assert.equal((await callJson(port, 'GET', '/backups/list')).status, 405, 'listing opens every backup: not a plain GET');
+  assert.equal((await post(port, '/backups/export', { dir: 'relative\\folder' })).status, 400);
+
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+}));
+
+test('keeper: export writes a verified backup to the folder asked for, and refuses without a database', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const usb = path.join(s.dir, 'usb-stick');
+
+  const r = (await post(port, '/backups/export', { dir: usb })).json as { ok: true; value: { file: string } };
+  assert.equal(r.ok, true);
+  assert.equal(path.dirname(r.value.file), usb);
+  const bytes = fs.readFileSync(r.value.file);
+  assert.equal(bytes.subarray(0, 16).toString('latin1'), 'SQLite format 3\0');
+  assert.equal(bytes[18], 1, 'a self-contained file (rollback journal), so it needs no -wal beside it');
+  assert.deepEqual(fs.readdirSync(usb), [path.basename(r.value.file)]);
+  assert.match(logOf(s), /"why":"export"/);
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+
+  // Safe mode has no database to copy.
+  fs.rmSync(s.dbPath);
+  const again = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'safe-mode');
+  assert.deepEqual((await post(port, '/backups/export', { dir: usb })).json, { ok: false, code: 'no-database' });
+  assert.equal(await shutdown(port), true);
+  await within(again.exited, 10000);
 }));

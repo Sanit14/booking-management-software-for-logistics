@@ -1,8 +1,9 @@
 // Runs under Electron's Node via scripts/test-db.cjs (needs the rebuilt better-sqlite3).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
-import { businessRows, raiseMarker } from './db';
+import { businessRows, openChecked, openDatabase, raiseMarker } from './db';
 import { markerPath, readMarkerRows } from './guard';
 import { freshDb, insertLr, insertStation, tempDir } from './testing';
 
@@ -34,4 +35,36 @@ test('raiseMarker raises the baseline when records appear, never lowers it, and 
   assert.equal(raiseMarker(db, programDir, root, dbPath, 2), 2);
   assert.equal(readMarkerRows(programDir, root), 2);
   assert.ok(markerPath(programDir, root).endsWith('.json'));
+});
+
+test('openChecked opens a healthy file and calls garbage bytes damaged, without throwing', () => {
+  const dir = tempDir();
+  const good = path.join(dir, 'good.db');
+  openDatabase(good).close();
+  const ok = openChecked(good);
+  assert.ok('db' in ok);
+  if ('db' in ok) ok.db.close();
+
+  for (const [name, bytes] of [['few.db', Buffer.from('xyz')], ['many.db', Buffer.alloc(8192, 0xa7)]] as const) {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, bytes);
+    const r = openChecked(file);
+    assert.ok('damaged' in r, name);
+    assert.ok(fs.readFileSync(file).equals(bytes), 'a damaged file is left exactly as it was');
+  }
+});
+
+test('openChecked calls a database with a broken page damaged', () => {
+  const dir = tempDir();
+  const file = path.join(dir, 'b.db');
+  const db = openDatabase(file);
+  db.exec('CREATE TABLE t (x TEXT); CREATE INDEX t_x ON t (x)');
+  for (let i = 0; i < 2000; i++) db.prepare('INSERT INTO t VALUES (?)').run(`row ${i}`);
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.close();
+  // Overwrite a middle page with junk: the header is fine, the content is not.
+  const bytes = fs.readFileSync(file);
+  bytes.fill(0xff, 4096 * 3, 4096 * 4);
+  fs.writeFileSync(file, bytes);
+  assert.ok('damaged' in openChecked(file));
 });
