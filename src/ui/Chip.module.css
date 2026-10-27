@@ -1,0 +1,43 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  font-size: var(--fs-14);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+/* Text colours are darker than DM's pills where DM's failed 4.5:1 on its tint. */
+.booked {
+  background: var(--info-tint);
+  color: #0f4a4e;
+}
+.loaded,
+.paid,
+.saved {
+  background: var(--success-tint);
+  color: #1c6b3a;
+}
+.cancelled {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+.toPay,
+.pending {
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+.charges {
+  background: var(--purple-tint);
+  color: var(--purple);
+}

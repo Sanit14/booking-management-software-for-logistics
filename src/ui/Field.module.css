@@ -1,0 +1,103 @@
+.field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: var(--fs-14);
+  font-weight: 700;
+  line-height: 18px;
+  color: var(--teal-dark);
+}
+
+.required {
+  margin-left: 3px;
+  color: var(--danger);
+}
+
+.inputWrap {
+  position: relative;
+}
+
+.box {
+  width: 100%;
+  height: var(--control-h);
+  padding: 0 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--input-bg);
+  font-family: var(--font-num);
+  font-size: var(--fs-17);
+  color: var(--text);
+}
+.box::placeholder {
+  color: var(--text-2);
+}
+
+/* Focus: thick teal border and soft halo, instead of the global outline, as in the mockup. */
+.box:focus-visible,
+.box:focus {
+  border: 2px solid var(--teal);
+  background: var(--surface);
+  box-shadow: var(--ring);
+  outline: 2px solid transparent; /* stays visible in forced-colours mode */
+  outline-offset: 0;
+}
+
+.readOnly {
+  border-color: var(--border-soft);
+  background: var(--readonly-bg);
+  font-weight: 600;
+  color: var(--teal-dark);
+}
+.readOnly:focus {
+  background: var(--readonly-bg);
+}
+
+.box:disabled {
+  background: var(--readonly-bg);
+  color: var(--text-2);
+  cursor: not-allowed;
+}
+
+.invalid {
+  border-color: var(--danger);
+}
+.invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 4px rgba(180, 35, 24, 0.2);
+}
+
+.money {
+  padding-left: 30px;
+  text-align: right;
+  font-weight: 500;
+}
+
+.rupee {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  height: var(--control-h);
+  font-family: var(--font-num);
+  font-size: var(--fs-17);
+  color: var(--text-2);
+  pointer-events: none;
+}
+
+.hint {
+  font-size: var(--fs-13);
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+.error {
+  font-size: var(--fs-14);
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--danger);
+}

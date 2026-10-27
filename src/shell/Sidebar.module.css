@@ -1,0 +1,114 @@
+.sidebar {
+  display: flex;
+  width: 204px;
+  flex-shrink: 0;
+  flex-direction: column;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--r-lg);
+  background: var(--teal-dark);
+}
+
+.name {
+  font-size: var(--fs-15);
+  font-weight: 800;
+  line-height: 19px;
+  white-space: nowrap;
+  color: var(--teal-dark);
+}
+
+.company {
+  font-size: var(--fs-12);
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.quick {
+  margin-top: 16px;
+}
+
+.group {
+  margin: 18px 0 4px;
+  padding: 0 12px;
+  font-size: var(--fs-12);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px 0 9px;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: transparent;
+  color: var(--text-nav);
+  font-family: var(--font-ui);
+  font-size: var(--fs-15);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.item svg {
+  color: var(--text-2);
+}
+.item:hover {
+  background: var(--bg);
+}
+
+.current,
+.current:hover {
+  border-left-color: var(--orange);
+  background: var(--orange-tint);
+  color: var(--orange-ink);
+  font-weight: 700;
+}
+.current svg {
+  color: var(--orange-ink);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0 7px;
+  border-radius: 11px;
+  background: var(--orange-btn);
+  color: #ffffff;
+  font-family: var(--font-num);
+  font-size: var(--fs-12);
+  font-weight: 700;
+}

@@ -1,0 +1,126 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+
+.cardHead {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cardTitle {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--teal-dark);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+.statOrange {
+  border-color: var(--orange-edge);
+}
+
+.statTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.statIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: var(--tint);
+  color: var(--teal-dark);
+}
+.statOrange .statIcon {
+  background: var(--orange-tint);
+  color: var(--orange-ink);
+}
+
+.statValue {
+  margin-top: 6px;
+  font-family: var(--font-num);
+  font-size: var(--fs-34);
+  font-weight: 800;
+  line-height: 40px;
+  color: var(--teal-dark);
+}
+.statOrange .statValue {
+  color: var(--orange-ink);
+}
+
+.statLabel {
+  font-size: var(--fs-14);
+  font-weight: 700;
+  line-height: 18px;
+  color: var(--teal-dark);
+}
+
+.statLine {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-14);
+  line-height: 20px;
+  color: var(--text-2);
+}
+.statLabel + .statLine {
+  margin-top: 6px;
+}
+.statLineValue {
+  font-family: var(--font-num);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 10px 22px;
+  border-radius: var(--r-xxl);
+  background: var(--teal-dark);
+  color: #ffffff;
+  --focus: var(--focus-on-dark);
+}
+
+.headerTitle {
+  font-size: var(--fs-24);
+  font-weight: 800;
+  line-height: 30px;
+}
+
+.headerSub {
+  margin-top: 2px;
+  font-size: var(--fs-14);
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--text-on-teal-2);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

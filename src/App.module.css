@@ -1,0 +1,13 @@
+.app {
+  display: flex;
+  height: 100%;
+}
+
+.main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}

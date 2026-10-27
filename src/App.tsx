@@ -1,11 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { KeeperStatus } from '../shared';
+import styles from './App.module.css';
+import ComponentsPage from './ComponentsPage';
+import Notice from './shell/Notice';
+import Page from './shell/Page';
+import type { PageId } from './shell/pages';
+import SettingsPage from './shell/SettingsPage';
+import Sidebar from './shell/Sidebar';
+import StatusBox from './shell/StatusBox';
 import SafeMode from './SafeMode';
 import { strings } from './strings';
+import { useToast } from './ui/Toast';
+
+// `npm run dev -- --components` opens the Components page straight away, without needing the keeper.
+const COMPONENTS_ONLY = window.location.hash === '#components';
 
 export default function App() {
+  const toast = useToast();
   const [status, setStatus] = useState<KeeperStatus | null>(null);
-  const [exported, setExported] = useState<string | null>(null);
+  const [page, setPage] = useState<PageId>('dashboard');
+  const [components, setComponents] = useState(COMPONENTS_ONLY);
 
   const load = useCallback(() => {
     window.bm.keeper.health().then(setStatus, (e: unknown) =>
@@ -14,33 +28,28 @@ export default function App() {
   }, []);
 
   // Once on entry; the keeper pushes change events later (session 2.2), no polling.
-  useEffect(load, [load]);
+  useEffect(() => {
+    if (!COMPONENTS_ONLY) load();
+  }, [load]);
 
-  const exportBackup = () => {
-    setExported(null);
-    void window.bm.keeper.backups.exportTo().then((r) => {
-      if (r.ok) setExported(strings.exportDone(r.value.file));
-      else if (r.code !== 'cancelled') setExported(strings.result(r.code, r.detail));
-      load(); // the status line shows the newest backup
-    });
-  };
+  if (components) return <ComponentsPage onBack={COMPONENTS_ONLY ? undefined : () => setComponents(false)} />;
+
+  if (status === null) return <Notice text={strings.keeperStarting} />;
+  if (status.kind === 'error') return <Notice alert text={strings.keeperStatus(status)} />;
+  if (status.kind === 'safe-mode') return <SafeMode message={strings.keeperStatus(status)} onRestored={load} />;
 
   return (
-    <main>
-      <h1>{strings.appTitle}</h1>
-      <p>
-        {strings.version} {window.bm.version}
-      </p>
-      <p role="status">{status ? strings.keeperStatus(status) : strings.keeperStarting}</p>
-      {status?.kind === 'safe-mode' && <SafeMode onRestored={load} />}
-      {status?.kind === 'connected' && (
-        <p>
-          <button type="button" onClick={exportBackup}>
-            {strings.exportBackup}
-          </button>{' '}
-          {exported}
-        </p>
-      )}
-    </main>
+    <div className={styles.app}>
+      <Sidebar page={page} onSelect={setPage} onQuickLr={() => toast.info(strings.quickLrSoon)}>
+        <StatusBox seat={status.seat} backup={status.health.backup} />
+      </Sidebar>
+      <main className={styles.main}>
+        {page === 'settings' ? (
+          <SettingsPage onExported={load} onComponents={() => setComponents(true)} />
+        ) : (
+          <Page id={page} />
+        )}
+      </main>
+    </div>
   );
 }

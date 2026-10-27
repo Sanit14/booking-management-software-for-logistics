@@ -1,0 +1,121 @@
+import { useId, useState, type KeyboardEvent } from 'react';
+import { strings } from '../strings';
+import { UserPlus } from 'lucide-react';
+import { buildRows, type Option } from '../logic/typeAhead';
+import Field, { type FieldProps } from './Field';
+import KeyCap from './KeyCap';
+import styles from './TypeAhead.module.css';
+
+export type { Option };
+
+const LIMIT = 8; // rows shown at most
+
+// onKeyDown, onBlur and role belong to the list behaviour and are not the caller's to replace.
+interface Props extends Omit<FieldProps, 'value' | 'onChange' | 'children' | 'money' | 'onKeyDown' | 'onBlur' | 'role'> {
+  value: string;
+  /** Every keystroke, and also the typed text kept when nothing is picked. */
+  onChange: (text: string) => void;
+  onPick: (option: Option) => void;
+  /** The caller's options (already limited by the keeper); this list only ranks and trims them. */
+  options: Option[];
+  /** Last row, e.g. "Walk-in — keep typing". Absent = no walk-in row. */
+  walkInLabel?: string;
+  listLabel: string;
+}
+
+/**
+ * A text field with a list under it. ↑/↓ move, Enter picks, Esc closes (typed text stays).
+ * Enter is not marked handled, so inside a form with useEnterToNext the same keypress moves to the next field.
+ */
+export default function TypeAhead({ value, onChange, onPick, options, walkInLabel, listLabel, ...field }: Props) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [index, setActive] = useState(0);
+  const rows = buildRows(options, value, LIMIT, walkInLabel !== undefined);
+  const shown = open && rows.length > 0;
+  const active = Math.min(index, rows.length - 1); // the caller's options can shrink while the list is open
+  const rowId = (i: number) => `${id}-row-${i}`;
+
+  const pick = (i: number) => {
+    const row = rows[i];
+    if (row?.kind === 'option') {
+      onChange(row.option.label);
+      onPick(row.option);
+    }
+    setOpen(false);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return; // an IME is still composing: Enter/arrows belong to it
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!shown) {
+        setOpen(true);
+        setActive(0);
+      } else {
+        setActive(Math.max(0, Math.min(rows.length - 1, active + (e.key === 'ArrowDown' ? 1 : -1))));
+      }
+    } else if (e.key === 'Enter' && shown) {
+      pick(active); // not preventDefault: see the note above
+    } else if (e.key === 'Escape' && shown) {
+      e.preventDefault();
+      e.stopPropagation(); // closes the list, not the dialog around it
+      setOpen(false);
+    }
+  };
+
+  return (
+    <Field
+      {...field}
+      value={value}
+      onChange={(e) => {
+        onChange(e.target.value);
+        setOpen(true);
+        setActive(0);
+      }}
+      onKeyDown={onKeyDown}
+      onBlur={() => setOpen(false)}
+      role="combobox"
+      aria-expanded={shown}
+      aria-controls={`${id}-list`}
+      aria-autocomplete="list"
+      aria-activedescendant={shown ? rowId(active) : undefined}
+    >
+      {shown && (
+        <div id={`${id}-list`} role="listbox" aria-label={listLabel} className={styles.list}>
+          {rows.map((row, i) => (
+            <div
+              key={row.kind === 'option' ? row.option.id : 'walk-in'}
+              id={rowId(i)}
+              role="option"
+              aria-selected={i === active}
+              className={`${styles.row} ${i === active ? styles.active : ''} ${row.kind === 'walk-in' ? styles.walkIn : ''}`.trim()}
+              // mousedown, not click: the input must not lose focus (blur would close the list first)
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(i);
+              }}
+            >
+              {row.kind === 'option' ? (
+                <>
+                  <span className={styles.name}>{row.option.label}</span>
+                  {row.option.hint && <span className={styles.hint}>{row.option.hint}</span>}
+                  {i === active && (
+                    <span className={styles.key}>
+                      <KeyCap>{strings.ui.enter}</KeyCap>
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <UserPlus size={18} aria-hidden="true" />
+                  <span>{walkInLabel}</span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Field>
+  );
+}

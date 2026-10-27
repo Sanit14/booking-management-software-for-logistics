@@ -11,5 +11,5 @@
     "rootDir": ".",
     "outDir": "dist-electron"
   },
-  "include": ["electron", "keeper", "shared"]
+  "include": ["electron", "keeper", "shared", "src/logic"]
 }

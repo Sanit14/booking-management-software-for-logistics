@@ -1,0 +1,93 @@
+.page {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  overflow-y: auto; /* the page scrolls between frames; each frame fits one 1024x768 screen */
+}
+
+.frame {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+
+.frameTitle {
+  font-size: var(--fs-17);
+  font-weight: 800;
+  color: var(--teal-dark);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.onTeal {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: var(--r-md);
+  background: var(--teal-dark);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 170px; /* room for the open list */
+}
+
+.note {
+  font-size: var(--fs-14);
+  color: var(--text-2);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cardBody {
+  padding: 12px 16px;
+  font-size: var(--fs-14);
+  color: var(--text-2);
+}
+
+.twoTables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.check {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  vertical-align: middle;
+  accent-color: var(--teal-dark);
+}

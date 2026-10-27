@@ -1,0 +1,21 @@
+.cap {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-num);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.onColor {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.2);
+  color: #ffffff;
+}

@@ -1,6 +1,5 @@
 import {
   KEEPER_PORT,
-  type BackupStatus,
   type DbSummary,
   type GuardReason,
   type KeeperStatus,
@@ -47,19 +46,11 @@ const dateTime = (iso: string) => {
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${time(iso)}`;
 };
 
-function backupText(b: BackupStatus | undefined): string {
-  if (b?.failing) return `backups failing: ${b.failing}`;
-  return b?.lastAt ? `last backup ${time(b.lastAt)}` : 'no backup yet';
-}
-
 export const strings = {
   appTitle: 'Booking Manager',
-  version: 'Version',
   keeperStarting: 'Starting the database service…',
-  keeperStatus(s: KeeperStatus): string {
-    if (s.kind === 'connected') {
-      return `Keeper connected · data: ${s.health.dbPath} · seat: ${s.seat} · v${s.health.keeperVersion} · schema v${s.health.schemaVersion ?? '?'} · ${backupText(s.health.backup)}`;
-    }
+  // Only for the whole-window cases; the connected state is the shell (StatusBox).
+  keeperStatus(s: Exclude<KeeperStatus, { kind: 'connected' }>): string {
     if (s.kind === 'safe-mode') {
       const why = s.health.reason ? safeModeReason[s.health.reason] : 'cannot be used';
       return `Safe mode: the database at ${s.health.dbPath} ${why}. Nothing was changed or created. Restore a backup below; do not enter data until then. · seat: ${s.seat}`;
@@ -78,8 +69,129 @@ export const strings = {
     }
   },
 
+  company: 'Sundeep Freight Movers',
+  navLabel: 'Navigation',
+  quickLr: 'Quick LR',
+  quickLrSoon: 'Quick LR is coming in 2.4',
+  nav: { main: 'Main', admin: 'Admin' },
+  pages: {
+    dashboard: 'Dashboard',
+    lrEntry: 'LR Entry',
+    loadingMemo: 'Loading Memo',
+    firmAccounts: 'Firm Accounts',
+    wasuli: 'Wasuli',
+    reports: 'Reports',
+    masters: 'Masters',
+    settings: 'Settings',
+  },
+  pageEmpty: 'Nothing to show here yet',
+  pageEmptyHint: 'This page is built in a later session.',
+  status: {
+    connected: 'Keeper connected',
+    seat: (name: string) => `Seat ${name}`,
+    lastBackup: (iso: string) => `Backed up ${time(iso)}`,
+    noBackup: 'No backup yet',
+    backupFailing: (why: string) => `Backups failing: ${why}`,
+  },
+  settings: {
+    backupTitle: 'Backup',
+    backupText: 'Backups are made automatically every hour. Export writes a fresh copy to a folder you choose.',
+    componentsTitle: 'Components',
+    componentsText: 'Every building block of the screens, in every state.',
+    openComponents: 'Open Components page',
+  },
+  // The Components page (a developer showcase; its sample data is made up).
+  components: {
+    title: 'Components',
+    subtitle: 'Every building block in every state',
+    back: 'Back',
+    buttons: 'Buttons and key caps',
+    variant: { primary: 'Primary', secondary: 'Secondary', outline: 'Outline', ghost: 'Ghost', danger: 'Danger' },
+    saveLr: 'Save LR',
+    disabled: 'Disabled',
+    keyCaps: 'Key caps:',
+    fields: 'Fields (Enter moves to the next field)',
+    f: {
+      plain: 'Plain',
+      placeholder: 'Type here',
+      required: 'Required',
+      hint: 'A hint under the field',
+      error: 'With error',
+      errorText: 'Quantity must be a whole number',
+      readOnly: 'Read-only',
+      money: 'Money',
+      moneyEmpty: 'Money, empty',
+      disabled: 'Disabled',
+      last: 'Last field',
+      lastHint: 'Enter here saves',
+      firm: 'Consignor',
+      firmPlaceholder: 'Type a firm name',
+      next: 'Next field',
+      nextHint: 'Enter in Consignor lands here',
+    },
+    enterNote: 'Enter on the last field, or on this button, saves.',
+    formSubmitted: 'Form submitted',
+    typeAhead: 'TypeAhead',
+    typeAheadKeys: '↑ ↓ move, Enter picks, Esc closes',
+    walkIn: 'Walk-in — keep typing',
+    nothingTyped: 'Nothing typed yet.',
+    typedOnly: (text: string) => `Kept as typed: "${text}" (walk-in).`,
+    pickedMaster: (text: string) => `Picked from the list: "${text}".`,
+    chipsCards: 'Chips, cards and page header',
+    stat: { lrs: 'LRs booked', pending: 'Pending to load', trucks: 'Trucks out' },
+    cardTitle: 'A card',
+    cardBody: 'Cards hold lists and forms.',
+    header: { title: 'Page header', subtitle: 'Title, a line under it, and actions on the right' },
+    tables: 'Tables',
+    scrollBox: 'Scroll box with sticky header',
+    emptyTable: 'Empty table',
+    empty: 'Nothing here',
+    tickLr: (lr: number) => `Tick LR ${lr}`,
+    cols: { lr: 'LR', consignor: 'Consignor', to: 'To', qty: 'Qty', toPay: 'To pay ₹', status: 'Status' },
+    totals: { lrs: (n: number) => `${n} LRs`, toPay: '₹7,450' },
+    statLines: { booked: 'Booked', loaded: 'Loaded', stations: 'Stations', oldest: 'Oldest booked', memos: 'Memos' },
+    feedback: 'Toasts, dialogs and PIN',
+    toast: { success: 'Success toast', info: 'Info toast', warning: 'Warning toast', error: 'Error toast', detail: 'A second line with details' },
+    openConfirm: 'Confirm dialog',
+    openDanger: 'Danger dialog',
+    openPin: 'PIN dialog',
+    pinNote: 'Success and info toasts hide after 4 seconds; warnings and errors stay until closed. The demo PIN is 1234.',
+    dialog: {
+      title: 'Save this LR?',
+      text: 'Enter or the buttons choose; Esc cancels and focus goes back to the button that opened this.',
+      confirm: 'Save',
+      done: 'Confirmed',
+      dangerTitle: 'Cancel this LR?',
+      dangerText: 'This cannot be undone. Focus starts on Cancel.',
+      dangerConfirm: 'Cancel LR',
+    },
+    pinTitle: 'System PIN',
+    pinOk: 'PIN accepted',
+  },
+  required: 'Required',
+  ui: {
+    dismiss: 'Dismiss',
+    cancel: 'Cancel',
+    ok: 'OK',
+    pinPrompt: (digits: number) => `Enter the ${digits}-digit System PIN`,
+    enter: 'Enter',
+    rupee: '₹',
+    pinLabel: 'System PIN',
+    pinWrong: 'Wrong PIN. Try again.',
+  },
+  chip: {
+    booked: 'Booked',
+    loaded: 'Loaded',
+    cancelled: 'Cancelled',
+    toPay: 'To pay',
+    paid: 'Paid',
+    charges: 'Charges',
+    pending: 'Pending',
+    saved: 'Saved',
+  },
+
   exportBackup: 'Export backup to…',
-  exportDone: (file: string) => `Backup written to ${file}`,
+  exportDone: 'Backup exported',
   result: (code: ResultCode, detail?: string): string => `${resultText[code]}${detail ? `: ${detail}` : ''}`,
 
   safeMode: {

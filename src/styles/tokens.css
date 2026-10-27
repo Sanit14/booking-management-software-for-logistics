@@ -1,0 +1,95 @@
+/* Design tokens, direction A "DM Evolved". Values come from docs/design/A-*.dc.html.
+   Chrome 108 only: no color-mix(), oklch(), native nesting. Text on a tint must keep contrast >= 4.5:1. */
+:root {
+  /* brand */
+  --teal-dark: #144d52;
+  --teal-ink: #0f3f43;
+  --teal: #1d9699;
+  --orange: #e66c32; /* logo and active-item border only */
+  --orange-btn: #c4531b; /* anything with white text on orange */
+  --orange-btn-hover: #a94616;
+  --orange-ink: #b34a15;
+  --orange-tint: #fdeee6;
+  --orange-edge: #f2c9b2;
+
+  /* surfaces */
+  --bg: #eef4f3;
+  --surface: #ffffff;
+  --input-bg: #f3f8f7;
+  --readonly-bg: #e9f1f0;
+  --zebra: #f6faf9;
+  --tint: #e3f3f2; /* ticked / selected row */
+  --tint-edge: #cfe5e3;
+  --option-active: #ddf0ef;
+
+  /* lines */
+  --border: #bfd3d1;
+  --border-soft: #d3e2e0;
+  --line: #e2ecea;
+
+  /* text */
+  --text: #16323b;
+  --text-2: #4e6b73;
+  --text-nav: #2e4a52;
+  --text-label: #5b7880;
+  --text-on-teal-2: #cfe5e3;
+
+  /* states (all >= 4.5:1 against their own background) */
+  --danger: #b42318;
+  --danger-tint: #fdecea;
+  --success: #1c7a45;
+  --success-tint: #e2f3e7;
+  --warning: #b34a15;
+  --warning-tint: #fdeee6;
+  --info: #14787b;
+  --info-tint: #ddf0ef;
+  --purple: #6d28d9;
+  --purple-tint: #f3effd;
+  --focus: #0b6e73;
+  --focus-on-dark: #ffffff;
+
+  /* fonts */
+  --font-ui: 'Plus Jakarta Sans', 'Inter', 'Segoe UI', sans-serif; /* Inter second: it carries the rupee sign */
+  --font-num: 'Inter', 'Segoe UI', sans-serif;
+
+  /* type scale (px). 17 = input text floor, 15 = table floor, 14 = label floor, 12 = absolute floor */
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-17: 17px;
+  --fs-22: 22px;
+  --fs-24: 24px;
+  --fs-34: 34px;
+
+  /* spacing */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 10px;
+  --sp-5: 12px;
+  --sp-6: 14px;
+  --sp-7: 16px;
+  --sp-8: 20px;
+  --sp-9: 24px;
+
+  /* sizes */
+  --control-h: 46px; /* inputs and normal buttons (>= 44) */
+  --control-h-sm: 38px;
+  --row-h: 40px;
+
+  /* shape */
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 12px;
+  --r-xxl: 14px;
+  --r-pill: 999px;
+
+  /* shadow */
+  --shadow-pop: 0 14px 30px rgba(20, 77, 82, 0.22);
+  --shadow-toast: 0 10px 26px rgba(10, 40, 44, 0.28);
+  --shadow-dialog: 0 24px 60px rgba(10, 40, 44, 0.35);
+  --ring: 0 0 0 4px rgba(29, 150, 153, 0.25);
+}
