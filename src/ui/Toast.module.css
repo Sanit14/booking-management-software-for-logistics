@@ -1,0 +1,85 @@
+.stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  max-width: 420px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-toast);
+  pointer-events: auto;
+}
+
+.icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  color: #ffffff;
+}
+.success .icon {
+  background: var(--success);
+}
+.error .icon {
+  background: var(--danger);
+}
+.warning .icon {
+  background: var(--warning);
+}
+.info .icon {
+  background: var(--info);
+}
+
+.text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.title {
+  font-size: var(--fs-15);
+  line-height: 18px;
+  color: var(--text);
+}
+
+.detail {
+  overflow-wrap: anywhere; /* a long file path must not overflow the toast */
+  font-size: var(--fs-14);
+  line-height: 18px;
+  color: var(--text-2);
+}
+
+.close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.close:hover {
+  background: var(--bg);
+}

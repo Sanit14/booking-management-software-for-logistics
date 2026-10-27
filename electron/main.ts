@@ -33,7 +33,8 @@ function createWindow(): BrowserWindow {
   });
 
   if (dev) {
-    void win.loadURL(DEV_URL);
+    // `npm run dev -- --components` opens the Components page directly (the screen reads the hash).
+    void win.loadURL(process.argv.includes('--components') ? `${DEV_URL}#components` : DEV_URL);
   } else {
     void win.loadFile(path.join(__dirname, '..', '..', 'dist', 'index.html'));
   }

@@ -1,11 +1,32 @@
 import { useEffect, useState } from 'react';
-import type { BackupInfo, KeeperResult, RestorePreview } from '../shared';
+import type { BackupInfo, DbSummary, KeeperResult, RestorePreview } from '../shared';
+import styles from './SafeMode.module.css';
 import { strings } from './strings';
+import Button from './ui/Button';
+import { Card, PageHeader } from './ui/Card';
+import Table, { type Column } from './ui/Table';
 
 const t = strings.safeMode;
 
-// Plain on purpose: styling comes with session 1.5. Shown instead of the app while the keeper is in safe mode.
-export default function SafeMode({ onRestored }: { onRestored: () => void }) {
+function Summary({ title, summary }: { title: string; summary: DbSummary | string }) {
+  return (
+    <div className={styles.side}>
+      <h3 className={styles.sideTitle}>{title}</h3>
+      {typeof summary === 'string' ? (
+        <p>{summary}</p>
+      ) : (
+        <ul>
+          {t.summary(summary).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Shown instead of the app while the keeper is in safe mode. `message` is the keeper's plain explanation.
+export default function SafeMode({ message, onRestored }: { message: string; onRestored: () => void }) {
   const [list, setList] = useState<KeeperResult<BackupInfo[]> | null>(null);
   const [preview, setPreview] = useState<KeeperResult<RestorePreview> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,88 +58,77 @@ export default function SafeMode({ onRestored }: { onRestored: () => void }) {
       .finally(() => setBusy(false));
   };
 
+  const chosen = preview?.ok ? preview.value : null;
+  const columns: Column<BackupInfo>[] = [
+    { key: 'made', header: t.columns.made, width: 170, render: (b) => t.time(b.at) },
+    { key: 'size', header: t.columns.size, num: true, width: 80, render: (b) => t.kb(b.sizeBytes) },
+    { key: 'lrs', header: t.columns.lrs, num: true, width: 70, render: (b) => b.summary?.lrs ?? '' },
+    { key: 'memos', header: t.columns.memos, num: true, width: 80, render: (b) => b.summary?.memos ?? '' },
+    { key: 'masters', header: t.columns.masters, num: true, width: 90, render: (b) => b.summary?.masters ?? '' },
+    { key: 'newest', header: t.columns.newestLr, width: 120, render: (b) => b.summary?.newestLrDate ?? '' },
+    {
+      key: 'status',
+      header: t.columns.status,
+      render: (b) => <span className={b.damaged ? styles.damaged : undefined}>{b.damaged ? t.status.damaged : t.status.ok}</span>,
+    },
+    {
+      key: 'choose',
+      header: '',
+      width: 110,
+      render: (b) => (
+        <Button variant="outline" small disabled={b.damaged || busy} onClick={() => choose(b.file)}>
+          {t.choose}
+        </Button>
+      ),
+    },
+  ];
+
   return (
-    <section>
-      <h2>{t.title}</h2>
-      {list === null && <p>{t.loading}</p>}
-      {list && !list.ok && <p role="alert">{strings.result(list.code, list.detail)}</p>}
-      {list?.ok && list.value.length === 0 && <p>{t.noBackups}</p>}
+    <main className={styles.page}>
+      <PageHeader title={t.title} subtitle={message} />
+
+      {list === null && <p className={styles.note}>{t.loading}</p>}
+      {list && !list.ok && <p role="alert" className={styles.problem}>{strings.result(list.code, list.detail)}</p>}
+      {list?.ok && list.value.length === 0 && <p className={styles.note}>{t.noBackups}</p>}
       {list?.ok && list.value.length > 0 && (
-        <>
-          <h3>{t.backups}</h3>
-          <table>
-            <thead>
-              <tr>
-                {Object.values(t.columns).map((c) => (
-                  <th key={c}>{c}</th>
-                ))}
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {list.value.map((b) => (
-                <tr key={b.file}>
-                  <td>{t.time(b.at)}</td>
-                  <td>{t.kb(b.sizeBytes)}</td>
-                  <td>{b.summary?.lrs ?? ''}</td>
-                  <td>{b.summary?.memos ?? ''}</td>
-                  <td>{b.summary?.masters ?? ''}</td>
-                  <td>{b.summary ? (b.summary.newestLrDate ?? '') : ''}</td>
-                  <td>{b.damaged ? t.status.damaged : t.status.ok}</td>
-                  <td>
-                    <button type="button" disabled={b.damaged || busy} onClick={() => choose(b.file)}>
-                      {t.choose}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+        <Card title={t.backups}>
+          <Table
+            label={t.backups}
+            columns={columns}
+            rows={list.value}
+            rowKey={(b) => b.file}
+            ticked={chosen ? new Set([chosen.file]) : undefined}
+            empty={t.noBackups}
+            maxHeight={230}
+          />
+        </Card>
       )}
 
-      {preview?.ok && (
-        <div>
-          <h3>{t.previewTitle}</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>
-                  {t.backupSide} ({t.time(list?.ok ? (list.value.find((b) => b.file === preview.value.file)?.at ?? '') : '')})
-                </th>
-                <th>{t.liveSide}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>
-                  <ul>
-                    {t.summary(preview.value.backup).map((line) => (
-                      <li key={line}>{line}</li>
-                    ))}
-                  </ul>
-                </td>
-                <td>
-                  {typeof preview.value.live === 'object' ? (
-                    <ul>
-                      {t.summary(preview.value.live).map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    preview.value.live === 'missing' ? t.liveMissing : t.liveDamaged
-                  )}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p>{t.keepsOld}</p>
-          <button type="button" disabled={busy} onClick={restore}>
-            {busy ? t.restoring : t.restore}
-          </button>
-        </div>
+      {chosen && (
+        <Card title={t.previewTitle}>
+          <div className={styles.compare}>
+            <Summary
+              title={`${t.backupSide} (${t.time(list?.ok ? (list.value.find((b) => b.file === chosen.file)?.at ?? '') : '')})`}
+              summary={chosen.backup}
+            />
+            <Summary
+              title={t.liveSide}
+              summary={typeof chosen.live === 'object' ? chosen.live : chosen.live === 'missing' ? t.liveMissing : t.liveDamaged}
+            />
+          </div>
+          <div className={styles.restore}>
+            <p>{t.keepsOld}</p>
+            <Button disabled={busy} onClick={restore}>
+              {busy ? t.restoring : t.restore}
+            </Button>
+          </div>
+        </Card>
       )}
-      {problem && <p role="alert">{problem}</p>}
-    </section>
+      {problem && (
+        <p role="alert" className={styles.problem}>
+          {problem}
+        </p>
+      )}
+    </main>
   );
 }

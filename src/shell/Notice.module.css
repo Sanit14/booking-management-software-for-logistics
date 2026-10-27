@@ -1,0 +1,28 @@
+.page {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.card {
+  max-width: 640px;
+  padding: 24px 28px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xxl);
+  background: var(--surface);
+  font-size: var(--fs-17);
+  line-height: 26px;
+}
+
+.alert {
+  border: 2px solid var(--danger);
+}
+
+.title {
+  margin-bottom: 8px;
+  font-size: var(--fs-22);
+  font-weight: 800;
+  color: var(--teal-dark);
+}

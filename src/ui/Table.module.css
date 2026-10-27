@@ -1,0 +1,77 @@
+.scroll {
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate; /* sticky cells keep their borders only with separate */
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: var(--fs-15);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 38px;
+  padding: 0 10px;
+  background: var(--teal-dark);
+  color: #ffffff;
+  font-size: var(--fs-14);
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  height: var(--row-h);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table td > button:focus-visible {
+  outline-offset: -3px; /* td clips overflow; keep the ring inside the cell */
+}
+
+.table tbody tr:nth-child(even) td {
+  background: var(--zebra);
+}
+
+.table tbody tr.ticked td {
+  background: var(--tint);
+  border-bottom-color: var(--tint-edge);
+}
+
+.table th.num,
+.table td.num {
+  text-align: right;
+  font-family: var(--font-num);
+}
+
+.table td.empty {
+  height: 72px;
+  background: var(--surface);
+  text-align: center;
+  color: var(--text-2);
+  font-size: var(--fs-16);
+}
+
+.table tfoot td {
+  position: sticky;
+  bottom: 0;
+  height: 44px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: none;
+  background: var(--input-bg);
+  font-family: var(--font-num);
+  font-size: var(--fs-16);
+  font-weight: 700;
+  color: var(--text);
+}
