@@ -49,6 +49,16 @@
   border-bottom-color: var(--tint-edge);
 }
 
+.table tbody tr.pickable {
+  cursor: pointer;
+}
+.table tbody tr.pickable:hover td {
+  background: var(--tint);
+}
+.table tbody tr.pickable:focus-visible {
+  outline-offset: -3px; /* the ring stays inside the scroll box */
+}
+
 .table th.num,
 .table td.num {
   text-align: right;

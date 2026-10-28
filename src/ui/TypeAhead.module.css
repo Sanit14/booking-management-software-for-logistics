@@ -1,9 +1,14 @@
-.list {
+/* Has the input's box (the list is placed from it). */
+.anchor {
   position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 5;
-  min-width: 100%;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* In a portal, placed from the input's box by TypeAhead.tsx. */
+.list {
+  position: fixed;
+  z-index: 50;
   width: max-content;
   max-width: 420px;
   padding: 6px;

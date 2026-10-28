@@ -28,6 +28,10 @@
   background: var(--success-tint);
   color: #1c6b3a;
 }
+.inactive {
+  background: var(--readonly-bg);
+  color: var(--text-2);
+}
 .cancelled {
   background: var(--danger-tint);
   color: var(--danger);

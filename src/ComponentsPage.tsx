@@ -259,7 +259,7 @@ export default function ComponentsPage({ onBack }: { onBack?: () => void }) {
           empty={t.empty}
         />
         <div className={styles.twoTables}>
-          <Table label={t.scrollBox} columns={columns.slice(1, 5)} rows={manyLrs} rowKey={(r) => String(r.lr)} empty={t.empty} maxHeight={170} />
+          <Table label={t.scrollBox} columns={columns.slice(1, 5)} rows={manyLrs} rowKey={(r) => String(r.lr)} empty={t.empty} maxHeight={170} onRowActivate={(r) => toast.info(t.pickedRow(r.lr))} />
           <Table label={t.emptyTable} columns={columns.slice(1, 5)} rows={[]} rowKey={(r) => String(r.lr)} empty={t.empty} />
         </div>
       </Frame>

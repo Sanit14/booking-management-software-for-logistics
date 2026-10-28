@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import styles from './Table.module.css';
 
 export interface Column<R> {
@@ -23,12 +23,30 @@ interface Props<R> {
   totals?: Record<string, ReactNode>;
   /** Shown instead of the body when there are no rows. */
   empty: string;
+  /** Makes rows pickable: click, or Enter on a focused row (↑/↓ move between rows). Tint the picked one with `ticked`. */
+  onRowActivate?: (row: R) => void;
   /** Height of the scroll box; the header and totals stay in view. Omit to size to the rows. */
   maxHeight?: number;
 }
 
-export default function Table<R>({ label, columns, rows, rowKey, ticked, totals, empty, maxHeight }: Props<R>) {
+// Only the row itself: Enter on a button or field inside it stays theirs.
+function moveBetweenRows(e: KeyboardEvent<HTMLTableRowElement>, activate: () => void) {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    activate();
+  } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+    if (next instanceof HTMLElement) next.focus();
+  }
+}
+
+export default function Table<R>({ label, columns, rows, rowKey, ticked, totals, empty, onRowActivate, maxHeight }: Props<R>) {
   const align = (c: Column<R>) => (c.num ? styles.num : undefined);
+  // A long list is one Tab stop, not one per row: the picked row (else the first) takes it, ↑/↓ walk the rest.
+  const picked = rows.findIndex((r) => ticked?.has(rowKey(r)));
+  const stop = picked >= 0 ? picked : 0;
   return (
     // A scroll box is not keyboard-focusable in Chrome 108 unless it says so; the header stays in view while it scrolls.
     <div
@@ -52,10 +70,16 @@ export default function Table<R>({ label, columns, rows, rowKey, ticked, totals,
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => {
+          {rows.map((row, i) => {
             const key = rowKey(row);
             return (
-              <tr key={key} className={ticked?.has(key) ? styles.ticked : undefined}>
+              <tr
+                key={key}
+                className={[ticked?.has(key) ? styles.ticked : '', onRowActivate ? styles.pickable : ''].join(' ').trim() || undefined}
+                {...(onRowActivate
+                  ? { tabIndex: i === stop ? 0 : -1, onClick: () => onRowActivate(row), onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => moveBetweenRows(e, () => onRowActivate(row)) }
+                  : {})}
+              >
                 {columns.map((c) => (
                   <td key={c.key} className={align(c)}>
                     {c.render(row)}

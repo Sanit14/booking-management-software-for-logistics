@@ -1,4 +1,5 @@
-import { useId, useState, type KeyboardEvent } from 'react';
+import { useCallback, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { strings } from '../strings';
 import { UserPlus } from 'lucide-react';
 import { buildRows, type Option } from '../logic/typeAhead';
@@ -31,10 +32,40 @@ export default function TypeAhead({ value, onChange, onPick, options, walkInLabe
   const id = useId();
   const [open, setOpen] = useState(false);
   const [index, setActive] = useState(0);
+  // The list is drawn outside the field's card (a card clips what overflows it): in the open dialog if the field
+  // is in one (a modal dialog covers everything else), else on the page. `anchor` has the input's box.
+  const anchor = useRef<HTMLSpanElement | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [host, setHost] = useState<Element | null>(null);
+  const anchorRef = useCallback((el: HTMLSpanElement | null) => {
+    anchor.current = el;
+    if (el) setHost(el.closest('dialog') ?? document.body);
+  }, []);
   const rows = buildRows(options, value, LIMIT, walkInLabel !== undefined);
   const shown = open && rows.length > 0;
   const active = Math.min(index, rows.length - 1); // the caller's options can shrink while the list is open
   const rowId = (i: number) => `${id}-row-${i}`;
+
+  // Under the input, or above it when there is no room below. Straight onto the element: no state, no extra render.
+  useLayoutEffect(() => {
+    if (!shown) return;
+    const place = () => {
+      const box = anchor.current?.getBoundingClientRect();
+      const el = list.current;
+      if (!box || !el) return;
+      const above = box.bottom + 4 + el.offsetHeight > window.innerHeight && box.top - 4 - el.offsetHeight > 0;
+      el.style.top = `${above ? box.top - 4 - el.offsetHeight : box.bottom + 4}px`;
+      el.style.left = `${box.left}px`;
+      el.style.minWidth = `${box.width}px`;
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true); // any scrolling box around the field
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [shown, rows.length]);
 
   const pick = (i: number) => {
     const row = rows[i];
@@ -70,7 +101,7 @@ export default function TypeAhead({ value, onChange, onPick, options, walkInLabe
       value={value}
       onChange={(e) => {
         onChange(e.target.value);
-        setOpen(true);
+        setOpen(e.target.value.trim() !== ''); // emptied again = no list, so Enter moves on instead of picking the first option (↓ opens it)
         setActive(0);
       }}
       onKeyDown={onKeyDown}
@@ -81,8 +112,9 @@ export default function TypeAhead({ value, onChange, onPick, options, walkInLabe
       aria-autocomplete="list"
       aria-activedescendant={shown ? rowId(active) : undefined}
     >
-      {shown && (
-        <div id={`${id}-list`} role="listbox" aria-label={listLabel} className={styles.list}>
+      <span ref={anchorRef} className={styles.anchor} aria-hidden="true" />
+      {shown && host && createPortal(
+        <div ref={list} id={`${id}-list`} role="listbox" aria-label={listLabel} className={styles.list}>
           {rows.map((row, i) => (
             <div
               key={row.kind === 'option' ? row.option.id : 'walk-in'}
@@ -114,7 +146,8 @@ export default function TypeAhead({ value, onChange, onPick, options, walkInLabe
               )}
             </div>
           ))}
-        </div>
+        </div>,
+        host,
       )}
     </Field>
   );

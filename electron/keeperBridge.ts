@@ -14,6 +14,8 @@ import {
   type KeeperPush,
   type KeeperResult,
   type KeeperStatus,
+  type MasterRow,
+  type MastersAll,
   type RestorePreview,
   type RootRefusal,
 } from '../shared';
@@ -194,6 +196,17 @@ export function initKeeperBridge(userDataDir: string) {
   );
   ipcMain.handle('keeper:pins-recover', (_e, code: unknown, admin: unknown, system: unknown) =>
     call<{ recoveryCode: string }>('POST', '/pins/recover', { recoveryCode: text(code), newAdminPin: text(admin), newSystemPin: text(system) }),
+  );
+  // Master data: the keeper checks every value (kind, fields, version, PIN); main only forwards named arguments.
+  ipcMain.handle('keeper:masters-all', () => call<MastersAll>('POST', '/masters/all'));
+  ipcMain.handle('keeper:masters-create', (_e, kind: unknown, fields: unknown, confirmSimilar: unknown) =>
+    call<MasterRow>('POST', '/masters/create', { kind, fields, confirmSimilar }),
+  );
+  ipcMain.handle('keeper:masters-update', (_e, kind: unknown, id: unknown, version: unknown, fields: unknown, pin: unknown, confirmSimilar: unknown) =>
+    call<MasterRow>('POST', '/masters/update', { kind, id, version, fields, systemPin: text(pin), confirmSimilar }),
+  );
+  ipcMain.handle('keeper:masters-set-active', (_e, kind: unknown, id: unknown, version: unknown, active: unknown, pin: unknown) =>
+    call<MasterRow>('POST', '/masters/set-active', { kind, id, version, active, systemPin: text(pin) }),
   );
   void status(); // warm up before the screen asks
 

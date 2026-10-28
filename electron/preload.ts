@@ -31,6 +31,12 @@ const keeper: KeeperApi = {
     changeAdmin: (admin, pin) => ipcRenderer.invoke('keeper:pins-change-admin', admin, pin),
     recover: (code, admin, system) => ipcRenderer.invoke('keeper:pins-recover', code, admin, system),
   },
+  masters: {
+    all: () => ipcRenderer.invoke('keeper:masters-all'),
+    create: (kind, fields, confirmSimilar) => ipcRenderer.invoke('keeper:masters-create', kind, fields, confirmSimilar),
+    update: (kind, id, version, fields, pin, confirmSimilar) => ipcRenderer.invoke('keeper:masters-update', kind, id, version, fields, pin, confirmSimilar),
+    setActive: (kind, id, version, active, pin) => ipcRenderer.invoke('keeper:masters-set-active', kind, id, version, active, pin),
+  },
 };
 
 const update: UpdateApi = {

@@ -1,0 +1,138 @@
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 18px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-16);
+  font-weight: 700;
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+
+.count {
+  font-family: var(--font-num);
+  font-size: var(--fs-15);
+  font-weight: 600;
+}
+
+/* The form is first in the page (Tab order) and sits in the right column. */
+.body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  min-height: 0;
+}
+
+.formCard {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+}
+
+.listCard {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.search {
+  flex: 1;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--control-h);
+  color: var(--text);
+  font-size: var(--fs-16);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.toggle input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--teal);
+}
+
+/* The table's own scroll box fills what is left of the card and keeps its header in view. */
+.tableBox {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.tableBox > div {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nameText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dim {
+  color: var(--text-2);
+}
+
+.similarList {
+  margin: 4px 0 8px;
+  padding-left: 22px;
+  font-weight: 700;
+}

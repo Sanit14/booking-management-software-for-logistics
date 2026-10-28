@@ -42,9 +42,9 @@ interface Running {
   exited: Promise<number | null>;
 }
 
-function startKeeper(root: string, port: number, programData: string, backupDir: string): Running {
+function startKeeper(root: string, port: number, programData: string, backupDir: string, extraEnv: Record<string, string> = {}): Running {
   const child = spawn(electronExe, [serverJs, root, String(port)], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PROGRAMDATA: programData, BM_BACKUP_DIR: backupDir },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PROGRAMDATA: programData, BM_BACKUP_DIR: backupDir, ...extraEnv },
     stdio: 'ignore',
     windowsHide: true,
   });
@@ -397,4 +397,92 @@ test('keeper: first-run PIN setup is set-once, wrong PINs lock after five, other
   const log = fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8').split('\n').filter((l) => /pin/i.test(l)).join('\n');
   assert.match(log, /pin-refused/);
   for (const secret of ['4831', '7295', made.value?.recoveryCode ?? 'x']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+}));
+
+// --- masters ---------------------------------------------------------------------------------------------------
+
+type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; similar?: string[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
+const masters = async (port: number, url: string, body: unknown, seat = 'counter-1'): Promise<Answer> => {
+  const r = await callJson(port, 'POST', `/masters/${url}`, body, { seat, timeoutMs: 30000 });
+  return { status: r.status, ...(r.json as object) } as Answer;
+};
+
+test('keeper: a master saved through the real route raises the guard marker, and the baseline survives a restart', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir, { BM_MARKER_REFRESH_MS: '200' });
+  assert.equal((await waitUp(port)).state, 'ready');
+  const marker = markerPath(s.programDir, s.root);
+  const rows = () => JSON.parse(fs.readFileSync(marker, 'utf8')).businessRows as number;
+  assert.equal(rows(), 0);
+
+  const made = await masters(port, 'create', { kind: 'stations', fields: { name: 'Yavatmal' } });
+  assert.deepEqual([made.status, made.ok, made.value.name], [200, true, 'Yavatmal']);
+  assert.equal((await masters(port, 'create', { kind: 'trucks', fields: { number: 'MH 29 BE 1234' } })).ok, true);
+  // The keeper is still running: it is the timer that raised the baseline, not a clean stop.
+  for (let i = 0; i < 50 && rows() < 2; i++) await sleep(100);
+  assert.equal(rows(), 2, 'the marker rose by itself while the keeper ran');
+  assert.match(logOf(s), /\tmaster-saved\t/);
+
+  assert.equal(await shutdown(port), true);
+  assert.equal(await within(k.exited, 10000), 0);
+  assert.equal(rows(), 2, 'the clean stop keeps it');
+  startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const all = (await masters(port, 'all', {})).value;
+  assert.deepEqual([all.stations.length, all.trucks.length], [1, 1], 'everything is still there after a restart');
+  assert.equal(await shutdown(port), true);
+}));
+
+test('keeper: two seats saving the same station at the same moment save it once; the other is told it exists', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+
+  const answers = await Promise.all([
+    masters(port, 'create', { kind: 'stations', fields: { name: 'Nagpur' } }, 'counter-1'),
+    masters(port, 'create', { kind: 'stations', fields: { name: ' NAGPUR ' } }, 'counter-2'),
+  ]);
+  const won = answers.filter((a) => a.ok);
+  const lost = answers.filter((a) => !a.ok);
+  assert.equal(won.length, 1);
+  assert.deepEqual([lost.length, lost[0].status, lost[0].code], [1, 409, 'master-exists']);
+  assert.equal(lost[0].row.id, won[0].value.id, 'the loser is shown the row that won');
+  assert.equal((await masters(port, 'all', {})).value.stations.length, 1);
+
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+}));
+
+test('keeper: editing a master over the real route needs the System PIN; bad requests are refused', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  assert.equal((await callJson(port, 'POST', '/pins/setup', { adminPin: '4831', systemPin: '7295' }, { seat: 'counter-1' })).status, 200);
+
+  const row = (await masters(port, 'create', { kind: 'firms', fields: { name: 'Shree Ganesh Traders', phone: '98220 12345' } })).value;
+  const edit = { kind: 'firms', id: row.id, version: row.version, fields: { name: 'Shree Ganesh Traders', phone: '9000000000' } };
+  assert.equal((await masters(port, 'update', edit)).code, 'wrong-pin', 'no PIN');
+  assert.equal((await masters(port, 'update', { ...edit, systemPin: '4831' })).code, 'wrong-pin', 'the Admin PIN is not the System PIN');
+  assert.equal((await masters(port, 'all', {})).value.firms[0].phone, '9822012345', 'nothing was written');
+  const done = await masters(port, 'update', { ...edit, systemPin: '7295' }, 'counter-2');
+  assert.deepEqual([done.ok, done.value.phone, done.value.version], [true, '9000000000', 2]);
+  const stale = await masters(port, 'update', { ...edit, systemPin: '7295' });
+  assert.deepEqual([stale.status, stale.code, stale.row.version], [409, 'master-stale', 2]);
+  assert.equal((await masters(port, 'set-active', { kind: 'firms', id: row.id, version: 2, active: false })).code, 'wrong-pin');
+  assert.equal((await masters(port, 'set-active', { kind: 'firms', id: row.id, version: 2, active: false, systemPin: '7295' })).value.active, false);
+  assert.equal((await masters(port, 'set-active', { kind: 'firms', id: row.id, version: 3, active: true })).value.active, true, 'reactivating needs no PIN');
+
+  assert.equal((await masters(port, 'create', { kind: 'vehicles', fields: {} })).status, 400);
+  assert.equal((await masters(port, 'update', { kind: 'firms', id: 'x', version: 1, fields: {}, systemPin: '7295' })).status, 400);
+  assert.equal((await masters(port, 'set-active', { kind: 'firms', id: 1, version: 1, systemPin: '7295' })).status, 400);
+  assert.equal((await masters(port, 'create', { kind: 'stations', fields: { name: '' } })).code, 'master-bad');
+
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  assert.match(log, /pin-refused/);
+  for (const secret of ['4831', '7295', 'Shree Ganesh']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
 }));

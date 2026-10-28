@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { KeeperStatus } from '../shared';
 import styles from './App.module.css';
 import ComponentsPage from './ComponentsPage';
+import MastersPage from './masters/MastersPage';
 import Notice from './shell/Notice';
 import PinSetup from './PinSetup';
 import Page from './shell/Page';
@@ -60,6 +61,8 @@ export default function App() {
       <main className={styles.main}>
         {page === 'settings' ? (
           <SettingsPage health={status.health} onExported={load} onComponents={() => setComponents(true)} />
+        ) : page === 'masters' ? (
+          <MastersPage />
         ) : (
           <Page id={page} />
         )}

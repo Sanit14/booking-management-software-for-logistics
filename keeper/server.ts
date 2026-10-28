@@ -12,12 +12,15 @@ import {
   type GuardReason,
   type KeeperHealth,
   type KeeperResult,
+  type MasterFields,
+  type MasterKind,
   type ResultCode,
 } from '../shared';
 import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } from './backup';
 import { businessRows, closeDatabase, hasTable, openChecked, raiseMarker, type Db } from './db';
 import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './guard';
 import { makeLog } from './log';
+import { makeMasters } from './masters';
 import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
 import { makePins } from './pins';
@@ -25,7 +28,9 @@ import { makeTokens, previewRestore, restoreFiles, verifyApply } from './restore
 import { makeSeats } from './seats';
 
 const HOST = '127.0.0.1';
-const MARKER_REFRESH_MS = 5 * 60 * 1000;
+// BM_MARKER_REFRESH_MS: tests only, so the marker's rise can be seen without waiting five minutes.
+const MARKER_REFRESH_MS = Math.max(100, Number(process.env.BM_MARKER_REFRESH_MS) || 5 * 60 * 1000);
+const MASTER_KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers'];
 const BACKUP_EVERY_MS = 60 * 60 * 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const LATEST_SCHEMA = MIGRATIONS[MIGRATIONS.length - 1].version;
@@ -65,6 +70,7 @@ function main(): void {
   let backingUp: Promise<void> | null = null;
   const tokens = makeTokens();
   const pins = makePins();
+  const masters = makeMasters(pins);
   const seats = makeSeats();
   let stopping: Promise<number> | null = null;
   let timersStarted = false;
@@ -270,6 +276,7 @@ function main(): void {
     const known = [
       '/shutdown', '/backups/list', '/restore/preview', '/restore/apply', '/backups/export',
       '/seats', '/pins/setup', '/pins/verify', '/pins/change-system', '/pins/change-admin', '/pins/recover',
+      '/masters/all', '/masters/create', '/masters/update', '/masters/set-active',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -371,6 +378,35 @@ function main(): void {
       } else if (r.code === 'wrong-pin' || r.code === 'wrong-recovery-code' || r.code === 'pin-locked') {
         log('pin-refused', { url, seat, code: r.code, wait: r.detail });
       }
+      return sendResult(res, r);
+    }
+
+    if (url.startsWith('/masters/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      // The values are checked, type by type, in masters.ts (a wrong type answers master-bad).
+      const fields = (body.fields !== null && typeof body.fields === 'object' && !Array.isArray(body.fields) ? body.fields : {}) as MasterFields;
+      const kind = MASTER_KINDS.find((k) => k === body.kind);
+      const id = body.id;
+      const version = body.version;
+      const confirmSimilar = body.confirmSimilar === true;
+      const pin = typeof body.systemPin === 'string' ? body.systemPin : '';
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/masters/all') r = ok(masters.all(db));
+        else if (!kind) return send(res, 400, { error: 'kind required' });
+        else if (url === '/masters/create') r = masters.create(db, seat, kind, fields, confirmSimilar);
+        else if (typeof id !== 'number' || !Number.isInteger(id) || typeof version !== 'number' || !Number.isInteger(version)) {
+          return send(res, 400, { error: 'id and version required' });
+        } else if (url === '/masters/update') r = masters.update(db, seat, kind, id, version, fields, pin, confirmSimilar);
+        else if (typeof body.active !== 'boolean') return send(res, 400, { error: 'active required' });
+        else r = masters.setActive(db, seat, kind, id, version, body.active, pin);
+      } catch (e) {
+        log('masters-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      // Never the PIN or the typed values: the route, the seat, the kind and the outcome.
+      if (r.ok && url !== '/masters/all') log('master-saved', { url, seat, kind, id: (r.value as { id: number }).id });
+      else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) log('pin-refused', { url, seat, code: r.code, wait: r.detail });
       return sendResult(res, r);
     }
 

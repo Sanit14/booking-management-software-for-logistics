@@ -11,6 +11,8 @@ interface Props {
   /** Absent = a dialog with only Cancel (PinDialog drives its own submit). */
   onConfirm?: () => void;
   confirmLabel?: string;
+  /** Wording of the Cancel button, e.g. "Go back". */
+  cancelLabel?: string;
   /** No Cancel button, for a step that must not be dismissed (the caller also ignores onCancel, i.e. Esc). */
   hideCancel?: boolean;
   /** Red confirm button; focus starts on Cancel instead of Confirm. */
@@ -23,7 +25,7 @@ interface Props {
  * back to whatever opened it when it closes. Esc is routed to onCancel. Children are mounted only while open,
  * so their state starts fresh each time. Mark the control that should get focus first with data-autofocus.
  */
-export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel, hideCancel, danger, children }: Props) {
+export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel, cancelLabel, hideCancel, danger, children }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -57,7 +59,7 @@ export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel,
           <div className={styles.actions}>
             {!hideCancel && (
               <Button variant="outline" small onClick={onCancel} data-autofocus={danger || !onConfirm ? '' : undefined}>
-                {strings.ui.cancel}
+                {cancelLabel ?? strings.ui.cancel}
               </Button>
             )}
             {onConfirm && (

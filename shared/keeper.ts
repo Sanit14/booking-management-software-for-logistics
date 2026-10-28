@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 6;
+export const KEEPER_VERSION = 7;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -86,9 +86,63 @@ export type PinRefusal =
   | 'bad-pin' // not exactly 4 digits
   | 'pins-same'; // Admin and System PIN must differ
 
-export type ResultCode = RestoreRefusal | PinRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
+export type MasterKind = 'stations' | 'firms' | 'trucks' | 'drivers';
+
+export interface Station {
+  id: number;
+  name: string;
+  active: boolean;
+  version: number;
+}
+export interface Firm {
+  id: number;
+  name: string;
+  stationId: number | null;
+  phone: string;
+  active: boolean;
+  version: number;
+}
+export interface Truck {
+  id: number;
+  number: string;
+  active: boolean;
+  version: number;
+}
+export interface Driver {
+  id: number;
+  name: string;
+  phone: string;
+  active: boolean;
+  version: number;
+}
+export type MasterRow = Station | Firm | Truck | Driver;
+
+/** Every master, active and inactive, ordered by name / number. The tables are small: the screen searches them in memory. */
+export interface MastersAll {
+  stations: Station[];
+  firms: Firm[];
+  trucks: Truck[];
+  drivers: Driver[];
+}
+
+/** What a clerk types. Each kind uses its own fields: stations name · firms name, stationId, phone · trucks number · drivers name, phone. */
+export interface MasterFields {
+  name?: string;
+  number?: string;
+  stationId?: number | null;
+  phone?: string;
+}
+
+export type MasterRefusal =
+  | 'master-exists' // `row`: the existing one (inactive → the screen offers to reactivate it)
+  | 'master-similar' // `similar`: the names; resend with confirmSimilar to save anyway
+  | 'master-stale' // `row`: the current row, to show what changed
+  | 'master-missing'
+  | 'master-bad'; // detail: the field that is not acceptable (name, number, phone, station)
+
+export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /** What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts). */
-export type KeeperResult<T> = { ok: true; value: T } | { ok: false; code: ResultCode; detail?: string };
+export type KeeperResult<T> = { ok: true; value: T } | { ok: false; code: ResultCode; detail?: string; row?: MasterRow; similar?: string[] };
 
 export type KeeperErrorCode =
   | 'root-refused' // detail: the refused path, `refusal` says why
@@ -129,5 +183,14 @@ export interface KeeperApi {
     changeAdmin(adminPin: string, newPin: string): Promise<KeeperResult<true>>;
     /** Forgot PINs: the recovery code, then both PINs again; answers with the new recovery code. */
     recover(recoveryCode: string, newAdminPin: string, newSystemPin: string): Promise<KeeperResult<{ recoveryCode: string }>>;
+  };
+  /** Master data. Every write answers with the saved row; editing and deactivating carry the System PIN, which the keeper checks. */
+  masters: {
+    all(): Promise<KeeperResult<MastersAll>>;
+    create(kind: MasterKind, fields: MasterFields, confirmSimilar?: boolean): Promise<KeeperResult<MasterRow>>;
+    /** A stale `version` is refused with the current row. */
+    update(kind: MasterKind, id: number, version: number, fields: MasterFields, systemPin: string, confirmSimilar?: boolean): Promise<KeeperResult<MasterRow>>;
+    /** Deactivating needs the System PIN; reactivating ignores it. */
+    setActive(kind: MasterKind, id: number, version: number, active: boolean, systemPin: string): Promise<KeeperResult<MasterRow>>;
   };
 }
