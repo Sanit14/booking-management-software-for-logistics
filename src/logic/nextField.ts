@@ -5,9 +5,11 @@ export interface FieldInfo {
   readOnly: boolean;
   hidden: boolean;
   tabIndex: number;
+  /** Enter walks past it, but Tab, Shift+Tab and a click still reach it (LR Entry's date and From station). */
+  skipEnter?: boolean;
 }
 
-const usable = (f: FieldInfo) => !f.disabled && !f.readOnly && !f.hidden && f.tabIndex >= 0;
+const usable = (f: FieldInfo) => !f.disabled && !f.readOnly && !f.hidden && f.tabIndex >= 0 && !f.skipEnter;
 
 /**
  * Index of the next usable field after `from`, or null when there is none: Enter on the last field then does

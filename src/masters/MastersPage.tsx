@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { Firm, MasterKind, MasterRow, MastersAll } from '../../shared';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import type { ChangeTable, Firm, MasterKind, MasterRow, MastersAll } from '../../shared';
 import { rowText, visibleRows } from '../logic/masterList';
 import Page from '../shell/Page';
 import { strings } from '../strings';
@@ -7,21 +7,23 @@ import { Card } from '../ui/Card';
 import Chip from '../ui/Chip';
 import Field from '../ui/Field';
 import Table, { type Column } from '../ui/Table';
-import { useToast } from '../ui/Toast';
+import { useKeeperData } from '../useKeeperData';
 import MasterForm from './MasterForm';
 import styles from './MastersPage.module.css';
 
 const t = strings.masters;
 const KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers'];
 const NONE: MastersAll = { stations: [], firms: [], trucks: [], drivers: [] };
+const MASTER_TABLES: ChangeTable[] = ['stations', 'firms', 'trucks', 'drivers'];
+const fetchAll = () => window.bm.keeper.masters.all();
 
 /**
  * Masters: one tab per kind, the list on the left (searched in memory, the keeper has sent everything), the add /
- * edit form on the right. The page loads every master when it opens and again after each of its own writes.
+ * edit form on the right. The page loads every master when it opens and again whenever the keeper says one changed
+ * (this seat's saves and every other seat's alike).
  */
 export default function MastersPage() {
-  const toast = useToast();
-  const [data, setData] = useState<MastersAll>(NONE);
+  const { data } = useKeeperData(fetchAll, MASTER_TABLES, NONE);
   const [kind, setKind] = useState<MasterKind>('stations');
   const [query, setQuery] = useState('');
   const [showInactive, setShowInactive] = useState(false);
@@ -29,7 +31,6 @@ export default function MastersPage() {
   // A new key remounts the form: empty fields, first field focused. Bumped after every save, pick, cancel and tab change.
   const [formKey, setFormKey] = useState(0);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
-  const asked = useRef(0); // only the newest masters.all answer is used
   const liveForm = useRef(formKey); // the form on screen now
   const focusTab = useRef<number | null>(null); // set by an arrow key: the tab keeps focus after the new form has mounted
   useEffect(() => {
@@ -37,16 +38,6 @@ export default function MastersPage() {
     if (focusTab.current !== null) tabs.current[focusTab.current]?.focus();
     focusTab.current = null;
   }, [formKey]);
-
-  const load = useCallback(() => {
-    const mine = ++asked.current;
-    void window.bm.keeper.masters.all().then((r) => {
-      if (mine !== asked.current) return; // a newer request was sent meanwhile
-      if (r.ok) setData(r.value);
-      else toast.error(strings.result(r.code, r.detail));
-    });
-  }, [toast]);
-  useEffect(load, [load]);
 
   const show = (k: MasterKind, row: MasterRow | null) => {
     setKind(k);
@@ -117,14 +108,13 @@ export default function MastersPage() {
             kind={kind}
             editing={editing}
             stations={data.stations}
-            // A save that finishes after the clerk has moved to another tab or row must not undo that: it only reloads.
+            // A save that finishes after the clerk has moved to another tab or row must not undo that. The list
+            // refreshes by itself: the keeper announces every committed write.
             onDone={() => {
               if (liveForm.current === formKey) show(kind, null);
-              load();
             }}
             onStale={(current) => {
               if (liveForm.current === formKey) show(kind, current);
-              load();
             }}
             onCancel={() => show(kind, null)}
           />

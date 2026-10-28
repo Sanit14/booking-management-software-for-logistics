@@ -10,9 +10,9 @@ import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { callJson, probe, shutdown } from './client';
+import { callJson, probe, shutdown, subscribeEvents } from './client';
 import { markerPath } from './guard';
-import type { KeeperHealth } from '../shared';
+import { CHANGE_TABLES, type KeeperChange, type KeeperHealth } from '../shared';
 
 const electronExe: string = createRequire(__filename)('electron') as unknown as string;
 const serverJs = path.join(__dirname, 'server.js');
@@ -485,4 +485,157 @@ test('keeper: editing a master over the real route needs the System PIN; bad req
   const log = logOf(s);
   assert.match(log, /pin-refused/);
   for (const secret of ['4831', '7295', 'Shree Ganesh']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+}));
+
+// --- change events and LRs -------------------------------------------------------------------------------------
+
+const lrCall = async (port: number, url: string, body: unknown, seat = 'counter-1'): Promise<Answer> => {
+  const r = await callJson(port, 'POST', url, body, { seat, timeoutMs: 30000 });
+  return { status: r.status, ...(r.json as object) } as Answer & { fields?: Record<string, string> };
+};
+let uidSerial = 0;
+/** PINs, two stations and a firm, through the real routes. */
+async function seed(port: number) {
+  await lrCall(port, '/pins/setup', { adminPin: '4831', systemPin: '7295' });
+  const station = async (name: string) => (await masters(port, 'create', { kind: 'stations', fields: { name } })).value.id as number;
+  const from = await station('Yavatmal');
+  const to = await station('Nagpur');
+  const firm = (await masters(port, 'create', { kind: 'firms', fields: { name: 'Shree Ganesh Traders' } })).value.id as number;
+  const input = (over: Record<string, unknown> = {}) => ({
+    uid: `uid-${++uidSerial}`, date: null, fromStationId: from, toStationId: to,
+    consignor: { firmId: firm, name: '', addToFirms: false }, consignee: { firmId: null, name: 'Kale Brothers', addToFirms: false },
+    particular: 'Cloth bales', qty: '3', toPay: '1,800', paid: '', chargeOption: 'option1',
+    godownBhada: '5', godownInsurance: '5', deliveryCharges: '2', hamali: '30', wasuli: '', staxPercent: '5', ...over,
+  });
+  return { from, to, firm, input };
+}
+async function until(what: string, ok: () => boolean, ms = 20000): Promise<void> {
+  for (let i = 0; i < ms / 50 && !ok(); i++) await sleep(50);
+  assert.ok(ok(), `timed out waiting for ${what}`);
+}
+const listen = (port: number, seat: string) => {
+  const got: KeeperChange[] = [];
+  const stop = subscribeEvents(port, { seat }, (c) => got.push(c));
+  return { got, stop };
+};
+const ALL = [...CHANGE_TABLES];
+
+test('keeper: one event per committed write to every listening seat, none for a refused or read-only call', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  const a = listen(port, 'counter-1');
+  const b = listen(port, 'counter-2');
+  try {
+    await until('both streams to connect', () => a.got.length >= 1 && b.got.length >= 1);
+    assert.deepEqual(a.got[0], { tables: ALL }, 'connecting says "everything may have changed"');
+    a.got.length = 0;
+    b.got.length = 0;
+
+    const made = await masters(port, 'create', { kind: 'stations', fields: { name: 'Wani' } });
+    await until('the station event', () => a.got.length >= 1 && b.got.length >= 1);
+    assert.deepEqual(a.got, [{ tables: ['stations'], ids: [made.value.id] }]);
+    assert.deepEqual(b.got, a.got, 'the other seat got the same');
+
+    // Refused or read-only: nothing is announced.
+    assert.equal((await masters(port, 'create', { kind: 'stations', fields: { name: 'wani' } })).code, 'master-exists');
+    assert.equal((await masters(port, 'update', { kind: 'stations', id: made.value.id, version: 1, fields: { name: 'Wani 2' }, systemPin: '0000' })).code, 'wrong-pin');
+    assert.equal((await masters(port, 'create', { kind: 'stations', fields: { name: '' } })).code, 'master-bad');
+    await masters(port, 'all', {});
+    assert.equal((await lrCall(port, '/lrs/preview', { input: input() })).ok, true);
+    assert.equal((await lrCall(port, '/lrs/create', { input: input({ qty: '0' }) })).code, 'lr-invalid');
+    assert.equal((await lrCall(port, '/lrs/create', { input: input({ date: '2026-01-01' }) })).code, 'wrong-pin');
+    assert.equal((await lrCall(port, '/lrs/by-date', { date: null })).ok, true);
+
+    const lr = await lrCall(port, '/lrs/create', { input: input() });
+    assert.equal(lr.ok, true);
+    await until('the LR event', () => a.got.length >= 2 && b.got.length >= 2);
+    assert.deepEqual(a.got[1], { tables: ['lrs'], ids: [lr.value.row.id] });
+
+    // A walk-in saved to the firms master announces both tables; a retry of the same save announces nothing.
+    const walk = input({ consignee: { firmId: null, name: 'Om Stores', addToFirms: true } });
+    assert.equal((await lrCall(port, '/lrs/create', { input: walk })).value.firmsAdded, true);
+    await until('the walk-in event', () => a.got.length >= 3);
+    assert.deepEqual(a.got[2].tables, ['lrs', 'firms']);
+    assert.equal((await lrCall(port, '/lrs/create', { input: walk })).value.again, true);
+
+    await sleep(400); // anything wrongly sent would be here by now
+    assert.equal(a.got.length, 3);
+    assert.equal(b.got.length, 3);
+  } finally {
+    a.stop();
+    b.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+}));
+
+test('keeper: a seat\'s stream survives a keeper restart: it reconnects, is told to refetch, and keeps receiving', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const first = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const a = listen(port, 'counter-1');
+  try {
+    await until('the stream to connect', () => a.got.length >= 1);
+    assert.equal(await shutdown(port), true);
+    assert.equal(await within(first.exited, 10000), 0);
+    a.got.length = 0;
+
+    const second = startKeeper(s.root, port, s.programData, s.backupDir);
+    assert.equal((await waitUp(port)).state, 'ready');
+    await until('the stream to reconnect', () => a.got.length >= 1);
+    assert.deepEqual(a.got[0], { tables: ALL }, 'told to refetch everything');
+
+    const made = await masters(port, 'create', { kind: 'stations', fields: { name: 'Pusad' } });
+    await until('an event after the restart', () => a.got.length >= 2);
+    assert.deepEqual(a.got[1], { tables: ['stations'], ids: [made.value.id] });
+    assert.equal(await shutdown(port), true);
+    await within(second.exited, 10000);
+  } finally {
+    a.stop();
+  }
+}));
+
+test('keeper: LR numbers run 1, 2, 3 with no gap and go on after a restart; 300 saves are fast', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const first = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  const nos: number[] = [];
+  for (let i = 0; i < 3; i++) nos.push((await lrCall(port, '/lrs/create', { input: input() }, i % 2 ? 'counter-2' : 'counter-1')).value.row.lrNo);
+  assert.deepEqual(nos, [1, 2, 3]);
+
+  assert.equal(await shutdown(port), true);
+  assert.equal(await within(first.exited, 10000), 0);
+  const second = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  assert.equal((await lrCall(port, '/lrs/create', { input: input() })).value.row.lrNo, 4, 'the series went on after the restart');
+  assert.equal((await lrCall(port, '/lrs/defaults', { date: null })).value.nextNo, 5);
+
+  // Speed: the card's budget is an average under 150 ms per save, and a 300-row day listed in under 50 ms.
+  const started = Date.now();
+  let last = 0;
+  for (let i = 0; i < 300; i++) last = (await lrCall(port, '/lrs/create', { input: input() })).value.row.lrNo;
+  const average = (Date.now() - started) / 300;
+  assert.equal(last, 304, 'still no gap');
+  assert.ok(average < 150, `a save took ${average.toFixed(1)} ms on average`);
+  await lrCall(port, '/lrs/by-date', { date: null }); // warm
+  const listed = Date.now();
+  const day = await lrCall(port, '/lrs/by-date', { date: null });
+  const took = Date.now() - listed;
+  assert.equal(day.value.rows.length, 304);
+  assert.equal(day.value.rows[0].lrNo, 304, 'newest first');
+  assert.deepEqual([day.value.totals.count, day.value.totals.qty, day.value.totals.toPayPaise], [304, 912, 304 * 180000]);
+  assert.ok(took < 50, `listing 304 LRs took ${took} ms`);
+  console.log(`# 300 LR saves: ${average.toFixed(1)} ms average; byDate(304 rows): ${took} ms`);
+
+  const log = logOf(s);
+  assert.match(log, /\tlr-saved\t/);
+  for (const secret of ['4831', '7295', 'Kale Brothers']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  assert.equal(await shutdown(port), true);
+  await within(second.exited, 10000);
 }));

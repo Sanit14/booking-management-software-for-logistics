@@ -14,13 +14,17 @@ import {
   type KeeperPush,
   type KeeperResult,
   type KeeperStatus,
+  type LrDay,
+  type LrDefaults,
+  type LrPreview,
+  type LrSaved,
   type MasterRow,
   type MastersAll,
   type RestorePreview,
   type RootRefusal,
 } from '../shared';
 import { strings } from '../src/strings';
-import { callJson, probe, shutdown } from '../keeper/client';
+import { callJson, probe, shutdown, subscribeEvents } from '../keeper/client';
 import { checkDataRoot, resolveDataRoot } from '../keeper/dataRoot';
 import { makeLog } from '../keeper/log';
 import { logPath, pointerPath, programDir } from '../keeper/paths';
@@ -208,7 +212,22 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:masters-set-active', (_e, kind: unknown, id: unknown, version: unknown, active: unknown, pin: unknown) =>
     call<MasterRow>('POST', '/masters/set-active', { kind, id, version, active, systemPin: text(pin) }),
   );
+  // LRs: the keeper parses and checks every value (money is sent as typed text); main forwards named arguments.
+  const dateOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  ipcMain.handle('keeper:lrs-defaults', (_e, date: unknown) => call<LrDefaults>('POST', '/lrs/defaults', { date: dateOrNull(date) }));
+  ipcMain.handle('keeper:lrs-preview', (_e, input: unknown) => call<LrPreview>('POST', '/lrs/preview', { input }));
+  ipcMain.handle('keeper:lrs-create', (_e, input: unknown) => call<LrSaved>('POST', '/lrs/create', { input }));
+  ipcMain.handle('keeper:lrs-by-date', (_e, date: unknown) => call<LrDay>('POST', '/lrs/by-date', { date: dateOrNull(date) }));
+  ipcMain.handle('keeper:settings-set-lr-defaults', (_e, input: unknown, pin: unknown) =>
+    call<LrDefaults>('POST', '/settings/set-lr-defaults', { input, adminPin: text(pin) }),
+  );
   void status(); // warm up before the screen asks
+
+  // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper
+  // restart too) and then says "everything changed", so a view that missed events refetches.
+  subscribeEvents(KEEPER_PORT, { seat }, (change) => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('keeper:changed', change);
+  });
 
   // The one liveness ping (not a data poll). Only a missing or outdated keeper is acted on; "wrong app" and
   // the like are reported by the launch path, and a busy keeper that is slow to answer is left alone.

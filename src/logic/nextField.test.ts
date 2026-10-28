@@ -15,6 +15,11 @@ test('skips disabled, read-only, hidden and tabindex=-1 fields', () => {
   assert.equal(nextIndex(fields, 0), 5);
 });
 
+test('a field marked skipEnter is walked past (it stays reachable by Tab, which this logic does not touch)', () => {
+  assert.equal(nextIndex([f(), f({ skipEnter: true }), f()], 0), 2);
+  assert.equal(nextIndex([f({ skipEnter: true }), f()], -1), 1);
+});
+
 test('after the last usable field there is no next: the form submits', () => {
   assert.equal(nextIndex([f(), f()], 1), null);
   assert.equal(nextIndex([f(), f({ disabled: true })], 0), null);

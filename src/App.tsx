@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { KeeperStatus } from '../shared';
 import styles from './App.module.css';
 import ComponentsPage from './ComponentsPage';
+import LrEntryPage from './lrEntry/LrEntryPage';
 import MastersPage from './masters/MastersPage';
 import Notice from './shell/Notice';
 import PinSetup from './PinSetup';
@@ -30,7 +31,7 @@ export default function App() {
     );
   }, []);
 
-  // Once on entry; the keeper pushes change events later (session 2.2), no polling. Main's 15 s liveness ping
+  // Once on entry; pages refetch on the keeper's change events (useKeeperData), no polling. Main's 15 s liveness ping
   // pushes "reconnecting" and then the new status when it has to start the keeper again.
   useEffect(() => {
     if (COMPONENTS_ONLY) return;
@@ -63,6 +64,8 @@ export default function App() {
           <SettingsPage health={status.health} onExported={load} onComponents={() => setComponents(true)} />
         ) : page === 'masters' ? (
           <MastersPage />
+        ) : page === 'lrEntry' ? (
+          <LrEntryPage />
         ) : (
           <Page id={page} />
         )}

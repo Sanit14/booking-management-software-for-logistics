@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { APP_ID, type KeeperHealth } from '../shared';
+import { APP_ID, CHANGE_TABLES, type ChangeTable, type KeeperChange, type KeeperHealth } from '../shared';
 
 const HOST = '127.0.0.1';
 
@@ -77,4 +77,79 @@ export async function callJson(port: number, method: 'GET' | 'POST', urlPath: st
     /* not JSON: the caller sees json === null */
   }
   return { status: r.status, json };
+}
+
+const RETRY_FIRST_MS = 1000;
+const RETRY_MAX_MS = 5000;
+
+/** A frame is `data: {json}` lines; anything else (the `: connected` comment) is not a change. */
+function parseChange(frame: string): KeeperChange | null {
+  const line = frame.split('\n').find((l) => l.startsWith('data: '));
+  if (!line) return null;
+  try {
+    const j = JSON.parse(line.slice(6)) as { tables?: unknown; ids?: unknown };
+    const tables = Array.isArray(j.tables) ? j.tables.filter((t): t is ChangeTable => (CHANGE_TABLES as readonly unknown[]).includes(t)) : [];
+    if (tables.length === 0) return null;
+    return Array.isArray(j.ids) ? { tables, ids: j.ids.filter((i): i is number => Number.isInteger(i)) } : { tables };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Listens to the keeper's GET /events and calls `onChange` for every change. Whenever the stream (re)connects it also
+ * calls `onChange` once with every table: changes made while it was not listening (the keeper restarting, the first
+ * connection still being made) were missed, so the views refetch. Retries after 1 s, 2 s, 4 s, then every 5 s until
+ * stopped. Returns the stop function.
+ */
+export function subscribeEvents(port: number, opts: ClientOptions, onChange: (change: KeeperChange) => void): () => void {
+  let stopped = false;
+  let current: http.ClientRequest | null = null;
+  let timer: NodeJS.Timeout | null = null;
+  let delay = RETRY_FIRST_MS;
+
+  const retry = () => {
+    if (stopped || timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      connect();
+    }, delay);
+    delay = Math.min(delay * 2, RETRY_MAX_MS);
+  };
+
+  const connect = () => {
+    const headers: Record<string, string> = {};
+    if (opts.seat) headers['X-BM-Seat'] = encodeURIComponent(opts.seat);
+    const req = http.request({ host: HOST, port, path: '/events', method: 'GET', headers, agent: false }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return retry();
+      }
+      delay = RETRY_FIRST_MS;
+      onChange({ tables: [...CHANGE_TABLES] });
+      res.setEncoding('utf8');
+      let buffer = '';
+      res.on('data', (chunk: string) => {
+        buffer += chunk;
+        let end: number;
+        while ((end = buffer.indexOf('\n\n')) >= 0) {
+          const change = parseChange(buffer.slice(0, end));
+          buffer = buffer.slice(end + 2);
+          if (change) onChange(change);
+        }
+      });
+      res.on('end', retry);
+      res.on('error', retry);
+    });
+    current = req;
+    req.on('error', retry);
+    req.end();
+  };
+
+  connect();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    current?.destroy();
+  };
 }

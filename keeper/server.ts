@@ -7,19 +7,24 @@ import http from 'node:http';
 import path from 'node:path';
 import {
   APP_ID,
+  CHANGE_TABLES,
   KEEPER_VERSION,
   type BackupStatus,
   type GuardReason,
   type KeeperHealth,
   type KeeperResult,
+  type LrSaved,
   type MasterFields,
   type MasterKind,
   type ResultCode,
 } from '../shared';
 import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } from './backup';
 import { businessRows, closeDatabase, hasTable, openChecked, raiseMarker, type Db } from './db';
+import { makeEvents } from './events';
 import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './guard';
+import { asDefaultsInput, asLrInput } from './lrRules';
 import { makeLog } from './log';
+import { makeLrs } from './lrs';
 import { makeMasters } from './masters';
 import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
@@ -33,6 +38,7 @@ const MARKER_REFRESH_MS = Math.max(100, Number(process.env.BM_MARKER_REFRESH_MS)
 const MASTER_KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers'];
 const BACKUP_EVERY_MS = 60 * 60 * 1000;
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_EVENT_STREAMS = 32;
 const LATEST_SCHEMA = MIGRATIONS[MIGRATIONS.length - 1].version;
 
 const msg = (e: unknown): string => String((e as Error)?.message ?? e);
@@ -71,6 +77,8 @@ function main(): void {
   const tokens = makeTokens();
   const pins = makePins();
   const masters = makeMasters(pins);
+  const lrs = makeLrs(pins, masters);
+  const events = makeEvents();
   const seats = makeSeats();
   let stopping: Promise<number> | null = null;
   let timersStarted = false;
@@ -199,6 +207,7 @@ function main(): void {
         code = 1;
         log(what, { why, error: msg(e) });
       };
+      events.closeAll(); // the seats' streams end now; they reconnect to the next keeper and refetch
       if (db) {
         await backingUp; // never fails: runBackup logs its own errors
         await runBackup('stop'); // a failed backup must not keep the keeper from closing the database
@@ -270,6 +279,15 @@ function main(): void {
       return send(res, 200, health);
     }
 
+    // The one long-lived answer: a stream of change events. A GET with nothing to read; a web page cannot read it
+    // (no CORS headers), and the host check above has already turned DNS rebinding away.
+    if (url === '/events' && method === 'GET') {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      // One stream per seat is the norm; a page on this PC that opens many must not be able to pile them up.
+      if (events.count() >= MAX_EVENT_STREAMS) return send(res, 429, { error: 'too many event streams' });
+      return events.add(res);
+    }
+
     // Everything else is a POST from our own client: JSON content type, so a cross-origin browser POST (which
     // would need a preflight we never answer) cannot reach it. Listing is a POST too: it opens every backup,
     // which a plain cross-origin GET from a web page on this PC must not be able to trigger.
@@ -277,6 +295,7 @@ function main(): void {
       '/shutdown', '/backups/list', '/restore/preview', '/restore/apply', '/backups/export',
       '/seats', '/pins/setup', '/pins/verify', '/pins/change-system', '/pins/change-admin', '/pins/recover',
       '/masters/all', '/masters/create', '/masters/update', '/masters/set-active',
+      '/lrs/defaults', '/lrs/preview', '/lrs/create', '/lrs/by-date', '/settings/set-lr-defaults',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -347,6 +366,7 @@ function main(): void {
           throw e;
         }
         log('restore-applied', { file, savedAs: savedAs ?? null, schemaVersion });
+        events.publish([...CHANGE_TABLES]); // the whole database was replaced
         return sendResult(res, ok({ schemaVersion }));
       } catch (e) {
         log('restore-failed', { file, error: msg(e) });
@@ -374,7 +394,10 @@ function main(): void {
       }
       // Never the PIN itself: the route, the seat and the outcome.
       if (r.ok) {
-        if (url !== '/pins/verify') log('pins-changed', { url, seat });
+        if (url !== '/pins/verify') {
+          log('pins-changed', { url, seat });
+          events.publish(['settings']);
+        }
       } else if (r.code === 'wrong-pin' || r.code === 'wrong-recovery-code' || r.code === 'pin-locked') {
         log('pin-refused', { url, seat, code: r.code, wait: r.detail });
       }
@@ -405,8 +428,43 @@ function main(): void {
         return sendResult(res, refuse('failed', msg(e)));
       }
       // Never the PIN or the typed values: the route, the seat, the kind and the outcome.
-      if (r.ok && url !== '/masters/all') log('master-saved', { url, seat, kind, id: (r.value as { id: number }).id });
-      else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      if (r.ok && url !== '/masters/all' && kind) {
+        const rowId = (r.value as { id: number }).id;
+        log('master-saved', { url, seat, kind, id: rowId });
+        events.publish([kind], [rowId]);
+      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      return sendResult(res, r);
+    }
+
+    if (url.startsWith('/lrs/') || url.startsWith('/settings/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      const date = typeof body.date === 'string' ? body.date : null;
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/lrs/defaults') r = ok(lrs.defaults(db, date));
+        else if (url === '/lrs/by-date') r = lrs.byDate(db, date);
+        else if (url === '/settings/set-lr-defaults') r = lrs.setDefaults(db, seat, asDefaultsInput(body.input), typeof body.adminPin === 'string' ? body.adminPin : '');
+        else {
+          const input = asLrInput(body.input);
+          if (!input) return send(res, 400, { error: 'input with a uid required' });
+          r = url === '/lrs/preview' ? lrs.preview(db, input) : lrs.create(db, seat, input);
+        }
+      } catch (e) {
+        log('lrs-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      // Never the PIN or the typed values: the route, the seat and the outcome.
+      if (r.ok && url === '/lrs/create') {
+        const done = r.value as LrSaved;
+        if (!done.again) {
+          log('lr-saved', { seat, id: done.row.id, no: done.row.lrNo });
+          events.publish(done.firmsAdded ? ['lrs', 'firms'] : ['lrs'], [done.row.id]);
+        }
+      } else if (r.ok && url === '/settings/set-lr-defaults') {
+        events.publish(['settings']);
+      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
+        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      }
       return sendResult(res, r);
     }
 

@@ -20,6 +20,24 @@ export function parseRupees(text: string): number {
   return paise;
 }
 
+const PERCENT = /^(\d{1,3})(?:\.(\d{1,2}))?$/;
+
+/** "5" -> 500, "2.5" -> 250 (basis points). "" -> 0. Over 100, negative, 3 decimals or text throws. */
+export function parsePercent(text: string): number {
+  const t = text.trim();
+  if (t === '') return 0;
+  const m = PERCENT.exec(t);
+  const bp = m ? Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0')) : NaN;
+  if (!(bp <= 10000)) throw new Error(`invalid percent: ${JSON.stringify(text)}`);
+  return bp;
+}
+
+/** 250 -> "2.5", 500 -> "5": basis points as the text a person would type. */
+export function percentText(bp: number): string {
+  if (!Number.isInteger(bp) || bp < 0 || bp > 10000) throw new Error(`invalid tax rate: ${String(bp)}`);
+  return `${Math.floor(bp / 100)}${bp % 100 ? `.${String(bp % 100).padStart(2, '0').replace(/0$/, '')}` : ''}`;
+}
+
 /** Service tax on `basePaise` at `bp` basis points (500 = 5%), rounded half up. The only tax code. */
 export function taxPaise(basePaise: number, bp: number): number {
   whole(basePaise, 'tax base');

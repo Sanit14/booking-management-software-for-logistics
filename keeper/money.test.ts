@@ -1,6 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chargesFor, lrAmounts, parseRupees, taxPaise, type ChargeRule, type LrMoney } from './money';
+import { chargesFor, lrAmounts, parsePercent, parseRupees, percentText, taxPaise, type ChargeRule, type LrMoney } from './money';
+
+test('parsePercent: a percentage with at most 2 decimals becomes basis points; empty is 0', () => {
+  assert.equal(parsePercent(''), 0);
+  assert.equal(parsePercent(' 0 '), 0);
+  assert.equal(parsePercent('5'), 500);
+  assert.equal(parsePercent('2.5'), 250);
+  assert.equal(parsePercent('12.75'), 1275);
+  assert.equal(parsePercent('100'), 10000);
+  assert.equal(parsePercent('0.05'), 5);
+});
+
+test('parsePercent: more than 100, negative, 3 decimals or text is an error', () => {
+  for (const bad of ['100.01', '101', '-1', '5.123', 'abc', '5%', '.5', '5.', '1,5']) {
+    assert.throws(() => parsePercent(bad), /invalid percent/, bad);
+  }
+});
+
+test('percentText is the way back from basis points, without trailing zeros', () => {
+  assert.equal(percentText(0), '0');
+  assert.equal(percentText(500), '5');
+  assert.equal(percentText(250), '2.5');
+  assert.equal(percentText(1275), '12.75');
+  assert.equal(percentText(5), '0.05');
+  for (const bp of [0, 5, 250, 500, 1275, 10000]) assert.equal(parsePercent(percentText(bp)), bp);
+});
 
 test('parseRupees: valid amounts become paise', () => {
   assert.equal(parseRupees('0'), 0);

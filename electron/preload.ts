@@ -37,6 +37,22 @@ const keeper: KeeperApi = {
     update: (kind, id, version, fields, pin, confirmSimilar) => ipcRenderer.invoke('keeper:masters-update', kind, id, version, fields, pin, confirmSimilar),
     setActive: (kind, id, version, active, pin) => ipcRenderer.invoke('keeper:masters-set-active', kind, id, version, active, pin),
   },
+  onChanged: (callback) => {
+    const listener = (_e: unknown, change: Parameters<typeof callback>[0]) => callback(change);
+    ipcRenderer.on('keeper:changed', listener);
+    return () => {
+      ipcRenderer.removeListener('keeper:changed', listener);
+    };
+  },
+  lrs: {
+    defaults: (date) => ipcRenderer.invoke('keeper:lrs-defaults', date),
+    preview: (input) => ipcRenderer.invoke('keeper:lrs-preview', input),
+    create: (input) => ipcRenderer.invoke('keeper:lrs-create', input),
+    byDate: (date) => ipcRenderer.invoke('keeper:lrs-by-date', date),
+  },
+  settings: {
+    setLrDefaults: (input, adminPin) => ipcRenderer.invoke('keeper:settings-set-lr-defaults', input, adminPin),
+  },
 };
 
 const update: UpdateApi = {

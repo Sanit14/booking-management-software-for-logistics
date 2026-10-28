@@ -24,6 +24,7 @@ export function useEnterToNext() {
       readOnly: !(el instanceof HTMLSelectElement) && el.readOnly,
       hidden: el.getClientRects().length === 0,
       tabIndex: el.tabIndex,
+      skipEnter: el.hasAttribute('data-skip-enter'),
     }));
     const next = fields[nextIndex(info, fields.indexOf(target)) ?? -1];
     if (!next) return;

@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 7;
+export const KEEPER_VERSION = 8;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -140,9 +140,131 @@ export type MasterRefusal =
   | 'master-missing'
   | 'master-bad'; // detail: the field that is not acceptable (name, number, phone, station)
 
-export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
-/** What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts). */
-export type KeeperResult<T> = { ok: true; value: T } | { ok: false; code: ResultCode; detail?: string; row?: MasterRow; similar?: string[] };
+/** The tables a change event can name. A view refetches only when one of its tables is named. */
+export const CHANGE_TABLES = ['stations', 'firms', 'trucks', 'drivers', 'lrs', 'memos', 'settings'] as const;
+export type ChangeTable = (typeof CHANGE_TABLES)[number];
+/** Pushed after a committed write (and, after a reconnect, for every table: events may have been missed). */
+export interface KeeperChange {
+  tables: ChangeTable[];
+  ids?: number[];
+}
+
+export type ChargeOption = 'option1' | 'option2' | 'blank';
+
+/** Who an LR is from / to: a firm picked from the list, or a walk-in name (optionally saved to the firms master with the LR). */
+export interface LrParty {
+  firmId: number | null;
+  /** Used when `firmId` is null. */
+  name: string;
+  addToFirms: boolean;
+}
+
+/**
+ * What a clerk typed. Money, quantity and tax are the typed TEXT: the keeper parses them (the screen never calculates).
+ * `date` null = today; any other date needs `systemPin`.
+ */
+export interface LrInput {
+  /** One per open form; the same uid sent twice returns the LR saved first. */
+  uid: string;
+  date: string | null;
+  systemPin?: string;
+  fromStationId: number | null;
+  toStationId: number | null;
+  consignor: LrParty;
+  consignee: LrParty;
+  particular: string;
+  qty: string;
+  toPay: string;
+  paid: string;
+  chargeOption: ChargeOption;
+  godownBhada: string;
+  godownInsurance: string;
+  deliveryCharges: string;
+  hamali: string;
+  wasuli: string;
+  staxPercent: string;
+  confirmSimilar?: boolean;
+}
+
+export type LrField =
+  | 'date' | 'fromStation' | 'toStation' | 'consignor' | 'consignee' | 'particular' | 'qty' | 'chargeOption'
+  | 'toPay' | 'paid' | 'godownBhada' | 'godownInsurance' | 'deliveryCharges' | 'hamali' | 'wasuli' | 'staxPercent';
+/** Why a field is refused: required · amount (not a rupee amount) · whole (not a whole number ≥ 1) · percent · both (to pay AND paid) · same (from = to) · future (date) · date (not a date) · missing (no such, or inactive, station / firm). */
+export type LrFieldError = 'required' | 'amount' | 'whole' | 'percent' | 'both' | 'same' | 'future' | 'date' | 'missing';
+
+/** Paise. Computed by the keeper's `lrAmounts` only. */
+export interface LrAmounts {
+  freight: number;
+  charges: number;
+  stax: number;
+  total: number;
+}
+/** What a charge option fills for a quantity, in paise. */
+export interface ChargeDefaults {
+  godownBhada: number;
+  godownInsurance: number;
+  deliveryCharges: number;
+  hamali: number;
+}
+/** No write. `fields` holds only what is wrong with the numbers typed so far (not "required"). */
+export interface LrPreview {
+  amounts: LrAmounts;
+  defaults: ChargeDefaults;
+  fields: Partial<Record<LrField, LrFieldError>>;
+}
+
+export type LrStatus = 'booked' | 'loaded' | 'cancelled';
+export interface LrListRow {
+  id: number;
+  lrNo: number;
+  consignor: string;
+  consignee: string;
+  toStation: string;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+  status: LrStatus;
+}
+export interface LrSaved {
+  row: LrListRow;
+  amounts: LrAmounts;
+  /** The same uid had been saved before: this is that first LR, nothing new was written. */
+  again: boolean;
+  /** A walk-in consignor / consignee was saved to the firms master in the same save. */
+  firmsAdded: boolean;
+}
+export interface LrDay {
+  date: string;
+  /** Newest first (by LR number). */
+  rows: LrListRow[];
+  /** Cancelled LRs are left out. All from SQL. */
+  totals: { count: number; qty: number; toPayPaise: number; paidPaise: number; booked: number; loaded: number };
+}
+/** What the LR form starts from. */
+export interface LrDefaults {
+  today: string;
+  bookingStationId: number | null;
+  chargeOption: ChargeOption;
+  /** The default service tax as typed text ("0", "5", "2.5"). */
+  staxPercent: string;
+  /** The number the next LR dated `date` will most likely get (a hint: another seat may take it first). */
+  nextNo: number;
+}
+export interface LrDefaultsInput {
+  bookingStationId: number | null;
+  chargeOption: ChargeOption;
+  staxPercent: string;
+}
+
+export type LrRefusal = 'lr-invalid'; // `fields`: what to fix
+export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
+/**
+ * What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts).
+ * `detail` on master-exists / master-similar from an LR save names the party: consignor or consignee.
+ */
+export type KeeperResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: ResultCode; detail?: string; row?: MasterRow; similar?: string[]; fields?: Partial<Record<LrField, LrFieldError>> };
 
 export type KeeperErrorCode =
   | 'root-refused' // detail: the refused path, `refusal` says why
@@ -192,5 +314,18 @@ export interface KeeperApi {
     update(kind: MasterKind, id: number, version: number, fields: MasterFields, systemPin: string, confirmSimilar?: boolean): Promise<KeeperResult<MasterRow>>;
     /** Deactivating needs the System PIN; reactivating ignores it. */
     setActive(kind: MasterKind, id: number, version: number, active: boolean, systemPin: string): Promise<KeeperResult<MasterRow>>;
+  };
+  /** Calls back after any committed write by any seat. Returns the function that stops listening. */
+  onChanged(callback: (change: KeeperChange) => void): () => void;
+  /** LRs. `date` null = today (the keeper PC's date). */
+  lrs: {
+    defaults(date: string | null): Promise<KeeperResult<LrDefaults>>;
+    preview(input: LrInput): Promise<KeeperResult<LrPreview>>;
+    create(input: LrInput): Promise<KeeperResult<LrSaved>>;
+    byDate(date: string | null): Promise<KeeperResult<LrDay>>;
+  };
+  settings: {
+    /** Admin PIN to change. */
+    setLrDefaults(input: LrDefaultsInput, adminPin: string): Promise<KeeperResult<LrDefaults>>;
   };
 }
