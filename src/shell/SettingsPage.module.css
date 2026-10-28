@@ -1,44 +1,44 @@
-.cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  align-items: start;
-}
-
-.wide {
-  grid-column: 1 / -1;
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 8px 16px;
-  margin: 0;
-  padding: 16px;
-  font-size: var(--fs-16);
-  line-height: 24px;
-}
-
-.facts dt {
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-.facts dd {
-  margin: 0;
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-
-.body {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 16px;
-  font-size: var(--fs-16);
-  line-height: 24px;
-  color: var(--text-2);
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+  padding: 16px;
+  font-size: var(--fs-16);
+  line-height: 24px;
+}
+
+.facts dt {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  font-size: var(--fs-16);
+  line-height: 24px;
+  color: var(--text-2);
 }
 
 .buttons {

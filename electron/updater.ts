@@ -191,6 +191,7 @@ export function initUpdater(keeper: KeeperBridge): void {
     if (!fs.existsSync(downloadedFile)) throw new UpdateError(p.fileMissing);
     if ((await sha512File(downloadedFile)) !== release.sha512) {
       fs.rmSync(downloadedFile, { force: true });
+      downloadedFile = '';
       throw new UpdateError(p.fileChanged);
     }
   }
@@ -271,7 +272,9 @@ export function initUpdater(keeper: KeeperBridge): void {
       if (keeperStopped) keeper.resumeWatchdog(); // brings the keeper back
       busy = false;
       const message = friendly(e);
-      set({ status: 'downloaded', version, notice: message });
+      // The installer is gone or was changed: "Install" can never work now, so offer "Download" again instead.
+      if (!downloadedFile || !fs.existsSync(downloadedFile)) set({ status: 'available', version, sizeBytes: release?.sizeBytes ?? 0 });
+      else set({ status: 'downloaded', version, notice: message });
       return refused(message);
     }
   }

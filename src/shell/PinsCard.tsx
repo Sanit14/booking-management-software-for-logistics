@@ -15,10 +15,10 @@ type Which = 'system' | 'admin' | 'forgot' | null;
 /** Settings → PINs: change either PIN (the Admin PIN is asked first) or reset both with the recovery code. */
 export default function PinsCard() {
   const [open, setOpen] = useState<Which>(null);
-  const [codeShown, setCodeShown] = useState(false); // the one-time recovery code is on screen
+  const [locked, setLocked] = useState(false); // the PINs are being replaced, or the one-time recovery code is on screen
   const close = () => {
     setOpen(null);
-    setCodeShown(false);
+    setLocked(false);
   };
   return (
     <Card title={t.cardTitle}>
@@ -42,8 +42,8 @@ export default function PinsCard() {
       <Dialog open={open === 'admin'} title={t.changeAdmin} onCancel={close}>
         <ChangePin kind="admin" onClose={close} />
       </Dialog>
-      <Dialog open={open === 'forgot'} title={t.recoverTitle} onCancel={codeShown ? () => undefined : close} hideCancel={codeShown}>
-        <PinSetupFlow mode="recover" onDone={close} onCodeShown={() => setCodeShown(true)} />
+      <Dialog open={open === 'forgot'} title={t.recoverTitle} onCancel={locked ? () => undefined : close} hideCancel={locked}>
+        <PinSetupFlow mode="recover" onDone={close} onLock={setLocked} />
       </Dialog>
     </Card>
   );

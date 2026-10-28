@@ -15,7 +15,7 @@ type Step = 'code' | 'admin' | 'admin2' | 'system' | 'system2' | 'saving' | 'don
  * Choose both PINs (each typed twice), then show the recovery code once. `first-run` is the very first start;
  * `recover` starts with the recovery code instead. The keeper decides everything; this only collects digits.
  */
-export function PinSetupFlow({ mode, onDone, onCodeShown }: { mode: 'first-run' | 'recover'; onDone: () => void; onCodeShown?: () => void }) {
+export function PinSetupFlow({ mode, onDone, onLock }: { mode: 'first-run' | 'recover'; onDone: () => void; onLock?: (locked: boolean) => void }) {
   const [step, setStep] = useState<Step>(mode === 'recover' ? 'code' : 'admin');
   const [error, setError] = useState<string | null>(null);
   const [admin, setAdmin] = useState('');
@@ -25,15 +25,16 @@ export function PinSetupFlow({ mode, onDone, onCodeShown }: { mode: 'first-run' 
 
   const save = (systemPin: string) => {
     setStep('saving');
-    const done = mode === 'recover' ? window.bm.keeper.pins.recover(typedCode, admin, systemPin) : window.bm.keeper.pins.setup(admin, systemPin);
+    onLock?.(true); // from here until a refusal, or for good once the code is shown, a dialog around this must not be dismissed
+    const done =mode === 'recover' ? window.bm.keeper.pins.recover(typedCode, admin, systemPin) : window.bm.keeper.pins.setup(admin, systemPin);
     void done.then((r) => {
       if (r.ok) {
         setNewCode(r.value.recoveryCode);
-        onCodeShown?.(); // the PINs are already replaced: from here only the button may close a dialog around this
-        return setStep('done');
+        return setStep('done'); // the PINs are already replaced and stay locked: only the button closes the dialog
       }
       // Another computer finished the first-run setup while this one was typing: nothing to do but carry on.
       if (r.code === 'pins-already-set') return onDone();
+      onLock?.(false); // refused: nothing changed, the dialog may be closed again
       setError(strings.result(r.code, r.detail));
       // ponytail: a wrong recovery code is only found out here, after both PINs were typed; a pre-check route
       // would need a second recovery-code gate. Add one if clerks hit it.
