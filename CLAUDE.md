@@ -65,8 +65,10 @@ Dev machine: Windows 11, PowerShell. Give PowerShell commands, never bash-only o
 **Never run `git commit` or `git push`.** The owner commits. At the end of a session, list the changed files and
 print one suggested commit message, e.g. `feat(keeper): schema v1, counters [session 1.3]`.
 If the session runs in a git worktree (e.g. `.claude/worktrees/<name>`, branch `claude/<name>`), say so at the
-end and print the owner's PowerShell steps: commit inside the worktree, then from the main folder
-`git merge <branch>`, `git worktree remove --force <path>`, `git branch -d <branch>`, `npm install`.
+end and print the owner's PowerShell steps in this order: inside the worktree `git add -A`, `git commit`,
+`git log -1` (confirm the commit exists); then from the main folder `git merge <branch>`, `git log -1` (confirm
+the merge), and only then `git worktree remove <path>` (**never `--force`**: it deletes uncommitted work — the
+first 1.7 attempt was lost this way), `git branch -d <branch>`, `npm install`, `npm run postinstall`.
 
 ## Out of scope until after launch
 Agent page, booking-side wasuli rules (v1 copies DM's Wasuli page), the LR website, any cloud sync.
