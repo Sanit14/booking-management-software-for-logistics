@@ -6,11 +6,15 @@ export const DEFAULT_ROOT = 'C:\\BookingManagerData';
 
 export type RootCheck = { ok: true } | { ok: false; reason: RootRefusal };
 
+// "D:" alone means "the current folder on drive D" to Windows, which depends on the process (on a CI runner it is
+// D:\a\...), so it would slip past the bare-drive rule. Read it as what the person meant: the drive's root.
+const resolveRoot = (root: string): string => win32.resolve(/^[a-z]:$/i.test(root) ? `${root}\\` : root);
+
 // Pure and Windows-path-only (win32), so it gives the same answer in tests on any OS.
 // Each NComputing seat is its own Windows user: a root inside a profile, OneDrive or DM's folder gives
 // every seat its own private copy of the data (the DM bug this exists to stop).
 export function checkDataRoot(root: string, profileDir: string | undefined = process.env.USERPROFILE): RootCheck {
-  const full = win32.resolve(root);
+  const full = resolveRoot(root);
   const low = full.toLowerCase();
   if (win32.parse(full).root.toLowerCase() === low) return { ok: false, reason: 'bare-drive' };
   if (low.includes('deliverymanager')) return { ok: false, reason: 'delivery-manager' };
@@ -27,7 +31,7 @@ export function checkDataRoot(root: string, profileDir: string | undefined = pro
 // The result is always the resolved spelling (no trailing slash): it is hashed into the blank-database marker
 // name, and two spellings of one folder must not get two markers.
 export function resolveDataRoot(env: NodeJS.ProcessEnv, pointer: string): string {
-  return win32.resolve(readRoot(env, pointer));
+  return resolveRoot(readRoot(env, pointer));
 }
 
 function readRoot(env: NodeJS.ProcessEnv, pointer: string): string {

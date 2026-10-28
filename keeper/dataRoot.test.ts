@@ -57,6 +57,12 @@ test('resolve: BM_DATA_ROOT wins and never writes the pointer', () => {
   assert.equal(fs.existsSync(pointer), false);
 });
 
+test('resolve: "D:" alone is the root of drive D, never the current folder on D (which differs per process, e.g. on CI)', () => {
+  const pointer = path.join(tmp(), 'root.json');
+  assert.equal(resolveDataRoot({ BM_DATA_ROOT: 'D:' }, pointer), 'D:\\');
+  assert.deepEqual(checkDataRoot(resolveDataRoot({ BM_DATA_ROOT: 'd:' }, pointer)), { ok: false, reason: 'bare-drive' });
+});
+
 test('resolve: always the resolved spelling (no trailing slash)', () => {
   const pointer = path.join(tmp(), 'root.json');
   assert.equal(resolveDataRoot({ BM_DATA_ROOT: 'D:\\Dev\\BM\\' }, pointer), 'D:\\Dev\\BM');
