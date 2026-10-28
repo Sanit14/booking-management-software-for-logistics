@@ -94,6 +94,7 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
   assert.equal(health.schemaVersion, 1);
   assert.equal(health.dataRoot, s.root);
   assert.equal(health.dbPath, s.dbPath);
+  assert.equal(health.backupDir, s.backupDir);
   assert.ok(fs.statSync(s.dbPath).size > 0, 'a fresh WAL database is never 0 bytes');
   assert.ok(fs.existsSync(markerPath(s.programDir, s.root)), 'marker written after the first open');
   const log = fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8');

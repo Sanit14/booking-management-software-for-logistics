@@ -1,8 +1,38 @@
 # Handoff
 
-**Last session:** 1.5 — design system and app shell. The app now opens into the real shell (sidebar, eight pages, Quick LR, keeper status box) in the direction-A look; `src/ui/` holds every building block; a Components page shows them all; the safe-mode screen and Export are restyled. `npm run check` passes: 66 node tests + 57 database tests, ESLint 0 warnings. No keeper or database code changed.
-**Next:** Session 2.1 (masters endpoints and screens), then 2.2 (keeper change events), 2.4 (Quick LR form + shortcuts), 2.5 (dashboard counts).
-**State:** uncommitted, in git worktree `.claude\worktrees\session-start-1-5-4cea0c` (branch `claude/session-start-1-5-4cea0c`). The owner commits.
+**Last session:** 1.6 — installer and keeper watchdog. `npm run dist` builds `release\Booking Manager-Setup-<version>.exe` (NSIS, per-machine); the installer creates the shared folders with Users-group write rights and never deletes data; every open app pings the keeper every 15 s and starts a new one if it is gone; the window opens maximised; Settings shows versions and folders. `npm run check` passes: 74 node tests (9 new, watchdog) + 57 database tests, ESLint 0 warnings. Installed, run, killed, uninstalled and reinstalled for real on the dev PC (details below).
+**Next:** the owner's hardware check on the NComputing host (list at the bottom of `docs/sessions/1.6.md`; results back to Claude), then Session 1.7 (auto-update, GitHub Actions, signing, System/Admin PIN), then 2.1 (masters), 2.2 (keeper change events), 2.4 (Quick LR), 2.5 (dashboard counts).
+**State:** uncommitted, in git worktree `.claude\worktrees\session-start-1-6-48b0ac` (branch `claude/session-start-1-6-48b0ac`). The owner commits. **Booking Manager 0.1.0 is installed on the dev PC** (`C:\Program Files\Booking Manager`, shortcuts on the Public desktop and Start menu); it is closed and the keeper stopped. Uninstall it from Windows Settings if you do not want it; data and backups stay.
+
+## Session 1.6 — what was done and proven (dev PC, Windows 11, real Electron 22 window)
+1. **`npm run dist`** — proven. Package (`app.asar`) has no `*.test.js`, `*.dbtest.js`, `.map`, `.ts`, `keeper/testing.js`, docs, scripts or `src/logic` (listed with `@electron/asar list`, grep → 0); better-sqlite3 unpacked (only `build/Release/better_sqlite3.node` + `lib/`, 2 MB); installer 69.7 MB.
+2. **Install + open** — proven: silent per-machine install (owner clicked UAC), Start-menu shortcut opens the window maximised (`IsZoomed` true), `/health` ready, status box "Keeper connected", `prod` CSP (no `ws://`) renders. A backup is made by the installed build on a clean keeper stop (`booking-20261027-1537.db`, `-1606.db`); on start none was made because backups dated that day already existed (the rule).
+3. **Kill the keeper** — proven: `Stop-Process` on the keeper → `watchdog-restart` in keeper.log, `/health` back after 2–14 s (the ping is every 15 s, so up to 15 s + start). "Reconnecting…" lasts under a second on a small database, so I did **not** see it in the real window; I saw it (amber dot, then back to green) in the browser pane with a stub `window.bm.keeper.onStatus`.
+4. **Uninstall / reinstall** — proven: uninstall while the app and keeper were running (the installer killed them); `C:\BookingManagerData`, `D:\BookingManagerBackups`, `%ProgramData%\BookingManager` all stayed; reinstall → `database-open action:open`, state ready, no safe mode. Reinstalling over a running app also worked. The dev database has 0 records, so "same data" is shown by the same file, not by rows.
+5. **DM undisturbed** — proven: before/after snapshot of DM's program files, `D:\DeliveryManagerData`, `%ProgramData%\DeliveryManager`, its uninstall key and shortcuts is identical (only Booking Manager's shortcuts and port 47715 were added); and the owner opened DM with Booking Manager installed — it opens and works (owner's report; the 47615 listener itself was not inspected by me).
+6. This file, decisions, file list, commit message — done.
+
+## What exists (new in 1.6)
+- `electron/watchdog.ts` (pure, tested): `KEEPER_PING_MS` (15 s, the only polling) and `keeperAction(probe, expectedVersion)` → `ok | wait | start | replace | wrong-app`. `keeperBridge.ts` uses it for its replace/start decisions and for the ping. `recover(why)` (skipped while a launch attempt is already running) logs `watchdog-restart`, pushes `{kind:'reconnecting'}`, runs the normal `status()` launch (single-instance start), pushes the result. The ping acts on `start`/`replace`, or on `ok` when the last answer was `keeper-unreachable`; any failed keeper request also calls `recover`. Pushes go out on `keeper:status`; preload `keeper.onStatus(cb)` returns the unsubscribe.
+- Screen: `App` keeps `link: ok | reconnecting | lost`; an error push while the shell is up does **not** replace the shell (review finding) — the status box says "Keeper not reachable" in red and the ping retries `keeper-unreachable`. Other errors (wrong app on the port, other data root) stay red until the app is restarted.
+- `KeeperHealth.backupDir`, `KEEPER_VERSION` 5. Settings: "Version and folders" card (app version from `window.bm.version`, keeper, schema, data folder, backup folder).
+- `electron/main.ts`: `show:false` → maximise + show on `ready-to-show` (also shown on `did-fail-load`, so a broken page never leaves an invisible window holding the single-instance lock). `vite.config.ts`: build-only plugin removes `ws://127.0.0.1:5173` from the CSP.
+- `package.json` `build` + `"dist": "npm run clean:node && npm run build && electron-builder --publish never"`; `build/installer.nsh` (folders + `icacls *S-1-5-32-545:(OI)(CI)M`, D: only if a fixed disk, a `DetailPrint` warning if icacls fails, no uninstall macro); `build/icon.png` (from `scripts/make-icon.cjs`, run once with `npx electron scripts/make-icon.cjs`, not shipped). `warningsAsErrors:false` is needed (NSIS warns about an unused variable in the uninstaller pass).
+
+## Review by a fresh agent (code-review-and-quality + ponytail-review)
+Fixed: error push replaced the whole shell; possible invisible window; `dist` now cleans `dist-electron` first (no stale files; `npm run check` is still what proves the native module ABI); icacls failure logged; hard-coded "–" moved to strings; trivial constant test deleted; unused better-sqlite3/`src/logic` files excluded. Reviewer was **wrong** that `warningsAsErrors:false` is a default (removing it broke the build) — kept.
+**Not taken / known:**
+1. **Hardware check #5 matters:** the window's minimum height is 768 and a 1024×768 seat with a taskbar has a ~728 px work area. Look at whether the bottom of the sidebar (status box) is hidden or the page scrolls; if so decide on a smaller `minHeight`/auto-hide taskbar/kiosk.
+2. Uninstall/reinstall kills the keeper without a clean stop (the installer's "app is running" handling); SQLite recovered fine here. Seats still open will restart the keeper ~15 s later from the old path until they are closed — close all seats before reinstalling.
+3. `watchdog.ts` has five outcomes where callers only distinguish three; kept as the card asked.
+4. `vite.config.ts` CSP strip is a silent no-op if the CSP text in `index.html` changes.
+5. A hung (not dead) keeper is not recovered; out of scope.
+6. `npm install` in a fresh worktree took 6 min and, again, left better-sqlite3 for the wrong runtime (all `server.test` failed with "keeper did not come up") until `npm run postinstall` was run — `npm run check` is green only after that. `npm run dist` uses `npmRebuild:false`, so it packages whatever is in `node_modules` (Electron 22 build after `postinstall`; the installed app proved it loads).
+
+## Things to know (new in 1.6)
+- Existing on this PC before the session: `C:\BookingManagerData\booking.db` (0 rows, from 1.3/1.4), `D:\BookingManagerBackups`, an old unrelated `Booking.lnk` in the Start menu.
+- The installed keeper runs as `Booking Manager.exe` with `resources\app.asar\dist-electron\keeper\server.js` (works from inside app.asar). Kill it for tests with `Get-CimInstance Win32_Process -Filter "Name='Booking Manager.exe'" | ? { $_.CommandLine -match 'server\.js' }`.
+- Browser-pane check of the shell still works as in 1.5 (stub `window.bm`, now with `onStatus`); the pane's page is throttled while the pane is hidden, so front it first.
 
 ## What exists (new in 1.5)
 - `src/styles/tokens.css` (every colour/size/spacing/radius/shadow as a CSS variable) and `global.css` (reset, bundled fonts, one focus ring). Fonts: Plus Jakarta Sans + Inter, **woff2 only, declared by hand** (`@font-face`; Inter latin + latin-ext with `unicode-range`, latin-ext carries ₹). fontsource's own subset CSS files have no `unicode-range`, so importing both would let latin-ext replace latin for every letter. Icons `lucide-react` 1.59.0, fonts `@fontsource/*` 5.3.0, all exact devDependencies.
@@ -83,7 +113,7 @@ Tokens/fonts/icons; pure screen logic in `src/logic`; native `<dialog>`; PIN 4 d
 - Debugging the built app with `--remote-debugging-port` wedged under Electron 22 when several clients connected; do not rely on it. `pkill -f` inside the Bash tool kills its own shell.
 - Schema v1 (`keeper/migrations.ts`): a shipped migration is never edited; add version 2. All tables STRICT, money in integer paise, etc. (unchanged).
 
-## Open from 1.1 / for 1.6 (hardware and packaging)
+## Open from 1.1 / for 1.6 (hardware and packaging) — done in 1.6: CSP, asarUnpack, excluded test files, folder permissions, maximised window. Still open: window size on the real seats, Electron advisories
 - `npm audit` Electron advisories accepted (fix needs Electron 41, no Win7).
 - Window size: 1024×768 includes the frame; decide kiosk/maximised on real seats.
 - Production CSP in `index.html` still allows `ws://127.0.0.1:5173`; tighten at packaging.

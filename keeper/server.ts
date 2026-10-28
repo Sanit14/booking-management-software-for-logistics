@@ -243,7 +243,7 @@ function main(): void {
     const url = (req.url ?? '').split('?')[0];
     const method = req.method;
     if (url === '/health' && method === 'GET') {
-      const health: KeeperHealth = { app: APP_ID, state, keeperVersion: KEEPER_VERSION, dataRoot, dbPath, startedAt };
+      const health: KeeperHealth = { app: APP_ID, state, keeperVersion: KEEPER_VERSION, dataRoot, dbPath, backupDir, startedAt };
       if (reason) health.reason = reason;
       if (schemaVersion !== undefined) health.schemaVersion = schemaVersion;
       if (backup.lastAt || backup.failing) health.backup = { ...backup };

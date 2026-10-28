@@ -88,6 +88,8 @@ export const strings = {
   pageEmptyHint: 'This page is built in a later session.',
   status: {
     connected: 'Keeper connected',
+    reconnecting: 'Reconnecting…',
+    lost: 'Keeper not reachable',
     seat: (name: string) => `Seat ${name}`,
     lastBackup: (iso: string) => `Backed up ${time(iso)}`,
     noBackup: 'No backup yet',
@@ -96,6 +98,13 @@ export const strings = {
   settings: {
     backupTitle: 'Backup',
     backupText: 'Backups are made automatically every hour. Export writes a fresh copy to a folder you choose.',
+    versionTitle: 'Version and folders',
+    appVersion: 'Booking Manager',
+    keeperVersion: 'Database service (keeper)',
+    schemaVersion: 'Database schema',
+    noSchema: '–',
+    dataFolder: 'Data folder',
+    backupFolder: 'Backup folder',
     componentsTitle: 'Components',
     componentsText: 'Every building block of the screens, in every state.',
     openComponents: 'Open Components page',

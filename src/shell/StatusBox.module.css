@@ -25,6 +25,14 @@
   background: var(--success);
 }
 
+.waiting {
+  background: var(--warning);
+}
+
+.lostDot {
+  background: var(--danger);
+}
+
 .bad {
   font-weight: 700;
   color: var(--danger);

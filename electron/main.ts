@@ -15,6 +15,7 @@ function createWindow(): BrowserWindow {
     height: 768,
     minWidth: 1024,
     minHeight: 768,
+    show: false, // shown maximised once the page is ready, so there is no flash of a small window
     title: 'Booking Manager',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -38,6 +39,11 @@ function createWindow(): BrowserWindow {
   } else {
     void win.loadFile(path.join(__dirname, '..', '..', 'dist', 'index.html'));
   }
+  win.once('ready-to-show', () => {
+    win.maximize(); // clerks switch to DM and other programs, so maximised rather than kiosk
+    win.show();
+  });
+  win.webContents.once('did-fail-load', () => win.show()); // never leave a hidden window holding the single-instance lock
   win.on('closed', () => {
     mainWindow = null;
   });

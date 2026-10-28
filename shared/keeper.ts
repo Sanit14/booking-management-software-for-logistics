@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 4;
+export const KEEPER_VERSION = 5;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -28,6 +28,8 @@ export interface KeeperHealth {
   backup?: BackupStatus;
   dataRoot: string;
   dbPath: string;
+  /** The folder backups are written to (and, in safe mode, listed from). */
+  backupDir: string;
   startedAt: string;
 }
 
@@ -85,9 +87,14 @@ export type KeeperStatus =
   | { kind: 'safe-mode'; health: KeeperHealth; seat: string }
   | { kind: 'error'; code: KeeperErrorCode; detail: string; refusal?: RootRefusal };
 
+/** Main pushes this to the screen on its own: the keeper vanished and is being started again, or the result of that. */
+export type KeeperPush = KeeperStatus | { kind: 'reconnecting' };
+
 /** Named functions only; there is deliberately no generic call(route, ...). */
 export interface KeeperApi {
   health(): Promise<KeeperStatus>;
+  /** Calls back whenever main reconnects the keeper. Returns the function that stops listening. */
+  onStatus(callback: (push: KeeperPush) => void): () => void;
   backups: {
     list(): Promise<KeeperResult<BackupInfo[]>>;
     /** Asks for a folder, then writes a fresh verified backup there. */

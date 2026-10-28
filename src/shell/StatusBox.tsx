@@ -8,14 +8,23 @@ function backupLine(b: BackupStatus | undefined): { text: string; bad: boolean }
   return { text: strings.status.lastBackup(b.lastAt), bad: false };
 }
 
-/** Foot of the sidebar: keeper dot, seat, last backup. Shown only while the keeper is connected. */
-export default function StatusBox({ seat, backup }: { seat: string; backup?: BackupStatus }) {
+export type KeeperLink = 'ok' | 'reconnecting' | 'lost';
+
+const linkText: Record<KeeperLink, string> = {
+  ok: strings.status.connected,
+  reconnecting: strings.status.reconnecting,
+  lost: strings.status.lost,
+};
+
+/** Foot of the sidebar: keeper dot, seat, last backup. `link` = what main's watchdog says about the keeper. */
+export default function StatusBox({ seat, backup, link = 'ok' }: { seat: string; backup?: BackupStatus; link?: KeeperLink }) {
   const line = backupLine(backup);
+  const dot = link === 'reconnecting' ? styles.waiting : link === 'lost' ? styles.lostDot : '';
   return (
     <div className={styles.box} role="status">
-      <div className={styles.keeper}>
-        <span className={styles.dot} aria-hidden="true" />
-        {strings.status.connected}
+      <div className={`${styles.keeper} ${link === 'lost' ? styles.bad : ''}`.trim()}>
+        <span className={`${styles.dot} ${dot}`.trim()} aria-hidden="true" />
+        {linkText[link]}
       </div>
       <div>{strings.status.seat(seat)}</div>
       <div className={line.bad ? styles.bad : undefined}>{line.text}</div>

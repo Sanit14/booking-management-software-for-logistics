@@ -8,6 +8,14 @@ const arg = process.argv.find((a) => a.startsWith(PREFIX));
 // Named functions only: the screen can never name a keeper route.
 const keeper: KeeperApi = {
   health: () => ipcRenderer.invoke('keeper:health'),
+  onStatus: (callback) => {
+    // Wrapped so the screen never sees the IPC event object.
+    const listener = (_e: unknown, push: Parameters<typeof callback>[0]) => callback(push);
+    ipcRenderer.on('keeper:status', listener);
+    return () => {
+      ipcRenderer.removeListener('keeper:status', listener);
+    };
+  },
   backups: {
     list: () => ipcRenderer.invoke('keeper:backups-list'),
     exportTo: () => ipcRenderer.invoke('keeper:backups-export'),

@@ -11,6 +11,7 @@ import {
   KEEPER_VERSION,
   type BackupInfo,
   type KeeperErrorCode,
+  type KeeperPush,
   type KeeperResult,
   type KeeperStatus,
   type RestorePreview,
@@ -21,6 +22,7 @@ import { callJson, probe, shutdown } from '../keeper/client';
 import { checkDataRoot, resolveDataRoot } from '../keeper/dataRoot';
 import { makeLog } from '../keeper/log';
 import { logPath, pointerPath, programDir } from '../keeper/paths';
+import { KEEPER_PING_MS, keeperAction } from './watchdog';
 
 // A big database is checked (and backed up) before the keeper says ready; the loop still gives up at once if the keeper it started dies.
 const START_WAIT_MS = 60000;
@@ -70,22 +72,22 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
 
   const opts = { seat };
   let p = await probe(KEEPER_PORT, opts);
-  if (p.kind === 'up' && p.health.keeperVersion < KEEPER_VERSION) {
+  if (keeperAction(p, KEEPER_VERSION) === 'replace') {
     // Left over from an older build: replace it (it checkpoints and closes the database first). Look again
     // first: another seat may just have replaced it, and its new keeper must not be shut down.
     const again = await probe(KEEPER_PORT, opts);
-    if (again.kind === 'up' && again.health.keeperVersion < KEEPER_VERSION) {
+    if (keeperAction(again, KEEPER_VERSION) === 'replace') {
       await shutdown(KEEPER_PORT, opts);
       for (let i = 0; i < 40 && (await probe(KEEPER_PORT, opts)).kind === 'up'; i++) await sleep(150);
     }
     p = await probe(KEEPER_PORT, opts);
-    if (p.kind === 'up' && p.health.keeperVersion < KEEPER_VERSION) {
+    if (keeperAction(p, KEEPER_VERSION) === 'replace') {
       throw new LauncherError('keeper-unreachable', 'the old keeper did not stop');
     }
   }
 
   const spawned: { exitCode?: number } = {};
-  if (p.kind === 'down' && p.refused) {
+  if (keeperAction(p, KEEPER_VERSION) === 'start') {
     // Several seats may get here at once; the keeper takes the port before the database, so only one survives.
     const child = spawn(process.execPath, [path.join(__dirname, '..', 'keeper', 'server.js'), dataRoot, String(KEEPER_PORT)], {
       detached: true,
@@ -120,6 +122,7 @@ export function initKeeperBridge(userDataDir: string): void {
   const seat = loadSeat(userDataDir);
   const log = makeLog(logPath(programDir()));
   let inflight: Promise<KeeperStatus> | null = null;
+  let unreachable = false; // the last answer given to the screen was "keeper-unreachable"
 
   // Concurrent callers share one attempt. Each call re-probes, so a keeper that died is started again.
   const status = (): Promise<KeeperStatus> => {
@@ -129,8 +132,25 @@ export function initKeeperBridge(userDataDir: string): void {
         log('launcher-error', { seat, code: err.code, detail: err.detail });
         return { kind: 'error', code: err.code, detail: err.detail, ...(err.refusal ? { refusal: err.refusal } : {}) };
       })
+      .then((s) => {
+        unreachable = s.kind === 'error' && s.code === 'keeper-unreachable';
+        return s;
+      })
       .finally(() => (inflight = null));
     return inflight;
+  };
+
+  const push = (p: KeeperPush) => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('keeper:status', p);
+  };
+
+  // The keeper is gone (or a request to it failed): tell the screen, start it again, tell the screen the result.
+  // status() is the same single-instance start as at launch; every save is already committed, so nothing is lost.
+  const recover = async (why: string) => {
+    if (inflight) return; // an attempt is already running; its caller reports the result
+    log('watchdog-restart', { seat, why });
+    push({ kind: 'reconnecting' });
+    push(await status());
   };
 
   // A named keeper route, answered with the keeper's own KeeperResult. Only the handlers below call it.
@@ -141,6 +161,7 @@ export function initKeeperBridge(userDataDir: string): void {
       if (j && typeof j.ok === 'boolean') return j as KeeperResult<T>;
       return { ok: false, code: 'failed', detail: `the keeper answered ${r.status}` };
     } catch (e) {
+      void recover('request-failed');
       return { ok: false, code: 'keeper-unreachable', detail: String((e as Error)?.message ?? e) };
     }
   };
@@ -161,4 +182,14 @@ export function initKeeperBridge(userDataDir: string): void {
     call<{ schemaVersion: number }>('POST', '/restore/apply', { file: text(file), confirmToken: text(token) }),
   );
   void status(); // warm up before the screen asks
+
+  // The one liveness ping (not a data poll). Only a missing or outdated keeper is acted on; "wrong app" and
+  // the like are reported by the launch path, and a busy keeper that is slow to answer is left alone.
+  setInterval(() => {
+    void probe(KEEPER_PORT, { seat }).then((p) => {
+      const action = keeperAction(p, KEEPER_VERSION);
+      if (action === 'start' || action === 'replace') void recover(action);
+      else if (action === 'ok' && unreachable) void recover('screen-showed-unreachable');
+    });
+  }, KEEPER_PING_MS);
 }
