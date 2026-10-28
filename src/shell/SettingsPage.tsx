@@ -5,6 +5,8 @@ import Button from '../ui/Button';
 import { Card } from '../ui/Card';
 import { useToast } from '../ui/Toast';
 import Page from './Page';
+import PinsCard from './PinsCard';
+import UpdateCard from './UpdateCard';
 import styles from './SettingsPage.module.css';
 
 /** Only what exists so far: versions and folders, the backup export (moved here from the 1.4 status line) and the Components page link. */
@@ -40,6 +42,8 @@ export default function SettingsPage({ health, onExported, onComponents }: { hea
             ))}
           </dl>
         </Card>
+        <PinsCard />
+        <UpdateCard />
         <Card title={strings.settings.backupTitle}>
           <div className={styles.body}>
             <p>{strings.settings.backupText}</p>

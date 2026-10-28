@@ -1,0 +1,71 @@
+.page {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.card {
+  width: 640px;
+  max-width: 100%;
+}
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 24px;
+  font-size: var(--fs-17);
+  line-height: 26px;
+}
+
+.intro p,
+.flow p {
+  margin: 0;
+}
+
+.flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-height: 190px;
+  justify-content: center;
+}
+
+.error {
+  color: var(--danger);
+  font-weight: 700;
+  font-size: var(--fs-15);
+}
+
+.codeForm {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.code {
+  padding: 12px 22px;
+  border: 2px dashed var(--teal-dark);
+  border-radius: var(--r-lg);
+  background: var(--tint);
+  font-family: var(--font-num);
+  font-size: var(--fs-24);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--teal-dark);
+  user-select: all;
+}

@@ -6,7 +6,7 @@ import { keeperAction } from './watchdog';
 
 const up = (state: KeeperHealth['state'], keeperVersion: number): Probe => ({
   kind: 'up',
-  health: { app: APP_ID, state, keeperVersion, dataRoot: 'C:\\x', dbPath: 'C:\\x\\booking.db', backupDir: 'D:\\b', startedAt: '2026-01-01T00:00:00Z' },
+  health: { app: APP_ID, state, keeperVersion, pid: 1, dataRoot: 'C:\\x', dbPath: 'C:\\x\\booking.db', backupDir: 'D:\\b', startedAt: '2026-01-01T00:00:00Z' },
 });
 
 test('a ready keeper of the current version is ok', () => {

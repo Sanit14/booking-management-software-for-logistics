@@ -118,11 +118,12 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
   return health.state === 'safe-mode' ? { kind: 'safe-mode', health, seat } : { kind: 'connected', health, seat };
 }
 
-export function initKeeperBridge(userDataDir: string): void {
+export function initKeeperBridge(userDataDir: string) {
   const seat = loadSeat(userDataDir);
   const log = makeLog(logPath(programDir()));
   let inflight: Promise<KeeperStatus> | null = null;
   let unreachable = false; // the last answer given to the screen was "keeper-unreachable"
+  let paused = false; // the updater stopped the keeper on purpose: do not start it again
 
   // Concurrent callers share one attempt. Each call re-probes, so a keeper that died is started again.
   const status = (): Promise<KeeperStatus> => {
@@ -147,7 +148,7 @@ export function initKeeperBridge(userDataDir: string): void {
   // The keeper is gone (or a request to it failed): tell the screen, start it again, tell the screen the result.
   // status() is the same single-instance start as at launch; every save is already committed, so nothing is lost.
   const recover = async (why: string) => {
-    if (inflight) return; // an attempt is already running; its caller reports the result
+    if (inflight || paused) return; // an attempt is already running (its caller reports the result), or the keeper is stopped on purpose
     log('watchdog-restart', { seat, why });
     push({ kind: 'reconnecting' });
     push(await status());
@@ -181,15 +182,46 @@ export function initKeeperBridge(userDataDir: string): void {
   ipcMain.handle('keeper:restore-apply', (_e, file: unknown, token: unknown) =>
     call<{ schemaVersion: number }>('POST', '/restore/apply', { file: text(file), confirmToken: text(token) }),
   );
+  ipcMain.handle('keeper:pins-setup', (_e, admin: unknown, system: unknown) =>
+    call<{ recoveryCode: string }>('POST', '/pins/setup', { adminPin: text(admin), systemPin: text(system) }),
+  );
+  ipcMain.handle('keeper:pins-verify', (_e, kind: unknown, pin: unknown) => call<true>('POST', '/pins/verify', { kind: text(kind), pin: text(pin) }));
+  ipcMain.handle('keeper:pins-change-system', (_e, admin: unknown, pin: unknown) =>
+    call<true>('POST', '/pins/change-system', { adminPin: text(admin), newPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:pins-change-admin', (_e, admin: unknown, pin: unknown) =>
+    call<true>('POST', '/pins/change-admin', { adminPin: text(admin), newPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:pins-recover', (_e, code: unknown, admin: unknown, system: unknown) =>
+    call<{ recoveryCode: string }>('POST', '/pins/recover', { recoveryCode: text(code), newAdminPin: text(admin), newSystemPin: text(system) }),
+  );
   void status(); // warm up before the screen asks
 
   // The one liveness ping (not a data poll). Only a missing or outdated keeper is acted on; "wrong app" and
   // the like are reported by the launch path, and a busy keeper that is slow to answer is left alone.
   setInterval(() => {
+    if (paused) return;
     void probe(KEEPER_PORT, { seat }).then((p) => {
       const action = keeperAction(p, KEEPER_VERSION);
       if (action === 'start' || action === 'replace') void recover(action);
       else if (action === 'ok' && unreachable) void recover('screen-showed-unreachable');
     });
   }, KEEPER_PING_MS);
+
+  return {
+    seat,
+    status,
+    call,
+    /** The updater is about to stop the keeper and replace the program. */
+    pauseWatchdog: () => {
+      paused = true;
+    },
+    /** The update stopped before the installer ran: bring the keeper back now. */
+    resumeWatchdog: () => {
+      paused = false;
+      void recover('update-stopped');
+    },
+  };
 }
+
+export type KeeperBridge = ReturnType<typeof initKeeperBridge>;

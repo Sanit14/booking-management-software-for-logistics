@@ -1,0 +1,25 @@
+# Checks only: no secrets, nothing is published from here (releases are built and signed on the release PC).
+name: check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4 # the dev PC's Node
+          cache: npm
+      - run: npm ci
+      # better-sqlite3 for Electron 22 (the tests spawn the keeper as Electron-as-node). `npm ci` runs it too;
+      # the explicit step is the card's and costs a minute (HANDOFF 1.5: a fresh install once left the wrong build).
+      - run: npm run postinstall
+      - run: npm run check
+      - run: npm run dist

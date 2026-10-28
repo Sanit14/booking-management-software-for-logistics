@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 5;
+export const KEEPER_VERSION = 6;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -26,6 +26,10 @@ export interface KeeperHealth {
   /** The database's schema version; absent in safe mode, where the database is not touched. */
   schemaVersion?: number;
   backup?: BackupStatus;
+  /** The keeper's process id: the updater waits for it to exit before installing. */
+  pid: number;
+  /** Whether the two PINs have been set (first-run setup done); absent in safe mode. */
+  pinsSet?: boolean;
   dataRoot: string;
   dbPath: string;
   /** The folder backups are written to (and, in safe mode, listed from). */
@@ -70,7 +74,19 @@ export interface RestorePreview {
   live: DbSummary | 'missing' | 'damaged';
 }
 
-export type ResultCode = RestoreRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
+/** The two PINs. The recovery code is a third secret the keeper checks, but only through pins.recover. */
+export type PinKind = 'admin' | 'system';
+
+export type PinRefusal =
+  | 'wrong-pin'
+  | 'wrong-recovery-code'
+  | 'pin-locked' // detail: seconds to wait
+  | 'pins-already-set' // another seat finished the first-run setup first
+  | 'pins-not-set'
+  | 'bad-pin' // not exactly 4 digits
+  | 'pins-same'; // Admin and System PIN must differ
+
+export type ResultCode = RestoreRefusal | PinRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /** What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts). */
 export type KeeperResult<T> = { ok: true; value: T } | { ok: false; code: ResultCode; detail?: string };
 
@@ -103,5 +119,15 @@ export interface KeeperApi {
   restore: {
     preview(file: string): Promise<KeeperResult<RestorePreview>>;
     apply(file: string, token: string): Promise<KeeperResult<{ schemaVersion: number }>>;
+  };
+  /** The keeper checks every PIN; the screen only collects digits and passes them on. */
+  pins: {
+    /** First run: both PINs; answers with the recovery code, to be shown once. */
+    setup(adminPin: string, systemPin: string): Promise<KeeperResult<{ recoveryCode: string }>>;
+    verify(kind: PinKind, pin: string): Promise<KeeperResult<true>>;
+    changeSystem(adminPin: string, newPin: string): Promise<KeeperResult<true>>;
+    changeAdmin(adminPin: string, newPin: string): Promise<KeeperResult<true>>;
+    /** Forgot PINs: the recovery code, then both PINs again; answers with the new recovery code. */
+    recover(recoveryCode: string, newAdminPin: string, newSystemPin: string): Promise<KeeperResult<{ recoveryCode: string }>>;
   };
 }

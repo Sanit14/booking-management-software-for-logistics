@@ -3,6 +3,7 @@ import type { KeeperStatus } from '../shared';
 import styles from './App.module.css';
 import ComponentsPage from './ComponentsPage';
 import Notice from './shell/Notice';
+import PinSetup from './PinSetup';
 import Page from './shell/Page';
 import type { PageId } from './shell/pages';
 import SettingsPage from './shell/SettingsPage';
@@ -47,6 +48,9 @@ export default function App() {
   if (status === null) return <Notice text={strings.keeperStarting} />;
   if (status.kind === 'error') return <Notice alert text={strings.keeperStatus(status)} />;
   if (status.kind === 'safe-mode') return <SafeMode message={strings.keeperStatus(status)} onRestored={load} />;
+
+  // First run, or a database restored from before the PINs existed: nothing else until both PINs are set.
+  if (status.health.pinsSet === false) return <PinSetup onDone={load} />;
 
   return (
     <div className={styles.app}>

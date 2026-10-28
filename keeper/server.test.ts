@@ -356,3 +356,45 @@ test('keeper: export writes a verified backup to the folder asked for, and refus
   assert.equal(await shutdown(port), true);
   await within(again.exited, 10000);
 }));
+
+test('keeper: first-run PIN setup is set-once, wrong PINs lock after five, other seats are listed', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const first = startKeeper(s.root, port, s.programData, s.backupDir);
+  const health = await waitUp(port);
+  assert.equal(health.pinsSet, false);
+  assert.equal(health.pid, first.child.pid);
+
+  const send = async (url: string, body: unknown, seat = 'counter-1') => {
+    const r = await callJson(port, 'POST', url, body, { seat });
+    return { status: r.status, ...(r.json as { ok: boolean; value?: Record<string, string>; code?: string; detail?: string }) };
+  };
+
+  const made = await send('/pins/setup', { adminPin: '4831', systemPin: '7295' });
+  assert.equal(made.ok, true);
+  assert.match(made.value?.recoveryCode ?? '', /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  assert.equal((await waitUp(port)).pinsSet, true);
+
+  // another seat that was still on the setup screen: refused, nothing changed
+  const late = await send('/pins/setup', { adminPin: '1111', systemPin: '2222' }, 'counter-2');
+  assert.deepEqual([late.status, late.code], [409, 'pins-already-set']);
+  assert.equal((await send('/pins/verify', { kind: 'admin', pin: '4831' })).ok, true);
+
+  for (let i = 0; i < 4; i++) assert.equal((await send('/pins/verify', { kind: 'system', pin: '0000' })).code, 'wrong-pin');
+  const locked = await send('/pins/verify', { kind: 'system', pin: '0000' });
+  assert.deepEqual([locked.code, locked.detail], ['pin-locked', '60']);
+  assert.equal((await send('/pins/verify', { kind: 'system', pin: '7295' })).code, 'pin-locked', 'locked even for the right PIN');
+  assert.equal((await send('/pins/verify', { kind: 'admin', pin: '4831' })).ok, true, 'the other PIN is not locked');
+  assert.equal((await send('/pins/verify', { kind: 'nonsense', pin: '4831' })).code, 'bad-pin');
+
+  // the seat list: counter-2 has talked to the keeper just now, counter-1 asks and is not counted
+  const seats = await send('/seats', {});
+  assert.deepEqual(seats.value?.others, ['counter-2']);
+
+  assert.equal(await shutdown(port), true);
+  assert.equal(await within(first.exited, 10000), 0);
+  // the PINs and the code are in the database as hashes and in no log
+  const log = fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8').split('\n').filter((l) => /pin/i.test(l)).join('\n');
+  assert.match(log, /pin-refused/);
+  for (const secret of ['4831', '7295', made.value?.recoveryCode ?? 'x']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+}));

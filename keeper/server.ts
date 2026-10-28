@@ -20,7 +20,9 @@ import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './g
 import { makeLog } from './log';
 import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
+import { makePins } from './pins';
 import { makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
+import { makeSeats } from './seats';
 
 const HOST = '127.0.0.1';
 const MARKER_REFRESH_MS = 5 * 60 * 1000;
@@ -62,6 +64,8 @@ function main(): void {
   const backup: BackupStatus = {};
   let backingUp: Promise<void> | null = null;
   const tokens = makeTokens();
+  const pins = makePins();
+  const seats = makeSeats();
   let stopping: Promise<number> | null = null;
   let timersStarted = false;
 
@@ -240,10 +244,20 @@ function main(): void {
   async function route(req: http.IncomingMessage, res: http.ServerResponse, raw: string | null): Promise<void> {
     // A web page in a browser on this PC must not be able to drive the keeper (DNS rebinding included).
     if (req.headers.host !== `${HOST}:${port}`) return send(res, 403, { error: 'bad host' });
+    // Every seat pings /health every 15 s with its name; that is what "this seat has the app open" rests on.
+    const seatHeader = req.headers['x-bm-seat'];
+    let seat = '';
+    try {
+      seat = typeof seatHeader === 'string' ? decodeURIComponent(seatHeader) : '';
+    } catch {
+      /* a malformed name is no name */
+    }
+    if (seat) seats.saw(seat);
     const url = (req.url ?? '').split('?')[0];
     const method = req.method;
     if (url === '/health' && method === 'GET') {
-      const health: KeeperHealth = { app: APP_ID, state, keeperVersion: KEEPER_VERSION, dataRoot, dbPath, backupDir, startedAt };
+      const health: KeeperHealth = { app: APP_ID, state, keeperVersion: KEEPER_VERSION, pid: process.pid, dataRoot, dbPath, backupDir, startedAt };
+      if (state === 'ready' && db) health.pinsSet = pins.isSet(db);
       if (reason) health.reason = reason;
       if (schemaVersion !== undefined) health.schemaVersion = schemaVersion;
       if (backup.lastAt || backup.failing) health.backup = { ...backup };
@@ -253,7 +267,10 @@ function main(): void {
     // Everything else is a POST from our own client: JSON content type, so a cross-origin browser POST (which
     // would need a preflight we never answer) cannot reach it. Listing is a POST too: it opens every backup,
     // which a plain cross-origin GET from a web page on this PC must not be able to trigger.
-    const known = ['/shutdown', '/backups/list', '/restore/preview', '/restore/apply', '/backups/export'];
+    const known = [
+      '/shutdown', '/backups/list', '/restore/preview', '/restore/apply', '/backups/export',
+      '/seats', '/pins/setup', '/pins/verify', '/pins/change-system', '/pins/change-admin', '/pins/recover',
+    ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
     if (method !== 'POST' || !json) return send(res, 405, { error: 'method not allowed' });
@@ -328,6 +345,33 @@ function main(): void {
         log('restore-failed', { file, error: msg(e) });
         return sendResult(res, refuse('failed', msg(e)));
       }
+    }
+
+    if (url === '/seats') return sendResult(res, ok({ others: seats.othersOnline(seat) }));
+
+    if (url.startsWith('/pins/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      const text = (k: string): string => (typeof body[k] === 'string' ? (body[k] as string) : '');
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/pins/setup') r = pins.setup(db, seat, text('adminPin'), text('systemPin'));
+        else if (url === '/pins/verify') {
+          const kind = text('kind');
+          r = kind === 'admin' || kind === 'system' ? pins.verify(db, kind, text('pin')) : refuse('bad-pin');
+        } else if (url === '/pins/change-system') r = pins.changeSystem(db, seat, text('adminPin'), text('newPin'));
+        else if (url === '/pins/change-admin') r = pins.changeAdmin(db, seat, text('adminPin'), text('newPin'));
+        else r = pins.recover(db, seat, text('recoveryCode'), text('newAdminPin'), text('newSystemPin'));
+      } catch (e) {
+        log('pins-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      // Never the PIN itself: the route, the seat and the outcome.
+      if (r.ok) {
+        if (url !== '/pins/verify') log('pins-changed', { url, seat });
+      } else if (r.code === 'wrong-pin' || r.code === 'wrong-recovery-code' || r.code === 'pin-locked') {
+        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      }
+      return sendResult(res, r);
     }
 
     // /backups/export: a fresh verified backup in a folder the person chose (for the USB copy).

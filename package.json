@@ -14,10 +14,13 @@
     "clean:node": "node -e \"require('fs').rmSync('dist-electron',{recursive:true,force:true})\"",
     "test:db": "node scripts/test-db.cjs",
     "check": "npm run typecheck && eslint . --max-warnings 0 && npm run clean:node && npm run build:node && cd dist-electron && node --test && cd .. && npm run test:db",
-    "dist": "npm run clean:node && npm run build && electron-builder --publish never"
+    "dist": "npm run clean:node && npm run build && electron-builder --publish never",
+    "update:keygen": "node scripts/update-keygen.cjs",
+    "release": "node scripts/release.cjs"
   },
   "dependencies": {
-    "better-sqlite3": "12.11.1"
+    "better-sqlite3": "12.11.1",
+    "electron-updater": "6.8.9"
   },
   "devDependencies": {
     "@electron/rebuild": "4.2.0",
@@ -79,7 +82,7 @@
       "icon": "build/icon.png"
     },
     "nsis": {
-      "artifactName": "Booking Manager-Setup-${version}.${ext}",
+      "artifactName": "BookingManager-Setup-${version}.${ext}",
       "oneClick": false,
       "perMachine": true,
       "allowToChangeInstallationDirectory": true,
@@ -87,6 +90,10 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Booking Manager",
       "warningsAsErrors": false
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://github.com/Sanit14/BookingManager-releases/releases/latest/download/"
     }
   }
 }
