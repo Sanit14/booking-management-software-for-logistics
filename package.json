@@ -60,7 +60,6 @@
       "!**/*.map",
       "!dist-electron/keeper/testing.js",
       "!**/*.{lib,exp,iobj,ipdb,pdb}",
-      "!dist-electron/src/logic/**",
       "!node_modules/better-sqlite3/{deps,src,bin}/**",
       "!node_modules/better-sqlite3/build/{deps,Release/obj}/**",
       "!node_modules/better-sqlite3/build/*.vcxproj*",

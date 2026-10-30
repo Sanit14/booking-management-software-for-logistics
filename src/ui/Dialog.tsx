@@ -17,6 +17,8 @@ interface Props {
   hideCancel?: boolean;
   /** Red confirm button; focus starts on Cancel instead of Confirm. */
   danger?: boolean;
+  /** Wide enough for a whole form (Quick LR). */
+  wide?: boolean;
   children?: ReactNode;
 }
 
@@ -25,25 +27,36 @@ interface Props {
  * back to whatever opened it when it closes. Esc is routed to onCancel. Children are mounted only while open,
  * so their state starts fresh each time. Mark the control that should get focus first with data-autofocus.
  */
-export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel, cancelLabel, hideCancel, danger, children }: Props) {
+export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel, cancelLabel, hideCancel, danger, wide, children }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+
+  // Where the cursor was when the dialog opened: a text box gets its caret back too, not only the focus.
+  const opener = useRef<{ el: HTMLElement; from: number | null; to: number | null } | null>(null);
 
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
     if (open && !d.open) {
+      const el = document.activeElement;
+      opener.current = el instanceof HTMLInputElement ? { el, from: el.selectionStart, to: el.selectionEnd } : null;
       d.showModal();
       d.querySelector<HTMLElement>('[data-autofocus]')?.focus();
     } else if (!open && d.open) {
       d.close();
+      const back = opener.current;
+      opener.current = null;
+      if (back?.el.isConnected && back.from !== null && back.to !== null) {
+        back.el.focus();
+        (back.el as HTMLInputElement).setSelectionRange(back.from, back.to);
+      }
     }
   }, [open]);
 
   return (
     <dialog
       ref={ref}
-      className={styles.dialog}
+      className={wide ? `${styles.dialog} ${styles.wide}` : styles.dialog}
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault(); // the caller closes it by clearing `open`

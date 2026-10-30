@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { KeeperApi, UpdateApi, UpdateState } from '../shared';
+import type { KeeperApi, KeysApi, UpdateApi, UpdateState } from '../shared';
 
 // A sandboxed preload cannot call app.getVersion(); main passes it as an argument.
 const PREFIX = '--app-version=';
@@ -75,4 +75,9 @@ const update: UpdateApi = {
   install: (adminPin) => ipcRenderer.invoke('update:install', adminPin),
 };
 
-contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update });
+const keys: KeysApi = {
+  get: () => ipcRenderer.invoke('seat:keys-get'),
+  set: (map) => ipcRenderer.invoke('seat:keys-set', map),
+};
+
+contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update, keys });

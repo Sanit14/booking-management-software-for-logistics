@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { LrDetail } from '../../shared';
+import { keyLabel } from '../logic/keymap';
 import { strings } from '../strings';
 import Button from '../ui/Button';
 import Chip from '../ui/Chip';
@@ -7,6 +8,7 @@ import Dialog from '../ui/Dialog';
 import Field from '../ui/Field';
 import PinDialog from '../ui/PinDialog';
 import { useToast } from '../ui/Toast';
+import { useKeys } from '../useKeys';
 import LrHistory from './LrHistory';
 import styles from './LrEntryPage.module.css';
 
@@ -18,6 +20,8 @@ interface Props {
   editing: boolean;
   /** Another seat saved this LR while it is being edited here. */
   changedElsewhere: boolean;
+  /** What is wrong with the boxes, as one line (the form's boxes do not show their own messages). */
+  problem: string;
   /** The System PIN typed for Edit: the form checks it with the keeper and switches to edit mode. */
   onEdit: (pin: string) => Promise<boolean>;
   onDiscard: () => void;
@@ -30,8 +34,9 @@ interface Props {
  * Cancel asks a reason, then the System PIN; the keeper checks the PIN with the action itself, so a wrong PIN just
  * shakes the dots and nothing is written.
  */
-export default function LrActions({ lr, editing, changedElsewhere, onEdit, onDiscard, onOpen }: Props) {
+export default function LrActions({ lr, editing, changedElsewhere, problem, onEdit, onDiscard, onOpen }: Props) {
   const toast = useToast();
+  const { keys } = useKeys();
   const [step, setStep] = useState<Step>(null);
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string>();
@@ -97,6 +102,11 @@ export default function LrActions({ lr, editing, changedElsewhere, onEdit, onDis
           {t.changedElsewhere}
         </span>
       )}
+      {problem && (
+        <span className={styles.openWarn} aria-hidden="true" title={problem}>
+          {problem}
+        </span>
+      )}
       <span className={styles.openActions}>
         {editing ? (
           <Button small variant="outline" onClick={onDiscard}>
@@ -121,7 +131,7 @@ export default function LrActions({ lr, editing, changedElsewhere, onEdit, onDis
             <Button small variant="outline" onClick={() => setShowHistory(true)}>
               {t.actions.history}
             </Button>
-            <Button small variant="outline" keyCap={strings.ui.esc} onClick={() => onOpen(null)}>
+            <Button small variant="outline" keyCap={keyLabel(keys.newLr)} onClick={() => onOpen(null)}>
               {t.actions.newLr}
             </Button>
           </>

@@ -1,9 +1,14 @@
 import type { ReactNode } from 'react';
 import { Plus, Truck } from 'lucide-react';
+import { keyLabel, type ActionId } from '../logic/keymap';
 import { strings } from '../strings';
 import Button from '../ui/Button';
+import { useKeys } from '../useKeys';
 import { adminPages, mainPages, pageIcons, type PageId } from './pages';
 import styles from './Sidebar.module.css';
+
+// The pages that have a key of their own (Settings > Keyboard shortcuts); the tooltip names it.
+const pageAction: Partial<Record<PageId, ActionId>> = { dashboard: 'goDashboard', lrEntry: 'goLrEntry', loadingMemo: 'goLoadingMemo' };
 
 interface Props {
   page: PageId;
@@ -16,6 +21,7 @@ interface Props {
 }
 
 export default function Sidebar({ page, onSelect, onQuickLr, badges = {}, children }: Props) {
+  const { keys } = useKeys();
   const group = (label: string, ids: PageId[]) => (
     <>
       <div className={styles.group}>{label}</div>
@@ -23,10 +29,12 @@ export default function Sidebar({ page, onSelect, onQuickLr, badges = {}, childr
         {ids.map((id) => {
           const Icon = pageIcons[id];
           const count = badges[id];
+          const action = pageAction[id];
           return (
             <button
               key={id}
               type="button"
+              title={action ? `${strings.pages[id]} (${keyLabel(keys[action])})` : undefined}
               className={`${styles.item} ${id === page ? styles.current : ''}`.trim()}
               aria-current={id === page ? 'page' : undefined}
               onClick={() => onSelect(id)}
@@ -52,7 +60,7 @@ export default function Sidebar({ page, onSelect, onQuickLr, badges = {}, childr
           <div className={styles.company}>{strings.company}</div>
         </div>
       </div>
-      <Button className={styles.quick} icon={<Plus size={18} strokeWidth={2.4} aria-hidden="true" />} onClick={onQuickLr}>
+      <Button className={styles.quick} icon={<Plus size={18} strokeWidth={2.4} aria-hidden="true" />} keyCap={keyLabel(keys.quickLr)} title={`${strings.quickLr} (${keyLabel(keys.quickLr)})`} onClick={onQuickLr}>
         {strings.quickLr}
       </Button>
       {group(strings.nav.main, mainPages)}

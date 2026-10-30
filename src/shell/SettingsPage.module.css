@@ -75,3 +75,39 @@
 .stepDone {
   color: var(--success);
 }
+
+.keyList {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  list-style: none;
+}
+
+.keyRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.keyAction {
+  flex: 0 0 240px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.keyValue {
+  flex: 0 0 220px;
+  color: var(--teal-dark);
+}
+
+.keyError {
+  flex: 1 0 100%;
+  font-size: var(--fs-14);
+  font-weight: 700;
+  color: var(--danger);
+}

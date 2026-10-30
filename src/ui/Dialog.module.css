@@ -9,6 +9,10 @@
   box-shadow: var(--shadow-dialog);
 }
 
+.wide {
+  width: 828px;
+}
+
 .dialog::backdrop {
   background: rgba(15, 63, 67, 0.45);
 }

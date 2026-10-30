@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { CalendarDays, Undo2 } from 'lucide-react';
-import type { ChargeOption, Firm, KeeperResult, LrDefaults, LrDetail, LrField, LrInput, LrParty, LrPreview, Station } from '../../shared';
+import type { ChargeOption, Firm, KeeperResult, LrDefaults, LrDetail, LrField, LrInput, LrParty, LrPreview, LrSaved, Station } from '../../shared';
 import { applyDefaults, markManual, releaseIfEmpty, CHARGE_KEYS, type ChargeKey, type ChargeTexts } from '../logic/chargeFill';
+import { clearDraft, hasTyped, keepDraft, loadDraft, type DraftSlot } from '../logic/drafts';
+import { errorSummary } from '../logic/errorSummary';
+import { keyLabel, matches } from '../logic/keymap';
 import { formFromLr, isoToDisplay, type LrFormState as State, type Party, type Typed } from '../logic/lrOpen';
 import { formatPaise } from '../logic/rupees';
 import { matchKey } from '../logic/typeAhead';
-import { KEYS } from '../keymap';
 import { strings } from '../strings';
 import Button from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -16,6 +18,7 @@ import SelectField from '../ui/SelectField';
 import { useToast } from '../ui/Toast';
 import TypeAhead from '../ui/TypeAhead';
 import { useEnterToNext } from '../ui/useEnterToNext';
+import { useKeys } from '../useKeys';
 import LrActions from './LrActions';
 import styles from './LrEntryPage.module.css';
 
@@ -71,7 +74,11 @@ interface Props {
   /** Show this LR (what a change answered with), or null for a new, empty one. */
   onOpen: (lr: LrDetail | null) => void;
   /** True while the form holds work that opening another LR would throw away (an edit, or a half-typed new LR). */
-  onGuard: (holding: boolean) => void;
+  onGuard?: (holding: boolean) => void;
+  /** Which kept draft a new LR starts from and writes to: LR Entry and Quick LR each have their own. */
+  draftSlot: DraftSlot;
+  /** A new LR was saved (not a retry of an earlier save). */
+  onSaved?: (saved: LrSaved) => void;
 }
 
 /**
@@ -79,11 +86,13 @@ interface Props {
  * amounts and the charge options' amounts come back from lrs.preview, and the number comes back from the save. The
  * form shows what it is given and never adds anything up.
  */
-export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onGuard }: Props) {
+export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onGuard, draftSlot, onSaved }: Props) {
   const toast = useToast();
+  const { keys } = useKeys();
   const enterToNext = useEnterToNext();
   const nameOf = (id: number) => stations.find((s) => s.id === id)?.name ?? '';
-  const [state, setState] = useState<State>(() => (lr ? formFromLr(lr, nameOf) : initial(defaults, stations)));
+  // A new LR picks up where the clerk left it (typed values only; the date unlock and its PIN are never kept).
+  const [state, setState] = useState<State>(() => (lr ? formFromLr(lr, nameOf) : (loadDraft(draftSlot)?.state ?? initial(defaults, stations))));
   const [editing, setEditing] = useState(false);
   const locked = lr !== undefined && !editing; // a saved LR is read-only until Edit
   const [editDate, setEditDate] = useState(lr?.date ?? ''); // the date box of an LR being edited (within its year)
@@ -95,7 +104,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
   const [focusError, setFocusError] = useState(0); // bumped when a refusal should put the cursor on the first box to fix
   const [askingPin, setAskingPin] = useState(false);
   const [similar, setSimilar] = useState<{ party: string; names: string[] } | null>(null);
-  const uid = useRef(crypto.randomUUID()); // one per form; a retry of the same save carries the same one
+  const uid = useRef(loadDraft(draftSlot)?.uid ?? crypto.randomUUID()); // one per form (and its draft); a retry of the same save carries the same one
   const pin = useRef(''); // the System PIN that unlocked a changed date, sent with each save
   const asked = useRef(0);
   const inFlight = useRef(false); // two F4s before the first re-render must not send two saves
@@ -191,13 +200,18 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
   }, [editing]);
 
   // The page must not swap this form for another LR while it holds work: tell it when that is so.
-  const holding = lr ? editing : [state.consignor.text, state.consignee.text, state.to.text, state.particular, state.qty, state.toPay, state.paid].some((v) => v.trim() !== '');
+  const holding = lr ? editing : hasTyped(state);
   useEffect(() => {
-    onGuard(holding);
-    return () => onGuard(false);
+    onGuard?.(holding);
+    return () => onGuard?.(false);
     // onGuard only sets a flag on the page
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holding]);
+
+  // A new LR that is being typed is kept while the clerk is on another page; a saved LR (view or edit) never is.
+  useEffect(() => {
+    if (!lr) keepDraft(draftSlot, { state, uid: uid.current });
+  }, [state, lr, draftSlot]);
 
   // A refusal puts the cursor on the first box to fix (not again when the clerk fixes one of several).
   useEffect(() => {
@@ -305,6 +319,8 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
         } catch {
           /* blocked storage: only the memory of the last option is lost */
         }
+        clearDraft(draftSlot); // the form may be closed by now (Quick LR, another page): its unmounted effect cannot clear this
+        if (!again) onSaved?.(r.value);
         uid.current = crypto.randomUUID();
         setState((s) => initial(defaults, stations, s)); // keeps From station, the option and the tax %
         setPreview(null);
@@ -318,20 +334,25 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
     }
   };
 
-  // F4 saves from anywhere on the page, unless a dialog is open. The handler always calls the newest save().
+  // The seat's save key saves from anywhere on the page, unless a dialog that is not this form's own is open (Quick LR
+  // over this page, a PIN dialog). The handler always calls the newest save() and the newest keys.
   const saveNow = useRef(save);
   const closeNow = useRef<(() => void) | null>(null);
+  const keysNow = useRef(keys);
   useEffect(() => {
     saveNow.current = save;
     closeNow.current = locked ? () => onOpen(null) : null;
+    keysNow.current = keys;
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || document.querySelector('dialog[open]')) return;
-      if (e.key === KEYS.saveLr) {
+      const dialogs = document.querySelectorAll('dialog[open]');
+      const top = dialogs[dialogs.length - 1];
+      if (e.repeat || (top && !(form.current && top.contains(form.current)))) return;
+      if (matches(keysNow.current.saveLr, e)) {
         e.preventDefault();
         void saveNow.current();
-      } else if (e.key === KEYS.newLr && closeNow.current) {
+      } else if (matches(keysNow.current.newLr, e) && closeNow.current) {
         e.preventDefault();
         closeNow.current(); // a saved LR in view mode: Esc goes back to a new, empty LR
       }
@@ -385,10 +406,10 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
     void save();
   };
 
-  const chargeBox = (key: ChargeKey, label: string) => (
+  const chargeBox = (key: ChargeKey, label: string, className = styles.money) => (
     <Field
       money
-      className={styles.money}
+      className={className}
       label={label}
       readOnly={locked}
       value={state.charges[key]}
@@ -417,22 +438,22 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
           options={firmOptions}
           onChange={(text) => setParty(who, { text, firmId: null })}
           onPick={(o) => setParty(who, { text: o.label, firmId: Number(o.id), add: false })}
-          {...(first ? { 'data-first': '', autoFocus: !lr } : {})}
+          {...(first ? { 'data-first': '', 'data-autofocus': '', autoFocus: !lr } : {})}
         />
-        <div className={styles.checkSlot}>
-          {walkIn && !locked && (
-            <label className={styles.check}>
-              {/* Enter walks past it; Tab reaches it, Space ticks it. */}
-              <input type="checkbox" data-skip-enter="" checked={p.add} onChange={(e) => setParty(who, { add: e.target.checked })} />
-              {t.addToFirms}
-            </label>
-          )}
-        </div>
+        {walkIn && !locked && (
+          <label className={styles.check}>
+            {/* On the label line of the box, so it costs no height. Enter walks past it; Tab reaches it, Space ticks it. */}
+            <input type="checkbox" data-skip-enter="" checked={p.add} onChange={(e) => setParty(who, { add: e.target.checked })} />
+            {t.addToFirms}
+          </label>
+        )}
       </div>
     );
   };
 
   const amounts = lr && locked ? lr.amounts : preview?.amounts;
+  // Refusals are said once in the head (the boxes turn red); under the boxes they would push the day's list down.
+  const problem = errorSummary(errors, (k) => t.historyFields[k as keyof typeof t.historyFields] ?? k);
   const isToday = date === null;
   // The date box: a new LR's (today, or another day unlocked with the PIN), or a saved LR's (fixed, or free within its year while editing).
   const yearEnd = lr ? `${lr.lrYear}-12-31` : '';
@@ -445,11 +466,24 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
       : { hint: t.dateBackdated, props: { type: 'date', max: defaults.today, value: date ?? '', onChange: (e: ChangeEvent<HTMLInputElement>) => onDate(e.target.value || defaults.today) } };
   return (
     <Card className={styles.formCard}>
-      {lr && <LrActions lr={lr} editing={editing} changedElsewhere={editing && lr.version !== editBase} onEdit={startEdit} onDiscard={discardEdit} onOpen={onOpen} />}
+      {lr ? (
+        <LrActions lr={lr} editing={editing} changedElsewhere={editing && lr.version !== editBase} problem={problem} onEdit={startEdit} onDiscard={discardEdit} onOpen={onOpen} />
+      ) : (
+        <div className={styles.head}>
+          <strong className={styles.headTitle}>{t.formLabel}</strong>
+          <span className={styles.headNote}>{t.lrNoHint(defaults.nextNo)}</span>
+          {!isToday && <span className={styles.headWarn}>{t.dateBackdated}</span>}
+          {problem && (
+            <span className={styles.headWarn} aria-hidden="true" title={problem}>
+              {problem}
+            </span>
+          )}
+        </div>
+      )}
       <form ref={form} className={styles.form} aria-label={lr ? t.lrTitle(lr.lrNo) : t.formLabel} onSubmit={submit} onKeyDown={enterToNext} noValidate>
         <div className={styles.row}>
-          <Field className={styles.lrNo} label={t.lrNo} readOnly tabIndex={-1} value={lr ? String(lr.lrNo) : t.lrNoNew} hint={lr ? undefined : t.lrNoHint(defaults.nextNo)} />
-          <Field className={styles.date} label={t.date} hint={dateBox.hint} error={errors.date} data-skip-enter="" {...dateBox.props}>
+          <Field className={styles.lrNo} label={t.lrNo} readOnly tabIndex={-1} value={lr ? String(lr.lrNo) : t.lrNoNew} />
+          <Field className={styles.date} label={t.date} title={dateBox.hint} error={errors.date} data-skip-enter="" {...dateBox.props}>
             {!lr && (
               <button
                 type="button"
@@ -462,6 +496,12 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
               </button>
             )}
           </Field>
+          {partyBox('consignor', t.consignor, true)}
+          {partyBox('consignee', t.consignee)}
+        </div>
+
+        <div className={styles.row}>
+          {/* From sits after the parties so that each row reads in the order the keys walk it; Enter walks past it. */}
           <TypeAhead
             className={styles.from}
             label={t.fromStation}
@@ -475,11 +515,6 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
             onChange={(text) => set({ from: { text, id: null } }, 'fromStation')}
             onPick={(o) => set({ from: { text: o.label, id: Number(o.id) } }, 'fromStation')}
           />
-          {partyBox('consignor', t.consignor, true)}
-          {partyBox('consignee', t.consignee)}
-        </div>
-
-        <div className={styles.row}>
           <TypeAhead
             className={styles.to}
             label={t.toStation}
@@ -508,9 +543,9 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
             value={state.option}
             onChange={(e) => set({ option: e.target.value as ChargeOption })}
           />
-          {chargeBox('godownBhada', t.godownBhada)}
-          {chargeBox('godownInsurance', t.godownInsurance)}
-          {chargeBox('deliveryCharges', t.deliveryCharges)}
+          {chargeBox('godownBhada', t.godownBhada, styles.bhada)}
+          {chargeBox('godownInsurance', t.godownInsurance, styles.insurance)}
+          {chargeBox('deliveryCharges', t.deliveryCharges, styles.delivery)}
           {chargeBox('hamali', t.hamali)}
           <Field money className={styles.money} label={t.wasuli} readOnly={locked} error={errors.wasuli} value={state.wasuli} onChange={(e) => set({ wasuli: e.target.value }, 'wasuli')} />
         </div>
@@ -526,7 +561,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
             ))}
           </dl>
           {!locked && (
-            <Button type="submit" className={styles.save} keyCap={KEYS.saveLr} disabled={busy}>
+            <Button type="submit" className={styles.save} keyCap={keyLabel(keys.saveLr)} disabled={busy}>
               {busy ? t.saving : t.save}
             </Button>
           )}

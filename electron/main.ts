@@ -1,6 +1,7 @@
-import { app, BrowserWindow, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path from 'node:path';
 import { initKeeperBridge } from './keeperBridge';
+import { loadKeys, saveKeys } from './seatKeys';
 import { initUpdater } from './updater';
 
 const DEV_URL = 'http://127.0.0.1:5173'; // same host and port as vite.config.ts
@@ -64,7 +65,10 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => app.quit());
   void app.whenReady().then(() => {
     Menu.setApplicationMenu(null); // no File/Edit/View bar; the app has its own navigation
-    initUpdater(initKeeperBridge(app.getPath('userData')));
+    const userData = app.getPath('userData');
+    ipcMain.handle('seat:keys-get', () => loadKeys(userData));
+    ipcMain.handle('seat:keys-set', (_e, keys: unknown) => saveKeys(userData, keys));
+    initUpdater(initKeeperBridge(userData));
     mainWindow = createWindow();
   });
 }

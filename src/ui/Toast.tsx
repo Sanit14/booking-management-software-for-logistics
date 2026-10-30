@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Info, TriangleAlert, X } from 'lucide-react';
 import { strings } from '../strings';
 import styles from './Toast.module.css';
@@ -44,14 +45,27 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const close = (id: number) => setToasts((all) => all.filter((t) => t.id !== id));
 
+  // A modal <dialog> sits above everything in the page, toasts included. While one is open the stack is drawn inside the
+  // topmost one (like the TypeAhead list), so "LR 1248 saved" shows over Quick LR. A dialog closing re-draws the stack.
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    document.addEventListener('close', redraw, true); // `close` does not bubble
+    return () => document.removeEventListener('close', redraw, true);
+  }, []);
+  const dialogs = document.querySelectorAll('dialog[open]');
+  const host = dialogs[dialogs.length - 1];
+  const stack = (
+    <div className={styles.stack}>
+      {toasts.map((t) => (
+        <ToastItem key={t.id} toast={t} onClose={() => close(t.id)} />
+      ))}
+    </div>
+  );
+
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className={styles.stack}>
-        {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} onClose={() => close(t.id)} />
-        ))}
-      </div>
+      {host ? createPortal(stack, host) : stack}
     </ToastContext.Provider>
   );
 }
