@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { ChangeTable, KeeperResult, LrDay, LrDefaults, LrDetail, LrListRow, MastersAll } from '../../shared';
-import { clearDraft } from '../logic/drafts';
+import { clearDraft, loadDraft } from '../logic/drafts';
 import { matches } from '../logic/keymap';
 import { isoToDisplay } from '../logic/lrOpen';
 import { formatPaise } from '../logic/rupees';
+import type { Jump } from '../logic/searchResults';
 import { strings } from '../strings';
 import Button from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -43,7 +44,7 @@ const columns: Column<LrListRow>[] = [
  * LR and master, from this seat or any other, and only the parts that changed are fetched again. Choosing an LR in the
  * list (or typing its number) opens it in the form, read-only until Edit.
  */
-export default function LrEntryPage({ onEditing }: { onEditing: (editing: boolean) => void }) {
+export default function LrEntryPage({ onEditing, jump, onJumpUsed }: { onEditing: (editing: boolean) => void; jump: Jump | null; onJumpUsed: () => void }) {
   const toast = useToast();
   const { keys } = useKeys();
   const findBox = useRef<HTMLInputElement>(null);
@@ -98,8 +99,20 @@ export default function LrEntryPage({ onEditing }: { onEditing: (editing: boolea
     else toast.error(strings.result(r.code, r.detail));
     return r.ok;
   };
-  // Opening another LR throws away what the form holds (an edit, a half-typed new LR): ask first.
-  const guarded = (action: () => void) => (holding.current ? setAsk({ run: action }) : action());
+  // Opening another LR throws away what the form holds (an edit, a half-typed new LR, or a draft the form has not
+  // mounted to report yet): ask first.
+  const guarded = (action: () => void) => (holding.current || loadDraft('lrEntry') !== undefined ? setAsk({ run: action }) : action());
+  // A pick from the search box opens that LR (by id: it may be last year's), asking first like a click on a row.
+  const showPicked = (id: number) => guarded(() => void open(window.bm.keeper.lrs.get(id)));
+  const picked = useRef({ used: onJumpUsed, show: showPicked });
+  useEffect(() => {
+    picked.current = { used: onJumpUsed, show: showPicked };
+  });
+  useEffect(() => {
+    if (jump?.to !== 'lr') return;
+    picked.current.used();
+    picked.current.show(jump.id);
+  }, [jump]);
   const openFound = () => {
     const no = Number(findNo);
     if (!Number.isInteger(no) || no < 1) return;

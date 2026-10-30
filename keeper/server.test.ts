@@ -720,3 +720,55 @@ test('keeper: LR numbers run 1, 2, 3 with no gap and go on after a restart; 300 
   assert.equal(await shutdown(port), true);
   await within(second.exited, 10000);
 }));
+
+test('keeper: the Dashboard and the search box answer over the real routes, move with a save and a cancel, carry no amount and leave no text in the log', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  const a = listen(port, 'counter-1');
+  try {
+    await until('the stream to connect', () => a.got.length >= 1);
+    const summary = async () => (await lrCall(port, '/dashboard/summary', { date: null })).value;
+    assert.deepEqual(
+      [(await summary()).booked, (await summary()).pending, (await summary()).oldestPending],
+      [0, 0, null],
+    );
+
+    const first = await lrCall(port, '/lrs/create', { input: input() });
+    await lrCall(port, '/lrs/create', { input: input() });
+    await until('the LR events', () => a.got.length >= 3);
+    let day = await summary();
+    assert.deepEqual([day.booked, day.loaded, day.cancelled, day.qty, day.pending, day.pendingQty, day.pendingStations], [2, 0, 0, 6, 2, 6, 1]);
+    assert.deepEqual((await lrCall(port, '/dashboard/pending-by-station', {})).value, [{ stationId: 2, station: 'Nagpur', lrs: 2, qty: 6 }]);
+    const recent = (await lrCall(port, '/dashboard/recent', {})).value;
+    assert.deepEqual(recent.map((r: { lrNo: number }) => r.lrNo), [2, 1]);
+
+    const cancelled = await lrCall(port, '/lrs/cancel', { id: first.value.row.id, version: 1, reason: 'Duplicate', systemPin: '7295' });
+    assert.equal(cancelled.ok, true);
+    day = await summary();
+    assert.deepEqual([day.booked, day.cancelled, day.qty, day.pending], [1, 1, 3, 1]);
+    assert.equal((await lrCall(port, '/dashboard/recent', {})).value[1].status, 'cancelled');
+
+    // The search: an LR number, a firm by its first letters, a station, nothing for an empty box.
+    const found = (await lrCall(port, '/search', { text: ' 2 ' })).value;
+    assert.deepEqual(found.lrs.map((l: { lrNo: number; consignee: string; toStation: string }) => [l.lrNo, l.consignee, l.toStation]), [[2, 'Kale Brothers', 'Nagpur']]);
+    assert.deepEqual((await lrCall(port, '/search', { text: 'shree' })).value.firms.map((f: { name: string }) => f.name), ['Shree Ganesh Traders']);
+    assert.deepEqual((await lrCall(port, '/search', { text: 'nag' })).value.stations.map((x: { name: string }) => x.name), ['Nagpur']);
+    assert.deepEqual((await lrCall(port, '/search', { text: '' })).value, { lrs: [], firms: [], trucks: [], stations: [] });
+    assert.deepEqual((await lrCall(port, '/search', {})).value, { lrs: [], firms: [], trucks: [], stations: [] }, 'a body without text is an empty box');
+
+    // Reads only: no event came out of any of it beyond the save and the cancel.
+    await sleep(400);
+    assert.equal(a.got.length, 4);
+    const every = JSON.stringify([day, recent, found]);
+    assert.doesNotMatch(every, /"[^"]*(paise|amount|total|pay|paid|rupee)[^"]*":/i, 'no amount in any answer');
+  } finally {
+    a.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  for (const secret of ['shree', 'Kale Brothers', '7295']) assert.ok(!log.toLowerCase().includes(secret.toLowerCase()), `keeper.log holds ${secret}`);
+}));

@@ -21,6 +21,7 @@ import {
   type ResultCode,
 } from '../shared';
 import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } from './backup';
+import { makeDashboard } from './dashboard';
 import { businessRows, closeDatabase, hasTable, openChecked, raiseMarker, type Db } from './db';
 import { makeEvents } from './events';
 import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './guard';
@@ -32,6 +33,7 @@ import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
 import { makePins } from './pins';
 import { makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
+import { search } from './search';
 import { makeSeats } from './seats';
 
 const HOST = '127.0.0.1';
@@ -80,6 +82,7 @@ function main(): void {
   const pins = makePins();
   const masters = makeMasters(pins);
   const lrs = makeLrs(pins, masters);
+  const dashboard = makeDashboard();
   const events = makeEvents();
   const seats = makeSeats();
   let stopping: Promise<number> | null = null;
@@ -299,6 +302,7 @@ function main(): void {
       '/masters/all', '/masters/create', '/masters/update', '/masters/set-active',
       '/lrs/defaults', '/lrs/preview', '/lrs/create', '/lrs/by-date', '/settings/set-lr-defaults',
       '/lrs/get', '/lrs/find', '/lrs/update', '/lrs/cancel', '/lrs/restore', '/lrs/history',
+      '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -437,6 +441,20 @@ function main(): void {
         events.publish([kind], [rowId]);
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) log('pin-refused', { url, seat, code: r.code, wait: r.detail });
       return sendResult(res, r);
+    }
+
+    // Reads for the Dashboard and the search box: no write, no event, and nothing logged (a search text may be a name).
+    if (url.startsWith('/dashboard/') || url === '/search') {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      try {
+        if (url === '/dashboard/summary') return sendResult(res, dashboard.summary(db, typeof body.date === 'string' ? body.date : null));
+        if (url === '/dashboard/pending-by-station') return sendResult(res, dashboard.pendingByStation(db));
+        if (url === '/dashboard/recent') return sendResult(res, dashboard.recentLrs(db));
+        return sendResult(res, search(db, typeof body.text === 'string' ? body.text : ''));
+      } catch (e) {
+        log('dashboard-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
     }
 
     if (url.startsWith('/lrs/') || url.startsWith('/settings/')) {

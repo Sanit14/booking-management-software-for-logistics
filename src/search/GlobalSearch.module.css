@@ -1,0 +1,117 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* On the Dashboard the results float over the cards under the box. */
+.floating {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  color: var(--teal-dark);
+}
+.box:focus-within {
+  border-color: var(--teal);
+  box-shadow: var(--ring);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 50px;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-num);
+  font-size: var(--fs-17);
+  color: var(--text);
+}
+.input:focus-visible {
+  outline: 2px solid transparent; /* the box carries the focus ring (and stays visible in forced-colours mode) */
+}
+.input::placeholder {
+  color: var(--text-2);
+}
+
+.note {
+  padding: 4px 4px 0;
+  color: var(--text-2);
+  font-size: var(--fs-15);
+}
+
+.panel {
+  min-height: 0;
+}
+.floating .panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 5;
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+.floating .note {
+  padding: 14px 16px;
+}
+.root .panel {
+  max-height: 340px;
+  overflow: auto;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.heading {
+  padding: 8px 14px 4px;
+  color: var(--text-label);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 14px;
+  cursor: pointer;
+}
+.activeOption {
+  background: var(--option-active);
+}
+
+.main {
+  flex-shrink: 0;
+  font-size: var(--fs-16);
+  color: var(--teal-dark);
+}
+
+.detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-15);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 9;
+export const KEEPER_VERSION = 10;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -312,6 +312,68 @@ export interface LrDefaultsInput {
   staxPercent: string;
 }
 
+/** The Dashboard's counts for one day (null = today). Counts only, never money: nothing here is an amount. */
+export interface DashboardSummary {
+  date: string;
+  /** LRs dated `date` by status; `cancelled` is shown apart and is not part of "LRs today". */
+  booked: number;
+  loaded: number;
+  cancelled: number;
+  /** Quantity of the day's LRs, cancelled left out. */
+  qty: number;
+  /** Every booked LR, any date, waiting for a memo. */
+  pending: number;
+  pendingQty: number;
+  oldestPending: string | null;
+  /** Stations that have pending LRs. */
+  pendingStations: number;
+  /** Saved memos of the day (0 until 3.1) and the trucks on them. */
+  memos: number;
+  trucksOut: number;
+}
+export interface PendingStation {
+  stationId: number;
+  station: string;
+  lrs: number;
+  qty: number;
+}
+/** The newest LRs of today, no amounts. */
+export interface RecentLr {
+  id: number;
+  lrNo: number;
+  consignee: string;
+  toStation: string;
+  status: LrStatus;
+}
+
+export interface SearchLr extends RecentLr {
+  lrYear: number;
+  date: string;
+}
+export interface SearchFirm {
+  id: number;
+  name: string;
+  station: string | null;
+  active: boolean;
+}
+export interface SearchTruck {
+  id: number;
+  number: string;
+  active: boolean;
+}
+export interface SearchStation {
+  id: number;
+  name: string;
+  active: boolean;
+}
+/** At most 5 of each, best first. A challan list joins in 3.1. */
+export interface SearchAnswer {
+  lrs: SearchLr[];
+  firms: SearchFirm[];
+  trucks: SearchTruck[];
+  stations: SearchStation[];
+}
+
 export type LrRefusal =
   | 'lr-invalid' // `fields`: what to fix
   | 'lr-stale' // `lr`: the current LR, to show what changed
@@ -400,4 +462,14 @@ export interface KeeperApi {
     /** Admin PIN to change. */
     setLrDefaults(input: LrDefaultsInput, adminPin: string): Promise<KeeperResult<LrDefaults>>;
   };
+  /** Dashboard counts (`date` null = today). Reads only: they never publish an event. */
+  dashboard: {
+    summary(date: string | null): Promise<KeeperResult<DashboardSummary>>;
+    /** Booked LRs per To station, most first, at most 20. */
+    pendingByStation(): Promise<KeeperResult<PendingStation[]>>;
+    /** The last 8 LRs of today. */
+    recentLrs(): Promise<KeeperResult<RecentLr[]>>;
+  };
+  /** One box for LR number, firm, truck and station: a few of each, never a generic query. */
+  search(text: string): Promise<KeeperResult<SearchAnswer>>;
 }

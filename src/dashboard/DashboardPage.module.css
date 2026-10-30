@@ -1,0 +1,70 @@
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
+.stats {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cards {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-height: 0;
+}
+
+.listCard {
+  min-height: 0;
+}
+
+.aside {
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+
+/* The table's own scroll box fills what is left of the card and keeps its header in view. */
+.tableBox {
+  --row-h: 32px; /* 8 recent LRs fit under the cards at 1024x768 */
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.tableBox > div {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+.tableBox table th {
+  height: 34px;
+}
+
+.cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.foot {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.note {
+  color: var(--text-2);
+  font-size: var(--fs-14);
+}
