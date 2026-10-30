@@ -78,6 +78,7 @@ export default function TypeAhead({ value, onChange, onPick, options, walkInLabe
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return; // an IME is still composing: Enter/arrows belong to it
+    if (field.readOnly) return; // a fixed value: no list to open, nothing to pick
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (!shown) {

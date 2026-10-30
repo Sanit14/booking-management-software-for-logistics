@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 8;
+export const KEEPER_VERSION = 9;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -188,9 +188,12 @@ export interface LrInput {
 
 export type LrField =
   | 'date' | 'fromStation' | 'toStation' | 'consignor' | 'consignee' | 'particular' | 'qty' | 'chargeOption'
-  | 'toPay' | 'paid' | 'godownBhada' | 'godownInsurance' | 'deliveryCharges' | 'hamali' | 'wasuli' | 'staxPercent';
-/** Why a field is refused: required · amount (not a rupee amount) · whole (not a whole number ≥ 1) · percent · both (to pay AND paid) · same (from = to) · future (date) · date (not a date) · missing (no such, or inactive, station / firm). */
-export type LrFieldError = 'required' | 'amount' | 'whole' | 'percent' | 'both' | 'same' | 'future' | 'date' | 'missing';
+  | 'toPay' | 'paid' | 'godownBhada' | 'godownInsurance' | 'deliveryCharges' | 'hamali' | 'wasuli' | 'staxPercent'
+  | 'reason'; // the reason for cancelling, not a box of the form
+/** The fields an edit can change (and History lists). */
+export type LrEditField = Exclude<LrField, 'reason'>;
+/** Why a field is refused: required · amount (not a rupee amount) · whole (not a whole number ≥ 1) · percent · both (to pay AND paid) · same (from = to) · future (date) · date (not a date) · year (an edit moved the date into another year: the number belongs to its year) · missing (no such, or inactive, station / firm). */
+export type LrFieldError = 'required' | 'amount' | 'whole' | 'percent' | 'both' | 'same' | 'future' | 'date' | 'year' | 'missing';
 
 /** Paise. Computed by the keeper's `lrAmounts` only. */
 export interface LrAmounts {
@@ -240,6 +243,59 @@ export interface LrDay {
   /** Cancelled LRs are left out. All from SQL. */
   totals: { count: number; qty: number; toPayPaise: number; paidPaise: number; booked: number; loaded: number };
 }
+/** One saved LR with everything the form needs to open it. Money in paise, tax as typed text; the screen only formats. */
+export interface LrDetail {
+  id: number;
+  /** Sent back with an edit, cancel or restore: a stale one is refused. */
+  version: number;
+  status: LrStatus;
+  lrNo: number;
+  lrYear: number;
+  date: string;
+  /** The challan number of the memo the LR is on (status `loaded`). */
+  memoNo: number | null;
+  fromStationId: number;
+  toStationId: number;
+  /** A picked firm's id, or null for a walk-in (the name is what was typed). */
+  consignorId: number | null;
+  consignor: string;
+  consigneeId: number | null;
+  consignee: string;
+  particular: string;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+  chargeOption: ChargeOption;
+  godownBhadaPaise: number;
+  godownInsurancePaise: number;
+  deliveryChargesPaise: number;
+  hamaliPaise: number;
+  wasuliPaise: number;
+  staxPercent: string;
+  amounts: LrAmounts;
+}
+export interface LrUpdated {
+  lr: LrDetail;
+  /** A walk-in consignor / consignee was saved to the firms master in the same save. */
+  firmsAdded: boolean;
+  /** False when nothing differed from what was saved: nothing was written. */
+  changed: boolean;
+}
+/** A changed field: station names (not ids), paise for the money fields, the option code for `chargeOption`, text otherwise. */
+export interface LrChange {
+  field: LrEditField;
+  from: string | number | null;
+  to: string | number | null;
+}
+export interface LrHistoryEntry {
+  at: string; // ISO
+  seat: string;
+  action: 'created' | 'edited' | 'cancelled' | 'restored';
+  /** Why it was cancelled. */
+  reason?: string;
+  /** For an edit: what changed. */
+  changes: LrChange[];
+}
 /** What the LR form starts from. */
 export interface LrDefaults {
   today: string;
@@ -256,7 +312,13 @@ export interface LrDefaultsInput {
   staxPercent: string;
 }
 
-export type LrRefusal = 'lr-invalid'; // `fields`: what to fix
+export type LrRefusal =
+  | 'lr-invalid' // `fields`: what to fix
+  | 'lr-stale' // `lr`: the current LR, to show what changed
+  | 'lr-missing'
+  | 'lr-cancelled' // cannot be edited or cancelled again: restore it first
+  | 'lr-not-cancelled' // restore of an LR that is not cancelled
+  | 'lr-on-memo'; // cannot be cancelled while on a memo; detail: the memo's number
 export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**
  * What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts).
@@ -264,7 +326,7 @@ export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal
  */
 export type KeeperResult<T> =
   | { ok: true; value: T }
-  | { ok: false; code: ResultCode; detail?: string; row?: MasterRow; similar?: string[]; fields?: Partial<Record<LrField, LrFieldError>> };
+  | { ok: false; code: ResultCode; detail?: string; row?: MasterRow; lr?: LrDetail; similar?: string[]; fields?: Partial<Record<LrField, LrFieldError>> };
 
 export type KeeperErrorCode =
   | 'root-refused' // detail: the refused path, `refusal` says why
@@ -323,6 +385,16 @@ export interface KeeperApi {
     preview(input: LrInput): Promise<KeeperResult<LrPreview>>;
     create(input: LrInput): Promise<KeeperResult<LrSaved>>;
     byDate(date: string | null): Promise<KeeperResult<LrDay>>;
+    get(id: number): Promise<KeeperResult<LrDetail>>;
+    /** An LR of the current year by its number. */
+    find(no: number): Promise<KeeperResult<LrDetail>>;
+    /** System PIN. A stale `version` is refused with the current LR. The number never changes. */
+    update(id: number, version: number, input: LrInput, systemPin: string): Promise<KeeperResult<LrUpdated>>;
+    /** System PIN and a reason. Not while the LR is on a memo. */
+    cancel(id: number, version: number, reason: string, systemPin: string): Promise<KeeperResult<LrDetail>>;
+    restore(id: number, version: number, systemPin: string): Promise<KeeperResult<LrDetail>>;
+    /** Newest first, at most 50. */
+    history(id: number): Promise<KeeperResult<LrHistoryEntry[]>>;
   };
   settings: {
     /** Admin PIN to change. */

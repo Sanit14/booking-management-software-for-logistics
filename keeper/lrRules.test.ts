@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { LrInput } from '../shared';
-import { asLrInput, cleanLr, isDate, localDate, parseNumbers } from './lrRules';
+import { asLrInput, changesOf, cleanLr, cleanReason, diffLr, isDate, localDate, parseNumbers } from './lrRules';
 
 const good: LrInput = {
   uid: 'u1',
@@ -109,6 +109,43 @@ test('asLrInput: needs a uid; a wrongly typed value becomes an empty one that th
   assert.equal(errors.consignor, 'required');
   assert.equal(errors.particular, 'required');
   assert.equal(errors.fromStation, 'required');
+});
+
+test('cleanReason: trimmed, inner spaces collapsed, 1-200 characters', () => {
+  assert.equal(cleanReason('  wrong   consignee '), 'wrong consignee');
+  assert.equal(cleanReason(''), null);
+  assert.equal(cleanReason('  \n '), null);
+  assert.equal(cleanReason('x'.repeat(200)), 'x'.repeat(200));
+  assert.equal(cleanReason('x'.repeat(201)), null);
+  assert.equal(cleanReason(undefined), null);
+  assert.equal(cleanReason(5), null);
+});
+
+test('diffLr: only the columns that differ, before and after', () => {
+  const was = { lr_date: '2026-10-29', qty: 3, topay_paise: 180000, paid_paise: 0, consignee_name: 'Kale Brothers', consignee_id: null, status: 'booked' };
+  const now = { ...was, topay_paise: 0, paid_paise: 180000, consignee_name: 'Patil Hardware', consignee_id: 7 };
+  assert.deepEqual(diffLr(was, now), {
+    before: { topay_paise: 180000, paid_paise: 0, consignee_name: 'Kale Brothers', consignee_id: null },
+    after: { topay_paise: 0, paid_paise: 180000, consignee_name: 'Patil Hardware', consignee_id: 7 },
+  });
+  assert.equal(diffLr(was, { ...was }), null, 'nothing differs: nothing to write');
+  assert.equal(diffLr(was, { ...was, status: 'cancelled' }), null, 'only the edit columns are compared');
+});
+
+test('changesOf: the audit pair as History lines, in form order; a firm that kept its name shows no line', () => {
+  const lines = changesOf(
+    { consignee_name: 'Kale Brothers', consignee_id: null, topay_paise: 180000, to_station_id: 2, lr_date: '2026-10-29' },
+    { consignee_name: 'Patil Hardware', consignee_id: 7, topay_paise: 0, to_station_id: 3, lr_date: '2026-10-28' },
+    (id) => ({ 2: 'Nagpur', 3: 'Pune' })[id as 2 | 3],
+  );
+  assert.deepEqual(lines, [
+    { field: 'date', from: '2026-10-29', to: '2026-10-28' },
+    { field: 'toStation', from: 'Nagpur', to: 'Pune' },
+    { field: 'consignee', from: 'Kale Brothers', to: 'Patil Hardware' },
+    { field: 'toPay', from: 180000, to: 0 },
+  ]);
+  assert.deepEqual(changesOf({ consignee_id: null, consignee_name: 'Patil' }, { consignee_id: 7, consignee_name: 'Patil' }, () => ''), []);
+  assert.deepEqual(changesOf({ stax_bp: 500 }, { stax_bp: 250 }, () => ''), [{ field: 'staxPercent', from: '5', to: '2.5' }]);
 });
 
 test('localDate is the local calendar date, isDate rejects dates that roll over', () => {

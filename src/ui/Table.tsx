@@ -19,6 +19,8 @@ interface Props<R> {
   rowKey: (row: R) => string;
   /** Row keys to tint as ticked / selected. */
   ticked?: ReadonlySet<string>;
+  /** Row keys to grey out (a cancelled row stays in the list). */
+  dimmed?: ReadonlySet<string>;
   /** Totals row by column key; absent columns stay blank. Computed by the keeper, never summed here. */
   totals?: Record<string, ReactNode>;
   /** Shown instead of the body when there are no rows. */
@@ -42,7 +44,7 @@ function moveBetweenRows(e: KeyboardEvent<HTMLTableRowElement>, activate: () => 
   }
 }
 
-export default function Table<R>({ label, columns, rows, rowKey, ticked, totals, empty, onRowActivate, maxHeight }: Props<R>) {
+export default function Table<R>({ label, columns, rows, rowKey, ticked, dimmed, totals, empty, onRowActivate, maxHeight }: Props<R>) {
   const align = (c: Column<R>) => (c.num ? styles.num : undefined);
   // A long list is one Tab stop, not one per row: the picked row (else the first) takes it, ↑/↓ walk the rest.
   const picked = rows.findIndex((r) => ticked?.has(rowKey(r)));
@@ -75,7 +77,7 @@ export default function Table<R>({ label, columns, rows, rowKey, ticked, totals,
             return (
               <tr
                 key={key}
-                className={[ticked?.has(key) ? styles.ticked : '', onRowActivate ? styles.pickable : ''].join(' ').trim() || undefined}
+                className={[ticked?.has(key) ? styles.ticked : '', dimmed?.has(key) ? styles.dimmed : '', onRowActivate ? styles.pickable : ''].join(' ').trim() || undefined}
                 {...(onRowActivate
                   ? { tabIndex: i === stop ? 0 : -1, onClick: () => onRowActivate(row), onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => moveBetweenRows(e, () => onRowActivate(row)) }
                   : {})}

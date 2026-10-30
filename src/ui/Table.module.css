@@ -49,6 +49,10 @@
   border-bottom-color: var(--tint-edge);
 }
 
+.table tbody tr.dimmed td {
+  color: var(--text-2); /* greyed, still readable (4.5:1); the Cancelled chip says why */
+}
+
 .table tbody tr.pickable {
   cursor: pointer;
 }

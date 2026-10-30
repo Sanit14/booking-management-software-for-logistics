@@ -1,7 +1,7 @@
 // Runs under Electron's Node via scripts/test-db.cjs (needs the rebuilt better-sqlite3).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { KeeperResult, LrInput, LrSaved } from '../shared';
+import type { KeeperResult, LrDetail, LrInput, LrSaved, LrUpdated } from '../shared';
 import { lrAmounts } from './money';
 import { makeLrs } from './lrs';
 import { makeMasters } from './masters';
@@ -300,4 +300,295 @@ test('LR defaults: blank option, 0% and no station until the Admin PIN sets them
   assert.equal(n(s, 'audit_log'), before.audit + 1);
   assert.ok(s.lrs.setDefaults(s.db, 'seat-1', { ...want, bookingStationId: null }, ADMIN).ok);
   assert.equal(s.lrs.defaults(s.db, null).bookingStationId, null);
+});
+
+// ---- Session 2.3: open, edit, cancel, restore, history ----
+
+const detailOf = (r: KeeperResult<LrDetail>): LrDetail => {
+  assert.ok(r.ok, r.ok ? '' : `${r.code} ${JSON.stringify(r.fields ?? r.detail ?? '')}`);
+  return r.value;
+};
+const edit = (s: Set, lr: { id: number; version: number }, over: Partial<LrInput> = {}, pin = SYSTEM, seat = 'seat-1') =>
+  s.lrs.update(s.db, seat, lr.id, lr.version, input(s, over), pin);
+const updatedOf = (r: KeeperResult<LrUpdated>): LrUpdated => {
+  assert.ok(r.ok, r.ok ? '' : `${r.code} ${JSON.stringify(r.fields ?? r.detail ?? '')}`);
+  return r.value;
+};
+const failed = <T>(r: KeeperResult<T>) => {
+  assert.equal(r.ok, false);
+  return r as Extract<KeeperResult<T>, { ok: false }>;
+};
+const open = (s: Set, over: Partial<LrInput> = {}) => detailOf(s.lrs.get(s.db, saved(save(s, over)).row.id));
+/** Everything an edit may write, including the row itself. */
+const written = (s: Set, id: number) => ({ ...footprint(s), row: JSON.stringify(s.db.prepare('SELECT * FROM lrs WHERE id = ?').get(id)) });
+const station = (s: Set, name: string) => {
+  const r = s.masters.create(s.db, 'seat-1', 'stations', { name });
+  assert.ok(r.ok);
+  return r.value.id;
+};
+const memoNo = (s: Set, memo: number) => (s.db.prepare('SELECT challan_no AS n FROM memos WHERE id = ?').get(memo) as { n: number }).n;
+
+test('get and find open an LR with everything the form needs; find is the current year\'s series', () => {
+  const s = setUp();
+  const a = saved(save(s, { qty: '3', toPay: '1,800' }));
+  const lr = detailOf(s.lrs.get(s.db, a.row.id));
+  assert.deepEqual(
+    { ...lr, amounts: undefined },
+    {
+      id: a.row.id, version: 1, status: 'booked', lrNo: 1, lrYear: 2026, date: TODAY, memoNo: null,
+      fromStationId: s.yavatmal, toStationId: s.nagpur, consignorId: s.ganesh, consignor: 'Shree Ganesh Traders', consigneeId: null, consignee: 'Kale Brothers',
+      particular: 'Cloth bales', qty: 3, toPayPaise: 180000, paidPaise: 0, chargeOption: 'option1',
+      godownBhadaPaise: 500, godownInsurancePaise: 500, deliveryChargesPaise: 200, hamaliPaise: 3000, wasuliPaise: 0, staxPercent: '5', amounts: undefined,
+    },
+  );
+  assert.deepEqual(lr.amounts, a.amounts);
+  assert.deepEqual(detailOf(s.lrs.find(s.db, 1)), lr);
+  saved(save(s, { date: '2025-12-30', systemPin: SYSTEM })); // 2025's no. 1: not this year's
+  assert.equal(detailOf(s.lrs.find(s.db, 1)).id, a.row.id);
+  assert.equal(failed(s.lrs.find(s.db, 99)).code, 'lr-missing');
+  assert.equal(failed(s.lrs.get(s.db, 12345)).code, 'lr-missing');
+});
+
+test('edit: changes only what differs, keeps the number, bumps the version, audits changed fields only', () => {
+  const s = setUp();
+  const lr = open(s, { toPay: '1,800' });
+  const r = updatedOf(edit(s, lr, { toPay: '', paid: '1,800', consignee: { firmId: null, name: 'Patil Hardware', addToFirms: false } }, SYSTEM, 'seat-9'));
+  assert.equal(r.changed, true);
+  assert.equal(r.firmsAdded, false);
+  assert.equal(r.lr.lrNo, lr.lrNo, 'the number never changes');
+  assert.equal(r.lr.version, 2);
+  assert.equal(r.lr.paidPaise, 180000);
+  assert.equal(r.lr.toPayPaise, 0);
+  assert.equal(r.lr.consignee, 'Patil Hardware');
+  assert.deepEqual(r.lr.amounts, lrAmounts({ topay_paise: 0, paid_paise: 180000, godown_bhada_paise: 500, godown_insurance_paise: 500, delivery_charges_paise: 200, hamali_paise: 3000, pf_paise: 0, stax_bp: 500 }));
+  const rows = s.db.prepare("SELECT seat, before_json AS before, after_json AS after FROM audit_log WHERE action = 'lrs.update'").all() as { seat: string; before: string; after: string }[];
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].seat, 'seat-9');
+  assert.deepEqual(JSON.parse(rows[0].before), { topay_paise: 180000, paid_paise: 0, consignee_name: 'Kale Brothers' });
+  assert.deepEqual(JSON.parse(rows[0].after), { topay_paise: 0, paid_paise: 180000, consignee_name: 'Patil Hardware' });
+  assert.equal(n(s, 'lrs'), 1);
+  assert.equal(detailOf(s.lrs.get(s.db, lr.id)).version, 2);
+});
+
+test('edit with nothing changed writes nothing and says so', () => {
+  const s = setUp();
+  const lr = open(s);
+  const before = written(s, lr.id);
+  const r = updatedOf(edit(s, lr)); // the same values as the save
+  assert.equal(r.changed, false);
+  assert.equal(r.lr.version, 1);
+  assert.deepEqual(written(s, lr.id), before);
+});
+
+test('edit: a stale version is refused with the current LR and writes nothing', () => {
+  const s = setUp();
+  const lr = open(s);
+  updatedOf(edit(s, lr, { qty: '9' }, SYSTEM, 'seat-1')); // another seat got there first
+  const before = written(s, lr.id);
+  const stale = failed(edit(s, lr, { qty: '20' }, SYSTEM, 'seat-2')); // still holds version 1
+  assert.equal(stale.code, 'lr-stale');
+  assert.equal(stale.lr?.version, 2);
+  assert.equal(stale.lr?.qty, 9, 'the second seat sees what the first saved');
+  assert.deepEqual(written(s, lr.id), before);
+});
+
+test('a stale version is told before anything else is looked at: invalid input or a blank reason does not hide it', () => {
+  const s = setUp();
+  const lr = open(s);
+  updatedOf(edit(s, lr, { qty: '9' })); // the LR moved on to version 2
+  const update = failed(edit(s, lr, { qty: '0' })); // stale AND invalid
+  assert.equal(update.code, 'lr-stale');
+  assert.equal(update.lr?.version, 2);
+  assert.equal(failed(s.lrs.cancel(s.db, 'seat-1', lr.id, 1, '', SYSTEM)).code, 'lr-stale');
+});
+
+test('edit: no PIN, a wrong PIN or the Admin PIN writes nothing', () => {
+  const s = setUp();
+  const lr = open(s);
+  const before = written(s, lr.id);
+  for (const pin of ['', '0000', ADMIN]) assert.equal(failed(edit(s, lr, { qty: '9' }, pin)).code, 'wrong-pin', JSON.stringify(pin));
+  assert.deepEqual(written(s, lr.id), before);
+});
+
+test('edit: every validation refusal names the field and writes nothing', () => {
+  const s = setUp();
+  const lr = open(s);
+  const before = written(s, lr.id);
+  const cases: [Partial<LrInput>, string, string][] = [
+    [{ qty: '0' }, 'qty', 'whole'],
+    [{ particular: ' ' }, 'particular', 'required'],
+    [{ toPay: '10', paid: '5' }, 'paid', 'both'],
+    [{ toStationId: s.yavatmal }, 'toStation', 'same'],
+    [{ toStationId: 999 }, 'toStation', 'missing'],
+    [{ consignor: { firmId: 999, name: '', addToFirms: false } }, 'consignor', 'missing'],
+    [{ date: '2026-10-30' }, 'date', 'future'],
+  ];
+  for (const [over, field, why] of cases) {
+    const r = failed(edit(s, lr, over));
+    assert.equal(r.code, 'lr-invalid', field);
+    assert.equal((r.fields as Record<string, string>)[field], why, field);
+  }
+  assert.deepEqual(written(s, lr.id), before);
+});
+
+test('edit: the date may move within the LR\'s year, never into another year', () => {
+  const s = setUp();
+  const lr = open(s);
+  const before = written(s, lr.id);
+  const across = failed(edit(s, lr, { date: '2025-12-31' }));
+  assert.equal(across.code, 'lr-invalid');
+  assert.equal(across.fields?.date, 'year');
+  assert.deepEqual(written(s, lr.id), before);
+  const within = updatedOf(edit(s, lr, { date: '2026-01-05' }));
+  assert.equal(within.lr.date, '2026-01-05');
+  assert.equal(within.lr.lrNo, lr.lrNo, 'and it keeps its number');
+  assert.equal(within.lr.lrYear, 2026);
+});
+
+test('edit: a walk-in ticked "Add to firms" is saved with the edit; a refusal rolls the whole edit back', () => {
+  const s = setUp();
+  const lr = open(s);
+  const r = updatedOf(edit(s, lr, { consignee: { firmId: null, name: 'Zeta Traders', addToFirms: true } }));
+  assert.equal(r.firmsAdded, true);
+  assert.notEqual(r.lr.consigneeId, null);
+  const before = written(s, lr.id);
+  const clash = failed(edit(s, r.lr, { qty: '77', consignee: { firmId: null, name: 'Shree Ganesh Traders', addToFirms: true } }));
+  assert.equal(clash.code, 'master-exists');
+  assert.deepEqual(written(s, lr.id), before, 'the quantity change did not stay');
+});
+
+test('edit: a firm or station deactivated after the save does not stop the LR being edited while it is left alone; a new pick must be active', () => {
+  const s = setUp();
+  const lr = open(s);
+  const pune = station(s, 'Pune');
+  assert.ok(s.masters.setActive(s.db, 'seat-1', 'firms', s.ganesh, 1, false, SYSTEM).ok);
+  assert.ok(s.masters.setActive(s.db, 'seat-1', 'stations', s.nagpur, 1, false, SYSTEM).ok);
+  const r = updatedOf(edit(s, lr, { qty: '8' }));
+  assert.equal(r.lr.qty, 8);
+  assert.equal(r.lr.consignorId, s.ganesh);
+  assert.ok(s.masters.setActive(s.db, 'seat-1', 'stations', pune, 1, false, SYSTEM).ok);
+  const bad = failed(edit(s, r.lr, { toStationId: pune }));
+  assert.equal(bad.fields?.toStation, 'missing');
+});
+
+test('edit of a loaded LR is allowed; it stays loaded on its memo', () => {
+  const s = setUp();
+  const lr = open(s);
+  const memo = insertMemo(s.db);
+  s.db.prepare("UPDATE lrs SET status = 'loaded', memo_id = ? WHERE id = ?").run(memo, lr.id);
+  const r = updatedOf(edit(s, lr, { qty: '11' }));
+  assert.equal(r.lr.qty, 11);
+  assert.equal(r.lr.status, 'loaded');
+  assert.equal(r.lr.memoNo, memoNo(s, memo));
+});
+
+test('a cancelled LR cannot be edited until it is restored', () => {
+  const s = setUp();
+  const lr = open(s);
+  const c = detailOf(s.lrs.cancel(s.db, 'seat-1', lr.id, lr.version, 'wrong party', SYSTEM));
+  const before = written(s, lr.id);
+  assert.equal(failed(edit(s, c, { qty: '9' })).code, 'lr-cancelled');
+  assert.deepEqual(written(s, lr.id), before);
+});
+
+test('cancel: needs a reason and the System PIN; it keeps its number, stays listed and leaves the day totals', () => {
+  const s = setUp();
+  open(s, { qty: '2', toPay: '100' });
+  const b = open(s, { qty: '5', toPay: '40' });
+  const before = written(s, b.id);
+  assert.equal(failed(s.lrs.cancel(s.db, 'seat-1', b.id, 1, '', SYSTEM)).fields?.reason, 'required');
+  assert.equal(failed(s.lrs.cancel(s.db, 'seat-1', b.id, 1, '   ', SYSTEM)).code, 'lr-invalid');
+  assert.equal(failed(s.lrs.cancel(s.db, 'seat-1', b.id, 1, 'duplicate', '')).code, 'wrong-pin');
+  assert.equal(failed(s.lrs.cancel(s.db, 'seat-1', b.id, 1, 'duplicate', ADMIN)).code, 'wrong-pin');
+  assert.deepEqual(written(s, b.id), before);
+
+  const c = detailOf(s.lrs.cancel(s.db, 'seat-3', b.id, 1, '  duplicate   entry ', SYSTEM));
+  assert.equal(c.status, 'cancelled');
+  assert.equal(c.version, 2);
+  assert.equal(c.lrNo, 2);
+  const day = s.lrs.byDate(s.db, null);
+  assert.ok(day.ok);
+  assert.deepEqual(day.value.rows.map((r) => [r.lrNo, r.status]), [[2, 'cancelled'], [1, 'booked']], 'still listed');
+  assert.deepEqual(day.value.totals, { count: 1, qty: 2, toPayPaise: 10000, paidPaise: 0, booked: 1, loaded: 0 });
+  assert.equal(saved(save(s)).row.lrNo, 3, 'a cancelled number is never reused');
+  const audit = s.db.prepare("SELECT seat, before_json AS before, after_json AS after FROM audit_log WHERE action = 'lrs.cancel'").all() as { seat: string; before: string; after: string }[];
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].seat, 'seat-3');
+  assert.deepEqual(JSON.parse(audit[0].before), { status: 'booked' });
+  assert.deepEqual(JSON.parse(audit[0].after), { status: 'cancelled', reason: 'duplicate entry' });
+});
+
+test('cancel: refused on a stale version, on a cancelled LR, and on an LR that is on a memo (naming the memo)', () => {
+  const s = setUp();
+  const lr = open(s);
+  updatedOf(edit(s, lr, { qty: '9' }));
+  const stale = failed(s.lrs.cancel(s.db, 'seat-2', lr.id, 1, 'oops', SYSTEM));
+  assert.equal(stale.code, 'lr-stale');
+  assert.equal(stale.lr?.version, 2);
+
+  const loaded = open(s);
+  const memo = insertMemo(s.db);
+  s.db.prepare("UPDATE lrs SET status = 'loaded', memo_id = ? WHERE id = ?").run(memo, loaded.id);
+  const before = written(s, loaded.id);
+  const refusal = failed(s.lrs.cancel(s.db, 'seat-1', loaded.id, 1, 'oops', SYSTEM));
+  assert.equal(refusal.code, 'lr-on-memo');
+  assert.equal(refusal.detail, String(memoNo(s, memo)));
+  assert.deepEqual(written(s, loaded.id), before);
+
+  const done = detailOf(s.lrs.cancel(s.db, 'seat-1', lr.id, 2, 'oops', SYSTEM));
+  assert.equal(failed(s.lrs.cancel(s.db, 'seat-1', lr.id, done.version, 'again', SYSTEM)).code, 'lr-cancelled');
+  assert.equal(failed(s.lrs.cancel(s.db, 'seat-1', 99999, 1, 'x', SYSTEM)).code, 'lr-missing');
+});
+
+test('restore: a cancelled LR only, System PIN, back to booked with its number and money', () => {
+  const s = setUp();
+  const lr = open(s, { toPay: '100' });
+  assert.equal(failed(s.lrs.restore(s.db, 'seat-1', lr.id, lr.version, SYSTEM)).code, 'lr-not-cancelled');
+  const c = detailOf(s.lrs.cancel(s.db, 'seat-1', lr.id, 1, 'by mistake', SYSTEM));
+  const before = written(s, lr.id);
+  assert.equal(failed(s.lrs.restore(s.db, 'seat-1', lr.id, c.version, '')).code, 'wrong-pin');
+  assert.equal(failed(s.lrs.restore(s.db, 'seat-1', lr.id, c.version, '0000')).code, 'wrong-pin');
+  assert.equal(failed(s.lrs.restore(s.db, 'seat-1', lr.id, 1, SYSTEM)).code, 'lr-stale');
+  assert.deepEqual(written(s, lr.id), before);
+  const back = detailOf(s.lrs.restore(s.db, 'seat-4', lr.id, c.version, SYSTEM));
+  assert.equal(back.status, 'booked');
+  assert.equal(back.version, 3);
+  assert.equal(back.lrNo, lr.lrNo);
+  assert.equal(back.toPayPaise, 10000);
+  const day = s.lrs.byDate(s.db, null);
+  assert.ok(day.ok);
+  assert.equal(day.value.totals.count, 1, 'counted again');
+});
+
+test('history: newest first, one entry per change, edits list old and new with station names, cancel carries the reason', () => {
+  const s = setUp();
+  const pune = station(s, 'Pune');
+  const lr = open(s);
+  const e = updatedOf(edit(s, lr, { toStationId: pune, qty: '4', toPay: '2,000' }, SYSTEM, 'seat-2'));
+  const c = detailOf(s.lrs.cancel(s.db, 'seat-3', lr.id, e.lr.version, 'wrong party', SYSTEM));
+  detailOf(s.lrs.restore(s.db, 'seat-4', lr.id, c.version, SYSTEM));
+  const h = s.lrs.history(s.db, lr.id);
+  assert.ok(h.ok);
+  assert.deepEqual(h.value.map((x) => [x.action, x.seat]), [['restored', 'seat-4'], ['cancelled', 'seat-3'], ['edited', 'seat-2'], ['created', 'seat-1']]);
+  assert.equal(h.value[1].reason, 'wrong party');
+  assert.deepEqual(h.value[2].changes, [
+    { field: 'toStation', from: 'Nagpur', to: 'Pune' },
+    { field: 'qty', from: 3, to: 4 },
+    { field: 'toPay', from: 180000, to: 200000 },
+  ]);
+  assert.deepEqual(h.value[0].changes, []);
+  assert.ok(h.value.every((x) => /^\d{4}-\d\d-\d\dT/.test(x.at)));
+  const none = s.lrs.history(s.db, 99999);
+  assert.ok(none.ok);
+  assert.deepEqual(none.value, []);
+});
+
+test('history: at most 50 entries, newest first', () => {
+  const s = setUp();
+  let lr = open(s);
+  for (let i = 0; i < 55; i++) lr = updatedOf(edit(s, lr, { qty: String(10 + i) })).lr;
+  const h = s.lrs.history(s.db, lr.id);
+  assert.ok(h.ok);
+  assert.equal(h.value.length, 50);
+  assert.equal(h.value[0].changes[0].to, 64, 'the newest');
 });

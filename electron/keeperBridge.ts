@@ -16,8 +16,11 @@ import {
   type KeeperStatus,
   type LrDay,
   type LrDefaults,
+  type LrDetail,
+  type LrHistoryEntry,
   type LrPreview,
   type LrSaved,
+  type LrUpdated,
   type MasterRow,
   type MastersAll,
   type RestorePreview,
@@ -218,6 +221,19 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:lrs-preview', (_e, input: unknown) => call<LrPreview>('POST', '/lrs/preview', { input }));
   ipcMain.handle('keeper:lrs-create', (_e, input: unknown) => call<LrSaved>('POST', '/lrs/create', { input }));
   ipcMain.handle('keeper:lrs-by-date', (_e, date: unknown) => call<LrDay>('POST', '/lrs/by-date', { date: dateOrNull(date) }));
+  // Open, edit, cancel, restore: ids and versions are checked as integers by the keeper (a bad one answers 400).
+  ipcMain.handle('keeper:lrs-get', (_e, id: unknown) => call<LrDetail>('POST', '/lrs/get', { id }));
+  ipcMain.handle('keeper:lrs-find', (_e, no: unknown) => call<LrDetail>('POST', '/lrs/find', { no }));
+  ipcMain.handle('keeper:lrs-update', (_e, id: unknown, version: unknown, input: unknown, pin: unknown) =>
+    call<LrUpdated>('POST', '/lrs/update', { id, version, input, systemPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:lrs-cancel', (_e, id: unknown, version: unknown, reason: unknown, pin: unknown) =>
+    call<LrDetail>('POST', '/lrs/cancel', { id, version, reason: text(reason), systemPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:lrs-restore', (_e, id: unknown, version: unknown, pin: unknown) =>
+    call<LrDetail>('POST', '/lrs/restore', { id, version, systemPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:lrs-history', (_e, id: unknown) => call<LrHistoryEntry[]>('POST', '/lrs/history', { id }));
   ipcMain.handle('keeper:settings-set-lr-defaults', (_e, input: unknown, pin: unknown) =>
     call<LrDefaults>('POST', '/settings/set-lr-defaults', { input, adminPin: text(pin) }),
   );

@@ -1,8 +1,8 @@
 // What makes a typed LR acceptable. Pure: no database, no clock (the caller passes today). The money and quantity
 // arrive as the TEXT the clerk typed; this is where they become numbers, so the screen never has to.
-import type { ChargeOption, LrDefaultsInput, LrField, LrFieldError, LrInput, LrParty } from '../shared';
+import type { ChargeOption, LrChange, LrDefaultsInput, LrEditField, LrField, LrFieldError, LrInput, LrParty } from '../shared';
 import { cleanName } from './masterRules';
-import { parsePercent, parseRupees } from './money';
+import { parsePercent, parseRupees, percentText } from './money';
 
 export type LrErrors = Partial<Record<LrField, LrFieldError>>;
 
@@ -115,6 +115,58 @@ function party(p: LrParty): { ok: boolean; name: string | null } {
   if (Number.isInteger(p.firmId)) return { ok: true, name: null };
   const name = cleanName(p.name);
   return { ok: name !== null, name };
+}
+
+/** Why an LR was cancelled: free text, trimmed, inner spaces collapsed, 1-200 characters; null when not acceptable. */
+export function cleanReason(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const reason = v.replace(/\s+/g, ' ').trim();
+  return reason.length >= 1 && reason.length <= 200 ? reason : null;
+}
+
+/** The columns an edit can change, in form order, with the box each one belongs to. The ids come with their names. */
+const EDIT_COLUMNS: [LrEditField, string][] = [
+  ['date', 'lr_date'], ['fromStation', 'from_station_id'], ['toStation', 'to_station_id'],
+  ['consignor', 'consignor_name'], ['consignee', 'consignee_name'], ['particular', 'particular'], ['qty', 'qty'],
+  ['chargeOption', 'charge_option'], ['toPay', 'topay_paise'], ['paid', 'paid_paise'], ['godownBhada', 'godown_bhada_paise'],
+  ['godownInsurance', 'godown_insurance_paise'], ['deliveryCharges', 'delivery_charges_paise'], ['hamali', 'hamali_paise'],
+  ['wasuli', 'wasuli_paise'], ['staxPercent', 'stax_bp'],
+];
+const EDIT_COLUMN_NAMES = [...EDIT_COLUMNS.map(([, c]) => c), 'consignor_id', 'consignee_id'];
+
+type Row = Record<string, unknown>;
+
+/** What an edit changed, as the audit row's before / after: only the columns that differ. Null when nothing differs. */
+export function diffLr(was: object, now: object): { before: Row; after: Row } | null {
+  const before: Row = {};
+  const after: Row = {};
+  for (const c of EDIT_COLUMN_NAMES) {
+    const a = (was as Row)[c];
+    const b = (now as Row)[c];
+    if (a === b) continue;
+    before[c] = a;
+    after[c] = b;
+  }
+  return Object.keys(after).length > 0 ? { before, after } : null;
+}
+
+/**
+ * An edit's audit pair as History lines in form order. `stationName` turns an id into a name; money stays paise
+ * (the screen shows rupees). A firm picked for a walk-in of the same name changes an id only, which shows no line.
+ */
+export function changesOf(before: Row, after: Row, stationName: (id: unknown) => string | undefined): LrChange[] {
+  const out: LrChange[] = [];
+  for (const [field, column] of EDIT_COLUMNS) {
+    if (!(column in after) || before[column] === after[column]) continue;
+    const show = (v: unknown): string | number | null => {
+      if (v === undefined || v === null) return null;
+      if (field === 'fromStation' || field === 'toStation') return stationName(v) ?? String(v);
+      if (field === 'staxPercent') return percentText(Number(v));
+      return v as string | number;
+    };
+    out.push({ field, from: show(before[column]), to: show(after[column]) });
+  }
+  return out;
 }
 
 export interface CleanLr {

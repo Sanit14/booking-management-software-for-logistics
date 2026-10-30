@@ -13,7 +13,9 @@ import {
   type GuardReason,
   type KeeperHealth,
   type KeeperResult,
+  type LrDetail,
   type LrSaved,
+  type LrUpdated,
   type MasterFields,
   type MasterKind,
   type ResultCode,
@@ -296,6 +298,7 @@ function main(): void {
       '/seats', '/pins/setup', '/pins/verify', '/pins/change-system', '/pins/change-admin', '/pins/recover',
       '/masters/all', '/masters/create', '/masters/update', '/masters/set-active',
       '/lrs/defaults', '/lrs/preview', '/lrs/create', '/lrs/by-date', '/settings/set-lr-defaults',
+      '/lrs/get', '/lrs/find', '/lrs/update', '/lrs/cancel', '/lrs/restore', '/lrs/history',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -441,10 +444,27 @@ function main(): void {
       const date = typeof body.date === 'string' ? body.date : null;
       let r: KeeperResult<unknown>;
       try {
+        const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+        const pin = typeof body.systemPin === 'string' ? body.systemPin : '';
         if (url === '/lrs/defaults') r = ok(lrs.defaults(db, date));
         else if (url === '/lrs/by-date') r = lrs.byDate(db, date);
         else if (url === '/settings/set-lr-defaults') r = lrs.setDefaults(db, seat, asDefaultsInput(body.input), typeof body.adminPin === 'string' ? body.adminPin : '');
-        else {
+        else if (url === '/lrs/find') {
+          if (!whole(body.no)) return send(res, 400, { error: 'no required' });
+          r = lrs.find(db, body.no);
+        } else if (url === '/lrs/get' || url === '/lrs/history') {
+          if (!whole(body.id)) return send(res, 400, { error: 'id required' });
+          r = url === '/lrs/get' ? lrs.get(db, body.id) : lrs.history(db, body.id);
+        } else if (url === '/lrs/update' || url === '/lrs/cancel' || url === '/lrs/restore') {
+          if (!whole(body.id) || !whole(body.version)) return send(res, 400, { error: 'id and version required' });
+          if (url === '/lrs/cancel') r = lrs.cancel(db, seat, body.id, body.version, typeof body.reason === 'string' ? body.reason : '', pin);
+          else if (url === '/lrs/restore') r = lrs.restore(db, seat, body.id, body.version, pin);
+          else {
+            const input = asLrInput(body.input);
+            if (!input) return send(res, 400, { error: 'input with a uid required' });
+            r = lrs.update(db, seat, body.id, body.version, input, pin);
+          }
+        } else {
           const input = asLrInput(body.input);
           if (!input) return send(res, 400, { error: 'input with a uid required' });
           r = url === '/lrs/preview' ? lrs.preview(db, input) : lrs.create(db, seat, input);
@@ -460,6 +480,16 @@ function main(): void {
           log('lr-saved', { seat, id: done.row.id, no: done.row.lrNo });
           events.publish(done.firmsAdded ? ['lrs', 'firms'] : ['lrs'], [done.row.id]);
         }
+      } else if (r.ok && url === '/lrs/update') {
+        const done = r.value as LrUpdated;
+        if (done.changed) {
+          log('lr-updated', { seat, id: done.lr.id, no: done.lr.lrNo });
+          events.publish(done.firmsAdded ? ['lrs', 'firms'] : ['lrs'], [done.lr.id]);
+        }
+      } else if (r.ok && (url === '/lrs/cancel' || url === '/lrs/restore')) {
+        const done = r.value as LrDetail;
+        log(url === '/lrs/cancel' ? 'lr-cancelled' : 'lr-restored', { seat, id: done.id, no: done.lrNo });
+        events.publish(['lrs'], [done.id]);
       } else if (r.ok && url === '/settings/set-lr-defaults') {
         events.publish(['settings']);
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {

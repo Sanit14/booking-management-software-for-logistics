@@ -401,7 +401,7 @@ test('keeper: first-run PIN setup is set-once, wrong PINs lock after five, other
 
 // --- masters ---------------------------------------------------------------------------------------------------
 
-type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; similar?: string[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; lr?: any; similar?: string[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const masters = async (port: number, url: string, body: unknown, seat = 'counter-1'): Promise<Answer> => {
   const r = await callJson(port, 'POST', `/masters/${url}`, body, { seat, timeoutMs: 30000 });
   return { status: r.status, ...(r.json as object) } as Answer;
@@ -570,6 +570,87 @@ test('keeper: one event per committed write to every listening seat, none for a 
   }
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
+}));
+
+test('keeper: two seats edit the same LR - the second is told it changed and nothing is lost; one event per committed change, none on a refusal', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  const created = await lrCall(port, '/lrs/create', { input: input() });
+  const id = created.value.row.id as number;
+  const a = listen(port, 'counter-1');
+  const b = listen(port, 'counter-2');
+  const pin = '7295';
+  try {
+    await until('both streams to connect', () => a.got.length >= 1 && b.got.length >= 1);
+    a.got.length = 0;
+    b.got.length = 0;
+
+    const opened = await lrCall(port, '/lrs/get', { id });
+    assert.equal(opened.value.version, 1);
+    assert.equal((await lrCall(port, '/lrs/find', { no: created.value.row.lrNo })).value.id, id);
+    assert.equal((await lrCall(port, '/lrs/find', { no: 999 })).code, 'lr-missing');
+
+    // Seat 1 saves first.
+    const first = await lrCall(port, '/lrs/update', { id, version: 1, input: input({ paid: '1,800', toPay: '' }), systemPin: pin }, 'counter-1');
+    assert.equal(first.ok, true);
+    assert.equal(first.value.changed, true);
+    assert.equal(first.value.lr.version, 2);
+    await until('the edit event on both seats', () => a.got.length >= 1 && b.got.length >= 1);
+    assert.deepEqual(a.got, [{ tables: ['lrs'], ids: [id] }]);
+    assert.deepEqual(b.got, a.got);
+
+    // Seat 2 still holds version 1: it is told, with the current LR, and its quantity is not written.
+    const second = await lrCall(port, '/lrs/update', { id, version: 1, input: input({ qty: '50' }), systemPin: pin }, 'counter-2');
+    assert.equal(second.ok, false);
+    assert.equal(second.code, 'lr-stale');
+    assert.equal(second.lr.version, 2);
+    assert.equal(second.lr.paidPaise, 180000, 'it sees what seat 1 saved');
+    assert.equal(second.lr.qty, 3, 'and its own change was not applied');
+
+    // Refusals and no-ops announce nothing.
+    assert.equal((await lrCall(port, '/lrs/update', { id, version: 2, input: input({ qty: '9' }), systemPin: '0000' })).code, 'wrong-pin');
+    assert.equal((await lrCall(port, '/lrs/update', { id, version: 2, input: input({ qty: '0' }), systemPin: pin })).code, 'lr-invalid');
+    assert.equal((await lrCall(port, '/lrs/update', { id, version: 2, input: input({ paid: '1,800', toPay: '' }), systemPin: pin })).value.changed, false);
+    assert.equal((await lrCall(port, '/lrs/cancel', { id, version: 2, reason: ' ', systemPin: pin })).code, 'lr-invalid');
+    assert.equal((await lrCall(port, '/lrs/restore', { id, version: 2, systemPin: pin })).code, 'lr-not-cancelled');
+    assert.equal((await lrCall(port, '/lrs/get', { id: 'x' })).status, 400);
+    assert.equal((await lrCall(port, '/lrs/update', { id, input: input(), systemPin: pin })).status, 400);
+    assert.equal((await lrCall(port, '/lrs/history', { id })).ok, true);
+
+    const cancelled = await lrCall(port, '/lrs/cancel', { id, version: 2, reason: 'Wrong party typed', systemPin: pin });
+    assert.equal(cancelled.value.status, 'cancelled');
+    await until('the cancel event', () => a.got.length >= 2 && b.got.length >= 2);
+    const restored = await lrCall(port, '/lrs/restore', { id, version: 3, systemPin: pin });
+    assert.equal(restored.value.status, 'booked');
+    await until('the restore event', () => a.got.length >= 3 && b.got.length >= 3);
+    assert.deepEqual(a.got[2], { tables: ['lrs'], ids: [id] });
+
+    const history = await lrCall(port, '/lrs/history', { id });
+    assert.deepEqual(history.value.map((h: { action: string }) => h.action), ['restored', 'cancelled', 'edited', 'created']);
+    assert.equal(history.value[1].reason, 'Wrong party typed');
+
+    // An edit that saves a walk-in to the firms master announces both tables.
+    const walk = await lrCall(port, '/lrs/update', { id, version: 4, input: input({ paid: '1,800', toPay: '', consignee: { firmId: null, name: 'Om Stores', addToFirms: true } }), systemPin: pin });
+    assert.equal(walk.value.firmsAdded, true);
+    await until('the walk-in edit event', () => a.got.length >= 4 && b.got.length >= 4);
+    assert.deepEqual(a.got[3], { tables: ['lrs', 'firms'], ids: [id] });
+
+    await sleep(400);
+    assert.equal(a.got.length, 4, 'one event per committed change');
+    assert.equal(b.got.length, 4);
+  } finally {
+    a.stop();
+    b.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  assert.match(log, /lr-updated/);
+  assert.match(log, /pin-refused/);
+  for (const secret of ['4831', '7295', 'Wrong party typed', 'Kale Brothers']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
 }));
 
 test('keeper: a seat\'s stream survives a keeper restart: it reconnects, is told to refetch, and keeps receiving', () => run(async () => {

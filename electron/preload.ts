@@ -49,6 +49,12 @@ const keeper: KeeperApi = {
     preview: (input) => ipcRenderer.invoke('keeper:lrs-preview', input),
     create: (input) => ipcRenderer.invoke('keeper:lrs-create', input),
     byDate: (date) => ipcRenderer.invoke('keeper:lrs-by-date', date),
+    get: (id) => ipcRenderer.invoke('keeper:lrs-get', id),
+    find: (no) => ipcRenderer.invoke('keeper:lrs-find', no),
+    update: (id, version, input, systemPin) => ipcRenderer.invoke('keeper:lrs-update', id, version, input, systemPin),
+    cancel: (id, version, reason, systemPin) => ipcRenderer.invoke('keeper:lrs-cancel', id, version, reason, systemPin),
+    restore: (id, version, systemPin) => ipcRenderer.invoke('keeper:lrs-restore', id, version, systemPin),
+    history: (id) => ipcRenderer.invoke('keeper:lrs-history', id),
   },
   settings: {
     setLrDefaults: (input, adminPin) => ipcRenderer.invoke('keeper:settings-set-lr-defaults', input, adminPin),

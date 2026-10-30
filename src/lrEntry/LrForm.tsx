@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { CalendarDays, Undo2 } from 'lucide-react';
-import type { ChargeOption, Firm, LrDefaults, LrField, LrInput, LrParty, LrPreview, Station } from '../../shared';
+import type { ChargeOption, Firm, KeeperResult, LrDefaults, LrDetail, LrField, LrInput, LrParty, LrPreview, Station } from '../../shared';
 import { applyDefaults, markManual, releaseIfEmpty, CHARGE_KEYS, type ChargeKey, type ChargeTexts } from '../logic/chargeFill';
+import { formFromLr, isoToDisplay, type LrFormState as State, type Party, type Typed } from '../logic/lrOpen';
 import { formatPaise } from '../logic/rupees';
 import { matchKey } from '../logic/typeAhead';
 import { KEYS } from '../keymap';
@@ -15,6 +16,7 @@ import SelectField from '../ui/SelectField';
 import { useToast } from '../ui/Toast';
 import TypeAhead from '../ui/TypeAhead';
 import { useEnterToNext } from '../ui/useEnterToNext';
+import LrActions from './LrActions';
 import styles from './LrEntryPage.module.css';
 
 const t = strings.lr;
@@ -22,30 +24,6 @@ const OPTION_KEY = 'bm.lrChargeOption'; // the last charge option used on this s
 const CHARGE_OPTIONS = (Object.keys(t.chargeOptions) as ChargeOption[]).map((value) => ({ value, label: t.chargeOptions[value] }));
 const NO_CHARGES: ChargeTexts = { godownBhada: '', godownInsurance: '', deliveryCharges: '', hamali: '' };
 
-interface Party {
-  text: string;
-  firmId: number | null;
-  add: boolean;
-}
-interface Typed {
-  text: string;
-  id: number | null;
-}
-interface State {
-  from: Typed;
-  consignor: Party;
-  consignee: Party;
-  to: Typed;
-  particular: string;
-  qty: string;
-  toPay: string;
-  paid: string;
-  option: ChargeOption;
-  charges: ChargeTexts;
-  manual: ReadonlySet<ChargeKey>;
-  wasuli: string;
-  stax: string;
-}
 type Errors = Partial<Record<LrField, string>>;
 
 const noParty: Party = { text: '', firmId: null, add: false };
@@ -79,16 +57,21 @@ function initial(d: LrDefaults, stations: Station[], keep?: State): State {
   };
 }
 
-export const isoToDisplay = (iso: string) => iso.split('-').reverse().join('-');
 const sameCharges = (a: ChargeTexts, b: ChargeTexts) => CHARGE_KEYS.every((k) => a[k] === b[k]);
 
 interface Props {
   stations: Station[];
   firms: Firm[];
   defaults: LrDefaults;
-  /** null = today. A date other than today was unlocked with the System PIN. */
+  /** null = today. A date other than today was unlocked with the System PIN (a new LR only). */
   date: string | null;
   onDate: (date: string | null) => void;
+  /** A saved LR: the form shows it read-only, and Edit (System PIN) makes it editable. Absent = a new LR. */
+  lr?: LrDetail;
+  /** Show this LR (what a change answered with), or null for a new, empty one. */
+  onOpen: (lr: LrDetail | null) => void;
+  /** True while the form holds work that opening another LR would throw away (an edit, or a half-typed new LR). */
+  onGuard: (holding: boolean) => void;
 }
 
 /**
@@ -96,10 +79,16 @@ interface Props {
  * amounts and the charge options' amounts come back from lrs.preview, and the number comes back from the save. The
  * form shows what it is given and never adds anything up.
  */
-export default function LrForm({ stations, firms, defaults, date, onDate }: Props) {
+export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onGuard }: Props) {
   const toast = useToast();
   const enterToNext = useEnterToNext();
-  const [state, setState] = useState<State>(() => initial(defaults, stations));
+  const nameOf = (id: number) => stations.find((s) => s.id === id)?.name ?? '';
+  const [state, setState] = useState<State>(() => (lr ? formFromLr(lr, nameOf) : initial(defaults, stations)));
+  const [editing, setEditing] = useState(false);
+  const locked = lr !== undefined && !editing; // a saved LR is read-only until Edit
+  const [editDate, setEditDate] = useState(lr?.date ?? ''); // the date box of an LR being edited (within its year)
+  const editPin = useRef(''); // the System PIN that opened Edit, sent with the save
+  const [editBase, setEditBase] = useState(0); // the version Edit started from: a save from an older one is refused
   const [errors, setErrors] = useState<Errors>({});
   const [preview, setPreview] = useState<LrPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,8 +132,8 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
 
   const toInput = (confirmSimilar = false): LrInput => ({
     uid: uid.current,
-    date,
-    systemPin: pin.current,
+    date: lr ? editDate : date,
+    systemPin: lr ? '' : pin.current, // an edit sends its PIN apart (lrs.update)
     fromStationId: stationId(state.from),
     toStationId: stationId(state.to),
     consignor: partyOf(state.consignor),
@@ -167,6 +156,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
   // `manual` is in the key: a box emptied and left is handed back to the option, which needs a fresh answer to refill it.
   const previewKey = JSON.stringify([state.option, state.qty, state.toPay, state.paid, state.charges, [...state.manual], state.wasuli, state.stax]);
   useEffect(() => {
+    if (locked) return; // a saved LR in view mode shows the amounts it was saved with
     const mine = ++asked.current;
     const pending = window.bm.keeper.lrs.preview({ ...toInput(), systemPin: '' }).then((r) => {
       if (mine !== asked.current || !r.ok) return;
@@ -182,7 +172,32 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
     });
     // toInput() reads the same state that previewKey is made of
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewKey]);
+  }, [previewKey, locked]);
+
+  // A saved LR in view mode follows the LR it is given (another seat saved it, or this seat just did); while it is
+  // being edited it keeps what is typed, and the save is refused if the LR moved on.
+  const fill = (from: LrDetail) => {
+    setState(formFromLr(from, nameOf));
+    setEditDate(from.date);
+    setErrors({});
+  };
+  const [filledFrom, setFilledFrom] = useState(lr); // the LR the boxes were last filled from
+  if (lr && !editing && (filledFrom?.version !== lr.version || filledFrom.status !== lr.status)) {
+    setFilledFrom(lr);
+    fill(lr);
+  }
+  useEffect(() => {
+    if (editing) form.current?.querySelector<HTMLElement>('[data-first]')?.focus(); // after the PIN dialog has handed focus back
+  }, [editing]);
+
+  // The page must not swap this form for another LR while it holds work: tell it when that is so.
+  const holding = lr ? editing : [state.consignor.text, state.consignee.text, state.to.text, state.particular, state.qty, state.toPay, state.paid].some((v) => v.trim() !== '');
+  useEffect(() => {
+    onGuard(holding);
+    return () => onGuard(false);
+    // onGuard only sets a flag on the page
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holding]);
 
   // A refusal puts the cursor on the first box to fix (not again when the clerk fixes one of several).
   useEffect(() => {
@@ -191,9 +206,12 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
 
   // The date was just unlocked: the cursor goes to it (this effect runs after the PIN dialog has handed focus back).
   const dateUnlocked = date !== null;
+  const sawUnlocked = useRef(dateUnlocked); // a form that opens with the date already unlocked does not jump to it
   useEffect(() => {
-    if (dateUnlocked) form.current?.querySelector<HTMLElement>('input[type="date"]')?.focus();
-  }, [dateUnlocked]);
+    if (sawUnlocked.current === dateUnlocked) return;
+    sawUnlocked.current = dateUnlocked;
+    if (dateUnlocked && !lr) form.current?.querySelector<HTMLElement>('input[type="date"]')?.focus();
+  }, [dateUnlocked, lr]);
 
   const focusFirst = () => form.current?.querySelector<HTMLElement>('[data-first]')?.focus();
 
@@ -202,8 +220,45 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
     setFocusError((n) => n + 1);
   };
 
+  // What a refused save says, new LR or edit: the boxes to fix, a firm that exists or looks alike, or a toast.
+  const handleRefusal = (r: Extract<KeeperResult<unknown>, { ok: false }>) => {
+    switch (r.code) {
+      case 'lr-invalid': {
+        const fields: Errors = {};
+        for (const [k, why] of Object.entries(r.fields ?? {})) fields[k as LrField] = t.fieldError[why];
+        return refuse(fields);
+      }
+      case 'master-exists': {
+        const who = r.detail === 'consignee' ? 'consignee' : 'consignor';
+        return refuse({ [who]: t.firmExists(r.row && 'name' in r.row ? r.row.name : state[who].text) });
+      }
+      case 'master-similar':
+        return setSimilar({ party: r.detail === 'consignee' ? t.consignee : t.consignor, names: r.similar ?? [] });
+      case 'wrong-pin':
+      case 'pin-locked':
+        // The PIN that unlocked the date no longer works (it was changed, or locked): back to today.
+        pin.current = '';
+        onDate(null);
+        toast.error(strings.result(r.code, r.detail));
+        return;
+      default:
+        toast.error(strings.result(r.code, r.detail));
+    }
+  };
+
+  // An edit that was not saved: the LR moved on (stale, cancelled, gone) or the PIN stopped working. Back to view mode.
+  const leaveEdit = (r: Extract<KeeperResult<unknown>, { ok: false }>) => {
+    editPin.current = '';
+    if (lr) fill(lr); // what was typed is not saved: the boxes show the saved values (the newer LR, if one came, replaces them)
+    setEditing(false);
+    if (r.code === 'lr-stale') toast.warning(t.stale(lr?.lrNo ?? 0));
+    else toast.error(strings.result(r.code, r.detail));
+    if (r.code === 'lr-missing') onOpen(null);
+    else if (r.lr) onOpen(r.lr);
+  };
+
   const save = async (confirmSimilar = false): Promise<void> => {
-    if (inFlight.current) return;
+    if (inFlight.current || locked) return;
     // A charge box (hamali per dag x quantity) may be about to change: let the newest preview land and the form
     // re-render, then save with what is on screen (a newer save() is on `saveNow` by then).
     if (previewPending.current) {
@@ -226,6 +281,20 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
     inFlight.current = true;
     setBusy(true);
     try {
+      if (lr) {
+        const r = await window.bm.keeper.lrs.update(lr.id, editBase, toInput(confirmSimilar), editPin.current);
+        if (r.ok) {
+          const { lr: next, changed } = r.value;
+          if (changed) toast.success(t.updated(next.lrNo), t.savedDetail(next.consignor, next.consignee, nameOf(next.toStationId)));
+          else toast.info(t.noChanges(next.lrNo));
+          editPin.current = '';
+          setEditing(false);
+          onOpen(next);
+          return;
+        }
+        if (r.code === 'lr-stale' || r.code === 'lr-missing' || r.code === 'lr-cancelled' || r.code === 'wrong-pin' || r.code === 'pin-locked') return leaveEdit(r);
+        return handleRefusal(r);
+      }
       const r = await window.bm.keeper.lrs.create(toInput(confirmSimilar));
       if (r.ok) {
         const { row, again } = r.value;
@@ -242,28 +311,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
         focusFirst();
         return;
       }
-      switch (r.code) {
-        case 'lr-invalid': {
-          const fields: Errors = {};
-          for (const [k, why] of Object.entries(r.fields ?? {})) fields[k as LrField] = t.fieldError[why];
-          return refuse(fields);
-        }
-        case 'master-exists': {
-          const who = r.detail === 'consignee' ? 'consignee' : 'consignor';
-          return refuse({ [who]: t.firmExists(r.row && 'name' in r.row ? r.row.name : state[who].text) });
-        }
-        case 'master-similar':
-          return setSimilar({ party: r.detail === 'consignee' ? t.consignee : t.consignor, names: r.similar ?? [] });
-        case 'wrong-pin':
-        case 'pin-locked':
-          // The PIN that unlocked the date no longer works (it was changed, or locked): back to today.
-          pin.current = '';
-          onDate(null);
-          toast.error(strings.result(r.code, r.detail));
-          return;
-        default:
-          toast.error(strings.result(r.code, r.detail));
-      }
+      return handleRefusal(r);
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -272,14 +320,21 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
 
   // F4 saves from anywhere on the page, unless a dialog is open. The handler always calls the newest save().
   const saveNow = useRef(save);
+  const closeNow = useRef<(() => void) | null>(null);
   useEffect(() => {
     saveNow.current = save;
+    closeNow.current = locked ? () => onOpen(null) : null;
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== KEYS.saveLr || e.repeat || document.querySelector('dialog[open]')) return;
-      e.preventDefault();
-      void saveNow.current();
+      if (e.repeat || document.querySelector('dialog[open]')) return;
+      if (e.key === KEYS.saveLr) {
+        e.preventDefault();
+        void saveNow.current();
+      } else if (e.key === KEYS.newLr && closeNow.current) {
+        e.preventDefault();
+        closeNow.current(); // a saved LR in view mode: Esc goes back to a new, empty LR
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -304,6 +359,27 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
     onDate(null);
   };
 
+  // "Edit": the keeper checks the System PIN now; the save sends it again and the keeper checks it again.
+  const startEdit = async (value: string): Promise<boolean> => {
+    if (!lr) return true;
+    const r = await window.bm.keeper.pins.verify('system', value);
+    if (r.ok) {
+      editPin.current = value;
+      setEditBase(lr.version);
+      setEditDate(lr.date);
+      setEditing(true);
+      return true;
+    }
+    if (r.code === 'wrong-pin') return false;
+    toast.error(strings.result(r.code, r.detail)); // locked, or the keeper did not answer
+    return true;
+  };
+  const discardEdit = () => {
+    editPin.current = '';
+    if (lr) fill(lr); // the saved values back in the boxes
+    setEditing(false);
+  };
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void save();
@@ -314,10 +390,12 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
       money
       className={styles.money}
       label={label}
+      readOnly={locked}
       value={state.charges[key]}
       error={errors[key]}
       onChange={(e) => setState((s) => ({ ...s, charges: { ...s.charges, [key]: e.target.value }, manual: markManual(s.manual, key, e.target.value) }))}
-      onBlur={(e) => setState((s) => ({ ...s, manual: releaseIfEmpty(s.manual, key, e.target.value) }))}
+      // A saved LR keeps every charge as saved, a 0 (empty box) included: only a new LR hands an emptied box back to the option.
+      onBlur={lr ? undefined : (e) => setState((s) => ({ ...s, manual: releaseIfEmpty(s.manual, key, e.target.value) }))}
     />
   );
 
@@ -330,6 +408,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
         <TypeAhead
           label={label}
           required
+          readOnly={locked}
           placeholder={t.firmPlaceholder}
           listLabel={t.firmList}
           walkInLabel={t.walkIn}
@@ -338,10 +417,10 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
           options={firmOptions}
           onChange={(text) => setParty(who, { text, firmId: null })}
           onPick={(o) => setParty(who, { text: o.label, firmId: Number(o.id), add: false })}
-          {...(first ? { 'data-first': '', autoFocus: true } : {})}
+          {...(first ? { 'data-first': '', autoFocus: !lr } : {})}
         />
         <div className={styles.checkSlot}>
-          {walkIn && (
+          {walkIn && !locked && (
             <label className={styles.check}>
               {/* Enter walks past it; Tab reaches it, Space ticks it. */}
               <input type="checkbox" data-skip-enter="" checked={p.add} onChange={(e) => setParty(who, { add: e.target.checked })} />
@@ -353,38 +432,42 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
     );
   };
 
-  const amounts = preview?.amounts;
+  const amounts = lr && locked ? lr.amounts : preview?.amounts;
   const isToday = date === null;
+  // The date box: a new LR's (today, or another day unlocked with the PIN), or a saved LR's (fixed, or free within its year while editing).
+  const yearEnd = lr ? `${lr.lrYear}-12-31` : '';
+  const dateBox = lr
+    ? editing
+      ? { hint: t.dateInYear, props: { type: 'date', min: `${lr.lrYear}-01-01`, max: defaults.today < yearEnd ? defaults.today : yearEnd, value: editDate, onChange: (e: ChangeEvent<HTMLInputElement>) => { setEditDate(e.target.value || lr.date); setErrors((er) => ({ ...er, date: undefined })); } } }
+      : { hint: undefined, props: { readOnly: true, value: isoToDisplay(lr.date) } }
+    : isToday
+      ? { hint: t.dateHint, props: { readOnly: true, value: isoToDisplay(defaults.today) } }
+      : { hint: t.dateBackdated, props: { type: 'date', max: defaults.today, value: date ?? '', onChange: (e: ChangeEvent<HTMLInputElement>) => onDate(e.target.value || defaults.today) } };
   return (
     <Card className={styles.formCard}>
-      <form ref={form} className={styles.form} aria-label={t.formLabel} onSubmit={submit} onKeyDown={enterToNext} noValidate>
+      {lr && <LrActions lr={lr} editing={editing} changedElsewhere={editing && lr.version !== editBase} onEdit={startEdit} onDiscard={discardEdit} onOpen={onOpen} />}
+      <form ref={form} className={styles.form} aria-label={lr ? t.lrTitle(lr.lrNo) : t.formLabel} onSubmit={submit} onKeyDown={enterToNext} noValidate>
         <div className={styles.row}>
-          <Field className={styles.lrNo} label={t.lrNo} readOnly tabIndex={-1} value={t.lrNoNew} hint={t.lrNoHint(defaults.nextNo)} />
-          <Field
-            className={styles.date}
-            label={t.date}
-            hint={isToday ? t.dateHint : t.dateBackdated}
-            error={errors.date}
-            data-skip-enter=""
-            {...(isToday
-              ? { readOnly: true, value: isoToDisplay(defaults.today) }
-              : { type: 'date', max: defaults.today, value: date ?? '', onChange: (e: ChangeEvent<HTMLInputElement>) => onDate(e.target.value || defaults.today) })}
-          >
-            <button
-              type="button"
-              className={styles.dateButton}
-              title={isToday ? t.changeDate : t.backToToday}
-              aria-label={isToday ? t.changeDate : t.backToToday}
-              onClick={isToday ? () => setAskingPin(true) : backToToday}
-            >
-              {isToday ? <CalendarDays size={20} aria-hidden="true" /> : <Undo2 size={20} aria-hidden="true" />}
-            </button>
+          <Field className={styles.lrNo} label={t.lrNo} readOnly tabIndex={-1} value={lr ? String(lr.lrNo) : t.lrNoNew} hint={lr ? undefined : t.lrNoHint(defaults.nextNo)} />
+          <Field className={styles.date} label={t.date} hint={dateBox.hint} error={errors.date} data-skip-enter="" {...dateBox.props}>
+            {!lr && (
+              <button
+                type="button"
+                className={styles.dateButton}
+                title={isToday ? t.changeDate : t.backToToday}
+                aria-label={isToday ? t.changeDate : t.backToToday}
+                onClick={isToday ? () => setAskingPin(true) : backToToday}
+              >
+                {isToday ? <CalendarDays size={20} aria-hidden="true" /> : <Undo2 size={20} aria-hidden="true" />}
+              </button>
+            )}
           </Field>
           <TypeAhead
             className={styles.from}
             label={t.fromStation}
             listLabel={t.stationList}
             placeholder={t.stationPlaceholder}
+            readOnly={locked}
             data-skip-enter=""
             error={errors.fromStation}
             value={state.from.text}
@@ -401,6 +484,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
             className={styles.to}
             label={t.toStation}
             required
+            readOnly={locked}
             listLabel={t.stationList}
             placeholder={t.stationPlaceholder}
             error={errors.toStation}
@@ -409,10 +493,10 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
             onChange={(text) => set({ to: { text, id: null } }, 'toStation')}
             onPick={(o) => set({ to: { text: o.label, id: Number(o.id) } }, 'toStation')}
           />
-          <Field className={styles.particular} label={t.particular} required placeholder={t.particularPlaceholder} error={errors.particular} value={state.particular} onChange={(e) => set({ particular: e.target.value }, 'particular')} />
-          <Field className={styles.qty} label={t.qty} required inputMode="numeric" error={errors.qty} value={state.qty} onChange={(e) => set({ qty: e.target.value }, 'qty')} />
-          <Field money className={styles.money} label={t.toPay} error={errors.toPay} value={state.toPay} onChange={(e) => set({ toPay: e.target.value }, 'toPay')} />
-          <Field money className={styles.money} label={t.paid} error={errors.paid} value={state.paid} onChange={(e) => set({ paid: e.target.value }, 'paid')} />
+          <Field className={styles.particular} label={t.particular} required readOnly={locked} placeholder={t.particularPlaceholder} error={errors.particular} value={state.particular} onChange={(e) => set({ particular: e.target.value }, 'particular')} />
+          <Field className={styles.qty} label={t.qty} required readOnly={locked} inputMode="numeric" error={errors.qty} value={state.qty} onChange={(e) => set({ qty: e.target.value }, 'qty')} />
+          <Field money className={styles.money} label={t.toPay} readOnly={locked} error={errors.toPay} value={state.toPay} onChange={(e) => set({ toPay: e.target.value }, 'toPay')} />
+          <Field money className={styles.money} label={t.paid} readOnly={locked} error={errors.paid} value={state.paid} onChange={(e) => set({ paid: e.target.value }, 'paid')} />
         </div>
 
         <div className={`${styles.row} ${styles.charges}`}>
@@ -420,6 +504,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
             className={styles.option}
             label={t.chargeOption}
             options={CHARGE_OPTIONS}
+            disabled={locked}
             value={state.option}
             onChange={(e) => set({ option: e.target.value as ChargeOption })}
           />
@@ -427,11 +512,11 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
           {chargeBox('godownInsurance', t.godownInsurance)}
           {chargeBox('deliveryCharges', t.deliveryCharges)}
           {chargeBox('hamali', t.hamali)}
-          <Field money className={styles.money} label={t.wasuli} error={errors.wasuli} value={state.wasuli} onChange={(e) => set({ wasuli: e.target.value }, 'wasuli')} />
+          <Field money className={styles.money} label={t.wasuli} readOnly={locked} error={errors.wasuli} value={state.wasuli} onChange={(e) => set({ wasuli: e.target.value }, 'wasuli')} />
         </div>
 
         <div className={`${styles.row} ${styles.bottom}`}>
-          <Field className={styles.tax} label={t.staxPercent} inputMode="decimal" error={errors.staxPercent} value={state.stax} onChange={(e) => set({ stax: e.target.value }, 'staxPercent')} />
+          <Field className={styles.tax} label={t.staxPercent} readOnly={locked} inputMode="decimal" error={errors.staxPercent} value={state.stax} onChange={(e) => set({ stax: e.target.value }, 'staxPercent')} />
           <dl className={styles.amounts} aria-label={t.amountsLabel} aria-live="off">
             {(['freight', 'charges', 'stax', 'total'] as const).map((k) => (
               <div key={k} className={k === 'total' ? styles.total : undefined}>
@@ -440,9 +525,11 @@ export default function LrForm({ stations, firms, defaults, date, onDate }: Prop
               </div>
             ))}
           </dl>
-          <Button type="submit" className={styles.save} keyCap={KEYS.saveLr} disabled={busy}>
-            {busy ? t.saving : t.save}
-          </Button>
+          {!locked && (
+            <Button type="submit" className={styles.save} keyCap={KEYS.saveLr} disabled={busy}>
+              {busy ? t.saving : t.save}
+            </Button>
+          )}
         </div>
       </form>
 

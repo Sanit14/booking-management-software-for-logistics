@@ -139,6 +139,69 @@
   flex: 0 0 190px;
 }
 
+/* The strip above an opened LR (view or edit): number, status, and the buttons. */
+.openBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--readonly-bg);
+}
+.openTitle {
+  font-size: var(--fs-17);
+  color: var(--teal-dark);
+}
+.openNote {
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.openWarn {
+  color: var(--danger);
+  font-size: var(--fs-14);
+  font-weight: 700;
+}
+.openActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.historyList {
+  max-height: 55vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.historyItem {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-15);
+}
+.historyHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.historyHead span {
+  color: var(--text-2);
+}
+
+/* The list's controls: show another day, open an LR by its number. */
+.listTools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.listDate {
+  width: 160px;
+}
+.listNo {
+  width: 110px;
+}
+
 .similarList {
   margin: 4px 0 8px;
   padding-left: 22px;
