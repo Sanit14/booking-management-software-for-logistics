@@ -27,7 +27,7 @@ export function StatCard({
 }: {
   icon: ReactNode;
   tag?: ReactNode;
-  value: number;
+  value: number | string;
   label: string;
   lines?: [string, string | number][];
   tone?: 'teal' | 'orange';

@@ -10,6 +10,7 @@ import {
   KEEPER_PORT,
   KEEPER_VERSION,
   type BackupInfo,
+  type DashboardSummary,
   type KeeperErrorCode,
   type KeeperPush,
   type KeeperResult,
@@ -23,8 +24,11 @@ import {
   type LrUpdated,
   type MasterRow,
   type MastersAll,
+  type PendingStation,
+  type RecentLr,
   type RestorePreview,
   type RootRefusal,
+  type SearchAnswer,
 } from '../shared';
 import { strings } from '../src/strings';
 import { callJson, probe, shutdown, subscribeEvents } from '../keeper/client';
@@ -237,6 +241,11 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:settings-set-lr-defaults', (_e, input: unknown, pin: unknown) =>
     call<LrDefaults>('POST', '/settings/set-lr-defaults', { input, adminPin: text(pin) }),
   );
+  // Dashboard counts and the search box: reads only; the keeper checks the date and cleans the text.
+  ipcMain.handle('keeper:dashboard-summary', (_e, date: unknown) => call<DashboardSummary>('POST', '/dashboard/summary', { date: dateOrNull(date) }));
+  ipcMain.handle('keeper:dashboard-pending', () => call<PendingStation[]>('POST', '/dashboard/pending-by-station'));
+  ipcMain.handle('keeper:dashboard-recent', () => call<RecentLr[]>('POST', '/dashboard/recent'));
+  ipcMain.handle('keeper:search', (_e, typed: unknown) => call<SearchAnswer>('POST', '/search', { text: text(typed) }));
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

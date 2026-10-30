@@ -13,6 +13,7 @@ test('the defaults are the card\'s and are all different', () => {
     goLoadingMemo: 'F5',
     goDashboard: 'F1',
     focusLrSearch: 'Ctrl+F',
+    globalSearch: 'Ctrl+K',
   });
   assert.equal(new Set(Object.values(DEFAULT_KEYS)).size, ACTIONS.length);
 });
@@ -65,6 +66,11 @@ test('sanitize: a good file is kept, anything wrong falls back', () => {
   assert.deepEqual(sanitize('F2'), DEFAULT_KEYS);
   assert.deepEqual(sanitize({ quickLr: 'Ctrl+Q' }), { ...DEFAULT_KEYS, quickLr: 'Ctrl+Q' }); // missing actions get their default
   assert.deepEqual(sanitize({ quickLr: 'Tab', goLrEntry: 7, saveLr: 'F13' }), DEFAULT_KEYS);
+});
+
+test('sanitize: a seat file from before the search key gets Ctrl+K for it, and its other keys stay', () => {
+  assert.deepEqual(sanitize({ saveLr: 'F4', quickLr: 'Ctrl+Q' }), { ...DEFAULT_KEYS, quickLr: 'Ctrl+Q' });
+  assert.equal(sanitize({ globalSearch: 'F6' }).globalSearch, 'F6');
 });
 
 test('sanitize: a file that would give two actions one key is thrown away whole', () => {

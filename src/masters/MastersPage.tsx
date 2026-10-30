@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { ChangeTable, Firm, MasterKind, MasterRow, MastersAll } from '../../shared';
 import { rowText, visibleRows } from '../logic/masterList';
+import type { Jump } from '../logic/searchResults';
 import Page from '../shell/Page';
 import { strings } from '../strings';
 import { Card } from '../ui/Card';
@@ -20,10 +21,10 @@ const fetchAll = () => window.bm.keeper.masters.all();
 /**
  * Masters: one tab per kind, the list on the left (searched in memory, the keeper has sent everything), the add /
  * edit form on the right. The page loads every master when it opens and again whenever the keeper says one changed
- * (this seat's saves and every other seat's alike).
+ * (this seat's saves and every other seat's alike). A pick from the search box lands here with that row selected.
  */
-export default function MastersPage() {
-  const { data } = useKeeperData(fetchAll, MASTER_TABLES, NONE);
+export default function MastersPage({ jump, onJumpUsed }: { jump: Jump | null; onJumpUsed: () => void }) {
+  const { data, loaded } = useKeeperData(fetchAll, MASTER_TABLES, NONE);
   const [kind, setKind] = useState<MasterKind>('stations');
   const [query, setQuery] = useState('');
   const [showInactive, setShowInactive] = useState(false);
@@ -44,6 +45,22 @@ export default function MastersPage() {
     setEditing(row);
     setFormKey((n) => n + 1);
   };
+  // A search pick: its tab, the row shown in the form and ticked, once the lists are in (an inactive row needs Show inactive).
+  const take = useRef(() => {});
+  useEffect(() => {
+    take.current = () => {
+      if (jump?.to !== 'master') return;
+      onJumpUsed();
+      const row = (data[jump.kind] as MasterRow[]).find((r) => r.id === jump.id);
+      if (!row) return;
+      setQuery('');
+      if (!row.active) setShowInactive(true);
+      show(jump.kind, row);
+    };
+  });
+  useEffect(() => {
+    if (jump?.to === 'master' && loaded) take.current();
+  }, [jump, loaded]);
   const pickTab = (k: MasterKind) => {
     setQuery('');
     show(k, null);

@@ -59,6 +59,12 @@ const keeper: KeeperApi = {
   settings: {
     setLrDefaults: (input, adminPin) => ipcRenderer.invoke('keeper:settings-set-lr-defaults', input, adminPin),
   },
+  dashboard: {
+    summary: (date) => ipcRenderer.invoke('keeper:dashboard-summary', date),
+    pendingByStation: () => ipcRenderer.invoke('keeper:dashboard-pending'),
+    recentLrs: () => ipcRenderer.invoke('keeper:dashboard-recent'),
+  },
+  search: (text) => ipcRenderer.invoke('keeper:search', text),
 };
 
 const update: UpdateApi = {

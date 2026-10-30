@@ -14,7 +14,7 @@ interface Props {
   page: PageId;
   onSelect: (page: PageId) => void;
   onQuickLr: () => void;
-  /** Count badges per page. No real counts exist yet (they arrive with the data sessions). */
+  /** Count badges per page (counts only, never money); a page without a number shows none. */
   badges?: Partial<Record<PageId, number>>;
   /** The status box at the foot. */
   children?: ReactNode;
