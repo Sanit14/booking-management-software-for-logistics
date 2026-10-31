@@ -6,7 +6,7 @@ import type { Db } from './db';
 import { nameKey } from './names';
 import { truckKey } from './masterRules';
 import { SEARCH_SQL, search } from './search';
-import { fastest, freshDb, insert, insertLr, insertStation } from './testing';
+import { fastest, freshDb, insert, insertLr, insertMemo, insertStation, insertTruck } from './testing';
 
 const NOW = () => new Date(2026, 9, 30, 12, 0, 0);
 const find = (db: Db, text: string): SearchAnswer => {
@@ -18,7 +18,7 @@ const firm = (db: Db, name: string, over: Record<string, unknown> = {}) => inser
 const truck = (db: Db, number: string, over: Record<string, unknown> = {}) => insert(db, 'trucks', { number, number_key: truckKey(number), seat: 't', ...over });
 const names = (rows: { name: string }[]) => rows.map((r) => r.name);
 
-const EMPTY: SearchAnswer = { lrs: [], firms: [], trucks: [], stations: [] };
+const EMPTY: SearchAnswer = { lrs: [], memos: [], firms: [], trucks: [], stations: [] };
 
 test('no text, or only spaces, finds nothing', () => {
   const db = freshDb();
@@ -45,6 +45,25 @@ test('an LR number: this year first, then last year; any other year is not found
   assert.deepEqual(find(db, '99999').lrs, []);
   assert.deepEqual(find(db, 'abc').lrs, []);
   assert.deepEqual(find(db, '12345678901234567890').lrs, []); // too long to be an LR number
+});
+
+test('a challan number: this year first, then last year; the memo says its truck, To station, date and status', () => {
+  const db = freshDb();
+  const to = insertStation(db, 'Nagpur');
+  insertMemo(db, { challan_year: 2025, challan_no: 13, memo_date: '2025-12-30', to_station_id: to, truck_id: insertTruck(db, 'MH 29 OLD 1'), status: 'cancelled' });
+  insertMemo(db, { challan_year: 2026, challan_no: 13, memo_date: '2026-10-30', to_station_id: to, truck_id: insertTruck(db, 'MH 29 NEW 2') });
+  insertMemo(db, { challan_year: 2026, challan_no: 130 });
+  insertMemo(db, { challan_year: 2024, challan_no: 13, memo_date: '2024-01-02' });
+  assert.deepEqual(
+    find(db, ' 13 ').memos.map((m) => [m.challanYear, m.challanNo, m.truck, m.toStation, m.date, m.status]),
+    [
+      [2026, 13, 'MH 29 NEW 2', 'Nagpur', '2026-10-30', 'saved'],
+      [2025, 13, 'MH 29 OLD 1', 'Nagpur', '2025-12-30', 'cancelled'],
+    ],
+  );
+  assert.deepEqual(find(db, '99999').memos, []);
+  assert.deepEqual(find(db, 'abc').memos, []);
+  assert.equal(typeof find(db, '13').memos[0].id, 'number');
 });
 
 test('firms: a name that starts like the text comes before one that only contains it; spacing and case do not matter', () => {
@@ -101,12 +120,14 @@ test('stations: by their first letters only', () => {
   assert.deepEqual(names(find(db, 'WA').stations), ['Wani']);
 });
 
-test('each kind answers on its own: a number can be an LR and a truck at once', () => {
+test('each kind answers on its own: a number can be an LR, a challan and a truck at once', () => {
   const db = freshDb();
   insertLr(db, { lr_no: 1234 });
+  insertMemo(db, { challan_no: 1234 });
   truck(db, 'MH 29 BE 1234');
   const a = find(db, '1234');
   assert.equal(a.lrs.length, 1);
+  assert.equal(a.memos.length, 1);
   assert.equal(a.trucks.length, 1);
   assert.equal(a.firms.length + a.stations.length, 0);
 });
@@ -121,7 +142,7 @@ test('every lookup is an index search; only the firm and truck "contains" read t
   const db = freshDb();
   const all: Record<string, unknown> = { k: 'a', hi: 'a\u{10FFFF}', n: 5 };
   // Only the parameters a statement names (better-sqlite3 refuses extra ones in some forms).
-  const given = (sql: string) => (sql.includes('l.lr_year = ?') ? [2026, 1] : Object.fromEntries(Object.entries(all).filter(([k]) => sql.includes(`@${k}`))));
+  const given = (sql: string) => (sql.includes('_year = ?') ? [2026, 1] : Object.fromEntries(Object.entries(all).filter(([k]) => sql.includes(`@${k}`))));
   const plan = (sql: string) => (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(given(sql)) as { detail: string }[]).map((r) => r.detail);
   for (const [name, sql] of Object.entries(SEARCH_SQL)) {
     const lines = plan(sql);

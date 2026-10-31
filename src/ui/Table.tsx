@@ -27,16 +27,21 @@ interface Props<R> {
   empty: string;
   /** Makes rows pickable: click, or Enter on a focused row (↑/↓ move between rows). Tint the picked one with `ticked`. */
   onRowActivate?: (row: R) => void;
+  /** Space on a focused row (a tick list: Space ticks, Enter and a click do what onRowActivate does). */
+  onRowToggle?: (row: R) => void;
   /** Height of the scroll box; the header and totals stay in view. Omit to size to the rows. */
   maxHeight?: number;
 }
 
 // Only the row itself: Enter on a button or field inside it stays theirs.
-function moveBetweenRows(e: KeyboardEvent<HTMLTableRowElement>, activate: () => void) {
+function moveBetweenRows(e: KeyboardEvent<HTMLTableRowElement>, activate: () => void, toggle?: () => void) {
   if (e.target !== e.currentTarget) return;
   if (e.key === 'Enter') {
     e.preventDefault();
     activate();
+  } else if (e.key === ' ' && toggle) {
+    e.preventDefault(); // not a page scroll
+    toggle();
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
     const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
@@ -44,7 +49,7 @@ function moveBetweenRows(e: KeyboardEvent<HTMLTableRowElement>, activate: () => 
   }
 }
 
-export default function Table<R>({ label, columns, rows, rowKey, ticked, dimmed, totals, empty, onRowActivate, maxHeight }: Props<R>) {
+export default function Table<R>({ label, columns, rows, rowKey, ticked, dimmed, totals, empty, onRowActivate, onRowToggle, maxHeight }: Props<R>) {
   const align = (c: Column<R>) => (c.num ? styles.num : undefined);
   // A long list is one Tab stop, not one per row: the picked row (else the first) takes it, ↑/↓ walk the rest.
   const picked = rows.findIndex((r) => ticked?.has(rowKey(r)));
@@ -79,7 +84,7 @@ export default function Table<R>({ label, columns, rows, rowKey, ticked, dimmed,
                 key={key}
                 className={[ticked?.has(key) ? styles.ticked : '', dimmed?.has(key) ? styles.dimmed : '', onRowActivate ? styles.pickable : ''].join(' ').trim() || undefined}
                 {...(onRowActivate
-                  ? { tabIndex: i === stop ? 0 : -1, onClick: () => onRowActivate(row), onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => moveBetweenRows(e, () => onRowActivate(row)) }
+                  ? { tabIndex: i === stop ? 0 : -1, onClick: () => onRowActivate(row), onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => moveBetweenRows(e, () => onRowActivate(row), onRowToggle && (() => onRowToggle(row))) }
                   : {})}
               >
                 {columns.map((c) => (

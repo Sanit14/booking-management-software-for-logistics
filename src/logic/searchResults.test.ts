@@ -5,6 +5,7 @@ import { flatten, move } from './searchResults';
 
 const answer: SearchAnswer = {
   lrs: [{ id: 11, lrNo: 1234, lrYear: 2026, date: '2026-10-30', consignee: 'Kale', toStation: 'Nagpur', status: 'booked' }],
+  memos: [{ id: 21, challanYear: 2026, challanNo: 1234, date: '2026-10-30', truck: 'MH 29 BE 1234', toStation: 'Nagpur', status: 'saved' }],
   firms: [
     { id: 5, name: 'Kale Brothers', station: 'Wani', active: true },
     { id: 6, name: 'Ankale Co', station: null, active: false },
@@ -13,12 +14,13 @@ const answer: SearchAnswer = {
   stations: [{ id: 2, name: 'Nagpur', active: true }],
 };
 
-test('rows come in the order LR, firm, truck, station, each with where a pick goes', () => {
+test('rows come in the order LR, challan, firm, truck, station, each with where a pick goes', () => {
   const rows = flatten(answer);
   assert.deepEqual(
     rows.map((r) => [r.group, r.jump]),
     [
       ['lr', { to: 'lr', id: 11 }],
+      ['memo', { to: 'memo', id: 21 }],
       ['firm', { to: 'master', kind: 'firms', id: 5 }],
       ['firm', { to: 'master', kind: 'firms', id: 6 }],
       ['truck', { to: 'master', kind: 'trucks', id: 3 }],
@@ -29,13 +31,15 @@ test('rows come in the order LR, firm, truck, station, each with where a pick go
 });
 
 test('a group with nothing in it leaves no rows; an empty answer has none at all', () => {
-  assert.deepEqual(flatten({ lrs: [], firms: [], trucks: [{ id: 1, number: 'X', active: true }], stations: [] }).map((r) => r.group), ['truck']);
-  assert.deepEqual(flatten({ lrs: [], firms: [], trucks: [], stations: [] }), []);
+  assert.deepEqual(flatten({ lrs: [], memos: [], firms: [], trucks: [{ id: 1, number: 'X', active: true }], stations: [] }).map((r) => r.group), ['truck']);
+  assert.deepEqual(flatten({ lrs: [], memos: [], firms: [], trucks: [], stations: [] }), []);
 });
 
 test('the row keeps its item, so the screen can draw it', () => {
-  const row = flatten(answer)[1];
+  const row = flatten(answer)[2];
   assert.equal(row.group === 'firm' && row.item.name, 'Kale Brothers');
+  const memo = flatten(answer)[1];
+  assert.equal(memo.group === 'memo' && memo.item.challanNo, 1234);
 });
 
 test('down and up walk the rows and wrap round; with nothing there is no row', () => {

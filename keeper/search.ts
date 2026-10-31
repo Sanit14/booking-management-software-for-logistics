@@ -1,8 +1,8 @@
-// The one search box: a few LRs, firms, trucks and stations for what was typed. Fixed lookups, each `LIMIT 5`, never a
-// generic query. The LR number, the firm / station prefix and the year are index searches (dbtest checks the plans);
+// The one search box: a few LRs, challans, firms, trucks and stations for what was typed. Fixed lookups, each `LIMIT 5`,
+// never a generic query. The LR and challan numbers, the firm / station prefix and the year are index searches (dbtest checks the plans);
 // "contains" on firms and trucks reads only those small master tables, never lrs. Reads only: nothing is logged, the
 // text may be a name.
-import type { KeeperResult, SearchAnswer, SearchFirm, SearchLr, SearchStation, SearchTruck } from '../shared';
+import type { KeeperResult, SearchAnswer, SearchFirm, SearchLr, SearchMemo, SearchStation, SearchTruck } from '../shared';
 import type { Db } from './db';
 import { localDate } from './lrRules';
 import { truckKey } from './masterRules';
@@ -16,6 +16,8 @@ const HIGH = '\u{10FFFF}';
 export const SEARCH_SQL = {
   lr: `SELECT l.id, l.lr_no AS lrNo, l.lr_year AS lrYear, l.lr_date AS date, l.consignee_name AS consignee, s.name AS toStation, l.status
        FROM lrs l JOIN stations s ON s.id = l.to_station_id WHERE l.lr_year = ? AND l.lr_no = ?`,
+  memo: `SELECT m.id, m.challan_year AS challanYear, m.challan_no AS challanNo, m.memo_date AS date, t.number AS truck, s.name AS toStation, m.status
+       FROM memos m JOIN trucks t ON t.id = m.truck_id JOIN stations s ON s.id = m.to_station_id WHERE m.challan_year = ? AND m.challan_no = ?`,
   firmPrefix: `SELECT f.id, f.name, s.name AS station, f.active FROM firms f LEFT JOIN stations s ON s.id = f.station_id
        WHERE f.name_key >= @k AND f.name_key < @hi ORDER BY f.name_key LIMIT @n`,
   // instr, not LIKE: no escaping of % and _, and "> 1" leaves out the names the prefix lookup already gave.
@@ -31,14 +33,18 @@ const flag = <T extends { active: boolean }>(rows: Raw<T>[]): T[] => rows.map((r
 
 export function search(db: Db, text: string, now: () => Date = () => new Date()): KeeperResult<SearchAnswer> {
   const typed = text.trim().slice(0, MAX_TEXT);
-  const answer: SearchAnswer = { lrs: [], firms: [], trucks: [], stations: [] };
+  const answer: SearchAnswer = { lrs: [], memos: [], firms: [], trucks: [], stations: [] };
   if (typed === '') return { ok: true, value: answer };
 
-  // An LR number: this year's first, then last year's (the numbers restart every 1 January).
+  // An LR or challan number: this year's first, then last year's (both series restart every 1 January).
   if (/^\d{1,9}$/.test(typed)) {
     const year = Number(localDate(now()).slice(0, 4));
     const lr = db.prepare(SEARCH_SQL.lr);
-    for (const y of [year, year - 1]) answer.lrs.push(...(lr.all(y, Number(typed)) as SearchLr[]));
+    const memo = db.prepare(SEARCH_SQL.memo);
+    for (const y of [year, year - 1]) {
+      answer.lrs.push(...(lr.all(y, Number(typed)) as SearchLr[]));
+      answer.memos.push(...(memo.all(y, Number(typed)) as SearchMemo[]));
+    }
   }
 
   const key = nameKey(typed);

@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 10;
+export const KEEPER_VERSION = 11;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -366,13 +366,139 @@ export interface SearchStation {
   name: string;
   active: boolean;
 }
-/** At most 5 of each, best first. A challan list joins in 3.1. */
+export interface SearchMemo {
+  id: number;
+  challanYear: number;
+  challanNo: number;
+  date: string;
+  truck: string;
+  toStation: string;
+  status: MemoStatus;
+}
+/** At most 5 of each, best first. */
 export interface SearchAnswer {
   lrs: SearchLr[];
+  memos: SearchMemo[];
   firms: SearchFirm[];
   trucks: SearchTruck[];
   stations: SearchStation[];
 }
+
+export type MemoStatus = 'saved' | 'cancelled';
+/** One challan carries at most this many LRs (the keeper refuses more; the screen warns before it asks). */
+export const MAX_MEMO_LRS = 500;
+
+/**
+ * What the loading clerk typed and ticked. Money is the typed TEXT (the keeper parses it). `date` null = today; any other
+ * date needs `systemPin`. `lrIds` are the ticked LRs, 1 to 500.
+ */
+export interface MemoInput {
+  /** One per open panel; the same uid sent twice returns the memo saved first. */
+  uid: string;
+  date: string | null;
+  systemPin?: string;
+  truckId: number | null;
+  driverId: number | null;
+  fromStationId: number | null;
+  toStationId: number | null;
+  truckHire: string;
+  loadingHamali: string;
+  lrIds: number[];
+}
+export type MemoField = 'date' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs';
+/** required · amount (not a rupee amount) · same (from = to) · future / date (the date) · missing (no such, or inactive, truck / driver / station; an LR id that does not exist) · many (over 500 LRs). */
+export type MemoFieldError = 'required' | 'amount' | 'same' | 'future' | 'date' | 'missing' | 'many';
+
+/** A firm picked for a pending-LR filter, or text typed: any part of the name an LR was booked with (a walk-in's or a firm's). */
+export interface PartyFilter {
+  firmId: number | null;
+  text: string;
+}
+/** Dates are ISO; null = no bound. Only booked LRs are ever listed. */
+export interface MemoFilters {
+  from: string | null;
+  to: string | null;
+  toStationId: number | null;
+  consignor: PartyFilter | null;
+  consignee: PartyFilter | null;
+}
+/** Where the next page starts: after this LR, in (date, number) order. */
+export interface MemoCursor {
+  date: string;
+  no: number;
+}
+/** One LR in a pending list or on a memo. */
+export interface MemoLrRow {
+  id: number;
+  lrNo: number;
+  date: string;
+  consignor: string;
+  consignee: string;
+  toStation: string;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+}
+/** 100 rows, `next` null at the end; `count` and `qty` are for the whole filter. */
+export interface PendingPage {
+  rows: MemoLrRow[];
+  next: MemoCursor | null;
+  count: number;
+  qty: number;
+}
+/** The ticked LRs that are still booked, added up by the keeper. */
+export interface PendingTotals {
+  lrs: number;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+}
+export interface MemoDefaults {
+  today: string;
+  /** The challan number the next memo dated `date` will most likely get (a hint: another seat may take it first). */
+  nextNo: number;
+}
+export interface MemoListRow {
+  id: number;
+  challanYear: number;
+  challanNo: number;
+  date: string;
+  truck: string;
+  toStation: string;
+  lrCount: number;
+  status: MemoStatus;
+}
+export interface MemoSaved extends MemoListRow {
+  /** The same uid had been saved before: this is that first memo, nothing new was written. */
+  again: boolean;
+}
+/** A saved memo: its header, the totals frozen when it was saved, and its LRs. */
+export interface MemoDetail extends MemoListRow {
+  version: number;
+  truckId: number;
+  driverId: number;
+  driver: string;
+  fromStationId: number;
+  fromStation: string;
+  toStationId: number;
+  truckHirePaise: number;
+  loadingHamaliPaise: number;
+  frozen: { lrs: number; qty: number; toPayPaise: number; paidPaise: number; chargesPaise: number; staxPaise: number };
+  lrs: MemoLrRow[];
+}
+/** A ticked LR that could not be loaded: it is on another memo (loaded) or was cancelled meanwhile. */
+export interface MemoTaken {
+  id: number;
+  lrNo: number;
+  state: 'loaded' | 'cancelled';
+  challanNo: number | null;
+  truck: string | null;
+}
+
+export type MemoRefusal =
+  | 'memo-invalid' // `memoFields`: what to fix
+  | 'memo-conflict' // `taken`: the LRs another seat got first; nothing was saved
+  | 'memo-missing';
 
 export type LrRefusal =
   | 'lr-invalid' // `fields`: what to fix
@@ -381,14 +507,24 @@ export type LrRefusal =
   | 'lr-cancelled' // cannot be edited or cancelled again: restore it first
   | 'lr-not-cancelled' // restore of an LR that is not cancelled
   | 'lr-on-memo'; // cannot be cancelled while on a memo; detail: the memo's number
-export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
+export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**
  * What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts).
  * `detail` on master-exists / master-similar from an LR save names the party: consignor or consignee.
  */
 export type KeeperResult<T> =
   | { ok: true; value: T }
-  | { ok: false; code: ResultCode; detail?: string; row?: MasterRow; lr?: LrDetail; similar?: string[]; fields?: Partial<Record<LrField, LrFieldError>> };
+  | {
+      ok: false;
+      code: ResultCode;
+      detail?: string;
+      row?: MasterRow;
+      lr?: LrDetail;
+      similar?: string[];
+      fields?: Partial<Record<LrField, LrFieldError>>;
+      memoFields?: Partial<Record<MemoField, MemoFieldError>>;
+      taken?: MemoTaken[];
+    };
 
 export type KeeperErrorCode =
   | 'root-refused' // detail: the refused path, `refusal` says why
@@ -470,6 +606,18 @@ export interface KeeperApi {
     /** The last 8 LRs of today. */
     recentLrs(): Promise<KeeperResult<RecentLr[]>>;
   };
-  /** One box for LR number, firm, truck and station: a few of each, never a generic query. */
+  /** Loading memos (challans). Money is paise; totals are added up by the keeper, never by the screen. */
+  memos: {
+    defaults(date: string | null): Promise<KeeperResult<MemoDefaults>>;
+    /** Booked LRs by (date, number), 100 a page: pass the previous page's `next` for the following one. */
+    pending(filters: MemoFilters, cursor: MemoCursor | null): Promise<KeeperResult<PendingPage>>;
+    totals(ids: number[]): Promise<KeeperResult<PendingTotals>>;
+    /** All or nothing: an LR another seat loaded first is refused with `memo-conflict` and nothing is saved. A date other than today needs the System PIN. */
+    create(input: MemoInput): Promise<KeeperResult<MemoSaved>>;
+    get(id: number): Promise<KeeperResult<MemoDetail>>;
+    /** That day's memos, newest first, at most 200 (null = today). */
+    byDate(date: string | null): Promise<KeeperResult<MemoListRow[]>>;
+  };
+  /** One box for LR number, challan number, firm, truck and station: a few of each, never a generic query. */
   search(text: string): Promise<KeeperResult<SearchAnswer>>;
 }

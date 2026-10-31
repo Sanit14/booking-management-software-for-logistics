@@ -118,13 +118,15 @@ test('wrong recovery codes are counted and locked like PINs; recovery also clear
   assert.equal(code(pins.verify(db, 'admin', '3333')), 'ok');
 });
 
-test('what is stored is a salted hash: the PIN, the code and their digits never appear', () => {
+test('what is stored is a salted hash: the PIN and the code are not the stored value, nor does it read as them', () => {
   const { pins, db, code: recovery } = setUp();
   const stored = rows(db, "SELECT key, value FROM settings WHERE key IN ('pin_admin', 'pin_system', 'pin_recovery')");
   assert.deepEqual(stored.map((r) => r.key).sort(), ['pin_admin', 'pin_recovery', 'pin_system']);
   for (const r of stored) assert.match(r.value, /^scrypt1\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
-  assert.ok(!stored.some((r) => r.value.includes('1111') || r.value.includes('2222')));
-  assert.ok(!stored.some((r) => r.value.includes(recovery.replace(/-/g, ''))));
+  // Not "the random hash holds no 1111": a hex string may hold those digits by chance. The value must not be the PIN
+  // or the code, and must not parse as a number (a PIN) either.
+  for (const secret of ['1111', '2222', recovery, recovery.replace(/-/g, '')]) assert.ok(!stored.some((r) => r.value === secret), `stored as ${secret}`);
+  assert.ok(stored.every((r) => Number.isNaN(Number(r.value))));
   // the same PIN set again gets another salt, so equal PINs do not look equal
   const other = freshDb();
   makePins(clock().now).setup(other, 's', '1111', '2222');

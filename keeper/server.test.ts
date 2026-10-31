@@ -401,7 +401,7 @@ test('keeper: first-run PIN setup is set-once, wrong PINs lock after five, other
 
 // --- masters ---------------------------------------------------------------------------------------------------
 
-type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; lr?: any; similar?: string[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; lr?: any; similar?: string[]; taken?: any[]; memoFields?: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const masters = async (port: number, url: string, body: unknown, seat = 'counter-1'): Promise<Answer> => {
   const r = await callJson(port, 'POST', `/masters/${url}`, body, { seat, timeoutMs: 30000 });
   return { status: r.status, ...(r.json as object) } as Answer;
@@ -756,8 +756,8 @@ test('keeper: the Dashboard and the search box answer over the real routes, move
     assert.deepEqual(found.lrs.map((l: { lrNo: number; consignee: string; toStation: string }) => [l.lrNo, l.consignee, l.toStation]), [[2, 'Kale Brothers', 'Nagpur']]);
     assert.deepEqual((await lrCall(port, '/search', { text: 'shree' })).value.firms.map((f: { name: string }) => f.name), ['Shree Ganesh Traders']);
     assert.deepEqual((await lrCall(port, '/search', { text: 'nag' })).value.stations.map((x: { name: string }) => x.name), ['Nagpur']);
-    assert.deepEqual((await lrCall(port, '/search', { text: '' })).value, { lrs: [], firms: [], trucks: [], stations: [] });
-    assert.deepEqual((await lrCall(port, '/search', {})).value, { lrs: [], firms: [], trucks: [], stations: [] }, 'a body without text is an empty box');
+    assert.deepEqual((await lrCall(port, '/search', { text: '' })).value, { lrs: [], memos: [], firms: [], trucks: [], stations: [] });
+    assert.deepEqual((await lrCall(port, '/search', {})).value, { lrs: [], memos: [], firms: [], trucks: [], stations: [] }, 'a body without text is an empty box');
 
     // Reads only: no event came out of any of it beyond the save and the cancel.
     await sleep(400);
@@ -771,4 +771,103 @@ test('keeper: the Dashboard and the search box answer over the real routes, move
   await within(k.exited, 10000);
   const log = logOf(s);
   for (const secret of ['shree', 'Kale Brothers', '7295']) assert.ok(!log.toLowerCase().includes(secret.toLowerCase()), `keeper.log holds ${secret}`);
+}));
+
+// --- loading memos ---------------------------------------------------------------------------------------------
+
+test('keeper: two seats make memos with an overlapping LR in the same instant - exactly one wins, the other is told which LR and which challan; no LR on two memos, no gap in the numbers', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { from, to, input } = await seed(port);
+  const truckOf = async (number: string) => (await masters(port, 'create', { kind: 'trucks', fields: { number } })).value.id as number;
+  const truck1 = await truckOf('MH 29 BE 1234');
+  const truck2 = await truckOf('MH 29 AB 1');
+  const driver = (await masters(port, 'create', { kind: 'drivers', fields: { name: 'Ramesh Pawar' } })).value.id as number;
+  const ids: number[] = [];
+  for (let i = 0; i < 6; i++) ids.push((await lrCall(port, '/lrs/create', { input: input() })).value.row.id);
+  const memo = (lrIds: number[], truckId: number, seat: string, uid: string) =>
+    lrCall(port, '/memos/create', { input: { uid, date: null, truckId, driverId: driver, fromStationId: from, toStationId: to, truckHire: '1,000', loadingHamali: '', lrIds } }, seat);
+
+  const a = listen(port, 'counter-1');
+  const b = listen(port, 'counter-2');
+  try {
+    await until('both streams to connect', () => a.got.length >= 1 && b.got.length >= 1);
+    a.got.length = 0;
+    b.got.length = 0;
+    assert.equal((await lrCall(port, '/memos/defaults', { date: null })).value.nextNo, 1);
+
+    // Seat 1 ticked LRs 1-4, seat 2 ticked 3-6: they overlap on 3 and 4, and both press save at once.
+    const mine = ids.slice(0, 4);
+    const theirs = ids.slice(2, 6);
+    const answers = await Promise.all([memo(mine, truck1, 'counter-1', 'memo-a'), memo(theirs, truck2, 'counter-2', 'memo-b')]);
+    const won = answers.filter((x) => x.ok);
+    const lost = answers.filter((x) => !x.ok);
+    assert.equal(won.length, 1, 'exactly one memo was saved');
+    assert.deepEqual([lost.length, lost[0].status, lost[0].code], [1, 409, 'memo-conflict']);
+    const winner = won[0].value;
+    assert.deepEqual([winner.challanNo, winner.lrCount, winner.again], [1, 4, false]);
+    const winnerIds = answers[0].ok ? mine : theirs;
+    const loserIds = answers[0].ok ? theirs : mine;
+    const overlap = ids.slice(2, 4);
+    assert.deepEqual(
+      lost[0].taken?.map((t: { id: number; challanNo: number; truck: string; state: string }) => [t.id, t.state, t.challanNo, t.truck]),
+      overlap.map((id) => [id, 'loaded', 1, winner.truck]),
+      'the loser is told which LRs it lost, and the challan and truck they went on',
+    );
+
+    // Nothing of the loser was saved: no second memo, no LR on two memos, its other LRs are still booked.
+    const day = (await lrCall(port, '/lrs/by-date', { date: null })).value;
+    assert.deepEqual([day.totals.booked, day.totals.loaded], [2, 4]);
+    const detail = (await lrCall(port, '/memos/get', { id: winner.id })).value;
+    assert.deepEqual(detail.lrs.map((r: { id: number }) => r.id).sort(), [...winnerIds].sort());
+    const pending = (await lrCall(port, '/memos/pending', { filters: {}, cursor: null })).value;
+    assert.deepEqual([pending.count, pending.rows.map((r: { id: number }) => r.id).sort()], [2, ids.filter((id) => !winnerIds.includes(id)).sort()]);
+    assert.equal((await lrCall(port, '/memos/defaults', { date: null })).value.nextNo, 2, 'the failed save used no number');
+
+    await until('the memo event on both seats', () => a.got.length >= 1 && b.got.length >= 1);
+    assert.deepEqual(a.got, [{ tables: ['memos', 'lrs'], ids: [winner.id] }]);
+    assert.deepEqual(b.got, a.got);
+
+    // The loser ticks again without the taken LRs and gets the next number: 1, 2 with no gap.
+    const rest = loserIds.filter((id) => !overlap.includes(id));
+    const second = await memo(rest, answers[0].ok ? truck2 : truck1, answers[0].ok ? 'counter-2' : 'counter-1', 'memo-c');
+    assert.equal(second.ok, true);
+    assert.deepEqual([second.value.challanNo, second.value.lrCount], [2, 2]);
+    await until('the second memo event', () => a.got.length >= 2 && b.got.length >= 2);
+
+    // The same uid again is the first memo, and says so; refused calls announce nothing.
+    const again = await memo(rest, truck1, 'counter-1', 'memo-c');
+    assert.deepEqual([again.ok, again.value.id, again.value.again], [true, second.value.id, true]);
+    assert.equal((await memo([], truck1, 'counter-1', 'memo-d')).code, 'memo-invalid');
+    assert.deepEqual((await memo([], truck1, 'counter-1', 'memo-d')).memoFields, { lrs: 'required' });
+    assert.equal((await lrCall(port, '/memos/create', { input: { lrIds: [1] } })).status, 400, 'no uid');
+    assert.equal((await lrCall(port, '/memos/get', { id: 'x' })).status, 400);
+    assert.equal((await lrCall(port, '/memos/get', { id: 99999 })).code, 'memo-missing');
+    assert.equal((await lrCall(port, '/memos/create', { input: { uid: 'u9', date: '2020-01-01', truckId: truck1, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', lrIds: [1] } })).code, 'wrong-pin', 'another day needs the System PIN');
+
+    // Reads: today's memos, the live totals of the ticked LRs, the Dashboard, and a challan found by its number.
+    const list = (await lrCall(port, '/memos/by-date', { date: null })).value;
+    assert.deepEqual(list.map((m: { challanNo: number }) => m.challanNo), [2, 1]);
+    assert.deepEqual((await lrCall(port, '/memos/totals', { ids })).value, { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0 }, 'every ticked LR is loaded now, so none is counted');
+    const summary = (await lrCall(port, '/dashboard/summary', { date: null })).value;
+    assert.deepEqual([summary.memos, summary.trucksOut, summary.loaded, summary.pending], [2, 2, 6, 0]);
+    const found = (await lrCall(port, '/search', { text: '2' })).value;
+    assert.deepEqual(found.memos.map((m: { challanNo: number; truck: string }) => [m.challanNo, m.truck]), [[2, second.value.truck]]);
+
+    await sleep(400);
+    assert.equal(a.got.length, 2, 'one event per committed memo, none for the refused ones');
+    assert.equal(b.got.length, 2);
+  } finally {
+    a.stop();
+    b.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  assert.match(log, /\tmemo-saved\t/);
+  assert.match(log, /\tmemo-conflict\t/);
+  assert.match(log, /pin-refused/);
+  for (const secret of ['4831', '7295', 'Ramesh', 'MH 29']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
 }));

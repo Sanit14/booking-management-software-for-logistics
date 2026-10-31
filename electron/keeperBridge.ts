@@ -24,7 +24,13 @@ import {
   type LrUpdated,
   type MasterRow,
   type MastersAll,
+  type MemoDefaults,
+  type MemoDetail,
+  type MemoListRow,
+  type MemoSaved,
+  type PendingPage,
   type PendingStation,
+  type PendingTotals,
   type RecentLr,
   type RestorePreview,
   type RootRefusal,
@@ -246,6 +252,13 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:dashboard-pending', () => call<PendingStation[]>('POST', '/dashboard/pending-by-station'));
   ipcMain.handle('keeper:dashboard-recent', () => call<RecentLr[]>('POST', '/dashboard/recent'));
   ipcMain.handle('keeper:search', (_e, typed: unknown) => call<SearchAnswer>('POST', '/search', { text: text(typed) }));
+  // Loading memos: the keeper cleans the filters and parses the typed money; main forwards named arguments.
+  ipcMain.handle('keeper:memos-defaults', (_e, date: unknown) => call<MemoDefaults>('POST', '/memos/defaults', { date: dateOrNull(date) }));
+  ipcMain.handle('keeper:memos-pending', (_e, filters: unknown, cursor: unknown) => call<PendingPage>('POST', '/memos/pending', { filters, cursor }));
+  ipcMain.handle('keeper:memos-totals', (_e, ids: unknown) => call<PendingTotals>('POST', '/memos/totals', { ids }));
+  ipcMain.handle('keeper:memos-create', (_e, input: unknown) => call<MemoSaved>('POST', '/memos/create', { input }));
+  ipcMain.handle('keeper:memos-get', (_e, id: unknown) => call<MemoDetail>('POST', '/memos/get', { id }));
+  ipcMain.handle('keeper:memos-by-date', (_e, date: unknown) => call<MemoListRow[]>('POST', '/memos/by-date', { date: dateOrNull(date) }));
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

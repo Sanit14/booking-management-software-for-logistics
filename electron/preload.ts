@@ -64,6 +64,14 @@ const keeper: KeeperApi = {
     pendingByStation: () => ipcRenderer.invoke('keeper:dashboard-pending'),
     recentLrs: () => ipcRenderer.invoke('keeper:dashboard-recent'),
   },
+  memos: {
+    defaults: (date) => ipcRenderer.invoke('keeper:memos-defaults', date),
+    pending: (filters, cursor) => ipcRenderer.invoke('keeper:memos-pending', filters, cursor),
+    totals: (ids) => ipcRenderer.invoke('keeper:memos-totals', ids),
+    create: (input) => ipcRenderer.invoke('keeper:memos-create', input),
+    get: (id) => ipcRenderer.invoke('keeper:memos-get', id),
+    byDate: (date) => ipcRenderer.invoke('keeper:memos-by-date', date),
+  },
   search: (text) => ipcRenderer.invoke('keeper:search', text),
 };
 

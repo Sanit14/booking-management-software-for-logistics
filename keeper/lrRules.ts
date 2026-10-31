@@ -20,10 +20,10 @@ export interface LrNumbers {
 }
 
 /** Rs 100 crore in paise: far above any LR, far below what `taxPaise` can multiply. */
-const MAX_PAISE = 100_00_00_000 * 100;
+export const MAX_PAISE = 100_00_00_000 * 100;
 const MONEY = ['toPay', 'paid', 'godownBhada', 'godownInsurance', 'deliveryCharges', 'hamali', 'wasuli'] as const;
 
-const obj = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+export const obj = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const text = (o: Record<string, unknown>, k: string): string => (typeof o[k] === 'string' ? (o[k] as string) : '');
 const int = (o: Record<string, unknown>, k: string): number | null => (Number.isInteger(o[k]) ? (o[k] as number) : null);
 

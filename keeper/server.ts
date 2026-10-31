@@ -18,6 +18,7 @@ import {
   type LrUpdated,
   type MasterFields,
   type MasterKind,
+  type MemoSaved,
   type ResultCode,
 } from '../shared';
 import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } from './backup';
@@ -28,7 +29,9 @@ import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './g
 import { asDefaultsInput, asLrInput } from './lrRules';
 import { makeLog } from './log';
 import { makeLrs } from './lrs';
+import { asCursor, asIds, asMemoInput, asPendingFilters } from './memoRules';
 import { makeMasters } from './masters';
+import { makeMemos } from './memos';
 import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
 import { makePins } from './pins';
@@ -82,6 +85,7 @@ function main(): void {
   const pins = makePins();
   const masters = makeMasters(pins);
   const lrs = makeLrs(pins, masters);
+  const memos = makeMemos(pins);
   const dashboard = makeDashboard();
   const events = makeEvents();
   const seats = makeSeats();
@@ -303,6 +307,7 @@ function main(): void {
       '/lrs/defaults', '/lrs/preview', '/lrs/create', '/lrs/by-date', '/settings/set-lr-defaults',
       '/lrs/get', '/lrs/find', '/lrs/update', '/lrs/cancel', '/lrs/restore', '/lrs/history',
       '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
+      '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/create', '/memos/get', '/memos/by-date',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -455,6 +460,42 @@ function main(): void {
         log('dashboard-failed', { url, seat, error: msg(e) });
         return sendResult(res, refuse('failed', msg(e)));
       }
+    }
+
+    if (url.startsWith('/memos/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      const date = typeof body.date === 'string' ? body.date : null;
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/memos/defaults') r = memos.defaults(db, date);
+        else if (url === '/memos/by-date') r = memos.byDate(db, date);
+        else if (url === '/memos/pending') r = memos.pending(db, asPendingFilters(body.filters), asCursor(body.cursor));
+        else if (url === '/memos/totals') r = memos.totals(db, asIds(body.ids));
+        else if (url === '/memos/get') {
+          if (typeof body.id !== 'number' || !Number.isInteger(body.id)) return send(res, 400, { error: 'id required' });
+          r = memos.get(db, body.id);
+        } else {
+          const input = asMemoInput(body.input);
+          if (!input) return send(res, 400, { error: 'input with a uid required' });
+          r = memos.create(db, seat, input);
+        }
+      } catch (e) {
+        log('memos-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      // Reads leave no trace. A save logs the seat and the number, never the PIN or the typed values.
+      if (r.ok && url === '/memos/create') {
+        const done = r.value as MemoSaved;
+        if (!done.again) {
+          log('memo-saved', { seat, id: done.id, no: done.challanNo, lrs: done.lrCount });
+          events.publish(['memos', 'lrs'], [done.id]);
+        }
+      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
+        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      } else if (!r.ok && r.code === 'memo-conflict') {
+        log('memo-conflict', { seat, taken: r.taken?.length ?? 0 });
+      }
+      return sendResult(res, r);
     }
 
     if (url.startsWith('/lrs/') || url.startsWith('/settings/')) {

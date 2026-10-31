@@ -77,13 +77,20 @@ export default function DashboardPage({ summary, onMakeMemo, onPick }: { summary
         <div className={styles.cards}>
           <Card className={styles.listCard} title={t.pendingTitle} aside={<span className={styles.aside}>{t.pendingTotal(s?.pending ?? 0, s?.pendingQty ?? 0)}</span>}>
             <div className={styles.tableBox}>
-              <Table label={t.pendingList} columns={pendingColumns} rows={pending.data} rowKey={(r) => String(r.stationId)} empty={t.emptyPending} />
+              <Table
+                label={t.pendingList}
+                columns={pendingColumns}
+                rows={pending.data}
+                rowKey={(r) => String(r.stationId)}
+                empty={t.emptyPending}
+                onRowActivate={(r) => onPick({ to: 'pending', stationId: r.stationId })}
+              />
             </div>
             <div className={styles.foot}>
               <Button small variant="outline" onClick={onMakeMemo}>
                 {t.makeMemo}
               </Button>
-              <span className={styles.note}>{more > 0 ? t.moreStations(more) : t.memoSoon}</span>
+              <span className={styles.note}>{more > 0 ? t.moreStations(more) : t.stationHint}</span>
             </div>
           </Card>
           <Card className={styles.listCard} title={t.recentTitle}>

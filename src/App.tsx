@@ -5,6 +5,7 @@ import ComponentsPage from './ComponentsPage';
 import DashboardPage from './dashboard/DashboardPage';
 import { matches } from './logic/keymap';
 import type { Jump } from './logic/searchResults';
+import LoadingMemoPage from './loadingMemo/LoadingMemoPage';
 import LrEntryPage from './lrEntry/LrEntryPage';
 import QuickLr from './lrEntry/QuickLr';
 import MastersPage from './masters/MastersPage';
@@ -22,7 +23,7 @@ import Dialog from './ui/Dialog';
 import { useKeeperData } from './useKeeperData';
 import { useKeys } from './useKeys';
 
-const pageOf = (j: Jump): PageId => (j.to === 'lr' ? 'lrEntry' : 'masters');
+const pageOf = (j: Jump): PageId => (j.to === 'lr' ? 'lrEntry' : j.to === 'master' ? 'masters' : 'loadingMemo');
 
 // `npm run dev -- --components` opens the Components page straight away, without needing the keeper.
 const COMPONENTS_ONLY = window.location.hash === '#components';
@@ -135,6 +136,8 @@ export default function App() {
               editing.current = on;
             }}
           />
+        ) : page === 'loadingMemo' ? (
+          <LoadingMemoPage jump={jump} onJumpUsed={() => setJump(null)} oldestPending={summary?.oldestPending ?? null} />
         ) : page === 'dashboard' ? (
           <DashboardPage summary={summary} onMakeMemo={() => go('loadingMemo')} onPick={pick} />
         ) : (

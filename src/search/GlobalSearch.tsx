@@ -31,6 +31,16 @@ function RowText({ row }: { row: Row }) {
           <Chip kind={row.item.status} />
         </>
       );
+    case 'memo':
+      return (
+        <>
+          <strong className={styles.main}>{t.challanNo(row.item.challanNo)}</strong>
+          <span className={styles.detail}>
+            {row.item.truck} · {row.item.toStation} · {isoToDisplay(row.item.date)}
+          </span>
+          <Chip kind={row.item.status} />
+        </>
+      );
     case 'firm':
       return (
         <>
