@@ -37,6 +37,12 @@ if (state.rounds >= MAX_ROUNDS) {
   process.exit(0);
 }
 
-const out = ((run.stdout || '') + (run.stderr || '')).split('\n').slice(-60).join('\n');
-process.stderr.write(`npm run check failed (round ${state.rounds}/${MAX_ROUNDS}). Fix the root cause, then finish.\n\n${out}\n`);
+const all = (run.stdout || '') + (run.stderr || '');
+const lines = all.split('\n');
+// A TAP report lists every test, so a failing one can sit far above the last 60 lines: name the failures first and keep the whole output.
+const failed = lines.filter((l) => /^\s*not ok /.test(l));
+const logFile = path.join(require('os').tmpdir(), 'bm-last-check.log');
+try { fs.writeFileSync(logFile, all); } catch { /* the tail below is still shown */ }
+const out = (failed.length ? `Failing tests:\n${failed.join('\n')}\n\n` : '') + lines.slice(-60).join('\n');
+process.stderr.write(`npm run check failed (round ${state.rounds}/${MAX_ROUNDS}). Fix the root cause, then finish. Full output: ${logFile}\n\n${out}\n`);
 process.exit(2);

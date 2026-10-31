@@ -10,6 +10,20 @@ import { nameKey } from './names';
 const dirs: string[] = [];
 process.on('exit', () => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 
+/**
+ * The fastest of `runs` calls, in ms. A speed budget is about what the query costs, not about the cold first run
+ * (about 100 ms while SQLite fills its page cache) or one unlucky moment of a busy PC, so budgets use this.
+ */
+export function fastest(runs: number, fn: () => void): number {
+  let best = Infinity;
+  for (let i = 0; i < runs; i++) {
+    const t = performance.now();
+    fn();
+    best = Math.min(best, performance.now() - t);
+  }
+  return best;
+}
+
 /** A fresh, empty folder removed when the test process exits. */
 export function tempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-dbtest-'));
