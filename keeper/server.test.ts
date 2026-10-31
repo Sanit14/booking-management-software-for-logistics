@@ -871,3 +871,91 @@ test('keeper: two seats make memos with an overlapping LR in the same instant - 
   assert.match(log, /pin-refused/);
   for (const secret of ['4831', '7295', 'Ramesh', 'MH 29']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
 }));
+
+// --- saved memos (3.2) -------------------------------------------------------------------------------------------
+
+test('keeper: one seat takes an LR off a memo while another adds it to a different memo in the same instant - the LR is never on two memos; every committed change is one event, a refusal none; PINs and reasons stay out of the log', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { from, to, input } = await seed(port);
+  const truckOf = async (number: string) => (await masters(port, 'create', { kind: 'trucks', fields: { number } })).value.id as number;
+  const truck1 = await truckOf('MH 29 BE 1234');
+  const truck2 = await truckOf('MH 29 AB 1');
+  const driver = (await masters(port, 'create', { kind: 'drivers', fields: { name: 'Ramesh Pawar' } })).value.id as number;
+  const ids: number[] = [];
+  for (let i = 0; i < 5; i++) ids.push((await lrCall(port, '/lrs/create', { input: input() })).value.row.id);
+  const memo = async (lrIds: number[], truckId: number, uid: string) =>
+    (await lrCall(port, '/memos/create', { input: { uid, date: null, truckId, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', lrIds } })).value;
+  const memoA = await memo(ids.slice(0, 3), truck1, 'memo-a');
+  const memoB = await memo(ids.slice(3, 4), truck2, 'memo-b');
+  const SYSTEM = '7295';
+  const ADMIN = '4831';
+  const call = (url: string, body: Record<string, unknown>, seat = 'counter-1') => lrCall(port, url, body, seat);
+  const lrsOn = async (id: number): Promise<number[]> => (await call('/memos/get', { id })).value.lrs.map((r: { id: number }) => r.id);
+
+  const a = listen(port, 'counter-1');
+  const b = listen(port, 'counter-2');
+  try {
+    await until('both streams to connect', () => a.got.length >= 1 && b.got.length >= 1);
+    a.got.length = 0;
+    b.got.length = 0;
+
+    // The race: seat 1 takes LR 3 off memo A, seat 2 adds the same LR to memo B.
+    const lr = ids[2];
+    const answers = await Promise.all([
+      call('/memos/remove-lrs', { id: memoA.id, lrIds: [lr], systemPin: SYSTEM }, 'counter-1'),
+      call('/memos/add-lrs', { id: memoB.id, lrIds: [lr], systemPin: SYSTEM }, 'counter-2'),
+    ]);
+    const [onA, onB] = [await lrsOn(memoA.id), await lrsOn(memoB.id)];
+    assert.equal([onA, onB].filter((l) => l.includes(lr)).length <= 1, true, 'the LR is on at most one memo');
+    assert.equal(answers[0].ok, true, 'the take-off always works: the LR is on memo A until it is taken off');
+    if (answers[1].ok) assert.deepEqual([onA.length, onB.length], [2, 2], 'the take-off came first: the LR moved to memo B');
+    else {
+      assert.deepEqual([answers[1].status, answers[1].code], [409, 'memo-conflict']);
+      assert.deepEqual([onA.length, onB.length], [2, 1], 'the add came first and lost: the LR is booked again');
+    }
+    await until('the change events', () => a.got.length >= 1 + Number(answers[1].ok) && b.got.length >= 1 + Number(answers[1].ok));
+
+    // Header edit, recalculate, cancel over HTTP: PINs, versions, 400s.
+    const cur = (await call('/memos/get', { id: memoB.id })).value;
+    const header = { date: cur.date, truckId: cur.truckId, driverId: cur.driverId, fromStationId: cur.fromStationId, toStationId: cur.toStationId, truckHire: '2,500', loadingHamali: '' };
+    assert.equal((await call('/memos/edit', { id: memoB.id, version: cur.version, input: header, systemPin: '0000' })).code, 'wrong-pin');
+    assert.equal((await call('/memos/edit', { id: memoB.id, version: cur.version - 1, input: header, systemPin: SYSTEM })).code, 'memo-stale');
+    assert.equal((await call('/memos/edit', { id: memoB.id, version: 'x', input: header })).status, 400);
+    assert.equal((await call('/memos/remove-lrs', { lrIds: [1] })).status, 400);
+    const edited = await call('/memos/edit', { id: memoB.id, version: cur.version, input: header, systemPin: SYSTEM }, 'counter-2');
+    assert.deepEqual([edited.ok, edited.value.changed, edited.value.memo.truckHirePaise], [true, true, 250000]);
+    assert.equal((await call('/memos/edit', { id: memoB.id, version: edited.value.memo.version, input: header, systemPin: SYSTEM })).value.changed, false, 'a no-op');
+
+    const differing = (await call('/memos/get', { id: memoB.id })).value;
+    const recalc = await call('/memos/recalculate', { id: memoB.id, version: differing.version, adminPin: SYSTEM });
+    assert.equal(recalc.code, 'wrong-pin', 'the System PIN is not the Admin PIN');
+    const list = (await call('/memos/list', { filters: {}, cursor: null })).value;
+    assert.deepEqual(list.rows.map((r: { challanNo: number }) => r.challanNo), [2, 1]);
+    assert.equal((await call('/memos/history', { id: memoB.id })).value[0].action, 'edited');
+
+    const gone = await call('/memos/cancel', { id: memoA.id, version: (await call('/memos/get', { id: memoA.id })).value.version, reason: 'Wrong truck', adminPin: ADMIN });
+    assert.deepEqual([gone.ok, gone.value.status, gone.value.lrs.length], [true, 'cancelled', 0]);
+    const pending = (await call('/memos/pending', { filters: {}, cursor: null })).value;
+    assert.deepEqual(pending.rows.map((r: { id: number }) => r.id).sort(), (answers[1].ok ? [ids[0], ids[1], ids[4]] : [ids[0], ids[1], lr, ids[4]]).sort(), "memo A's LRs are pending again");
+    assert.equal((await call('/memos/cancel', { id: memoA.id, version: gone.value.version, reason: 'again', adminPin: ADMIN })).code, 'memo-cancelled');
+
+    await sleep(400);
+    // take-off, (add), edit, cancel: each committed change announced once on both seats, the refusals not at all
+    const expected = 1 + Number(answers[1].ok) + 1 + 1;
+    assert.equal(a.got.length, expected);
+    assert.equal(b.got.length, expected);
+  } finally {
+    a.stop();
+    b.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  assert.match(log, /\tmemo-lrs-changed\t/);
+  assert.match(log, /\tmemo-edited\t/);
+  assert.match(log, /\tmemo-cancelled\t/);
+  for (const secret of ['4831', '7295', 'Wrong truck', 'Ramesh', 'MH 29']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+}));

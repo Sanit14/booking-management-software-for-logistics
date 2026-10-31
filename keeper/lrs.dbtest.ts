@@ -335,7 +335,7 @@ test('get and find open an LR with everything the form needs; find is the curren
   assert.deepEqual(
     { ...lr, amounts: undefined },
     {
-      id: a.row.id, version: 1, status: 'booked', lrNo: 1, lrYear: 2026, date: TODAY, memoNo: null,
+      id: a.row.id, version: 1, status: 'booked', lrNo: 1, lrYear: 2026, date: TODAY, memoNo: null, memoId: null,
       fromStationId: s.yavatmal, toStationId: s.nagpur, consignorId: s.ganesh, consignor: 'Shree Ganesh Traders', consigneeId: null, consignee: 'Kale Brothers',
       particular: 'Cloth bales', qty: 3, toPayPaise: 180000, paidPaise: 0, chargeOption: 'option1',
       godownBhadaPaise: 500, godownInsurancePaise: 500, deliveryChargesPaise: 200, hamaliPaise: 3000, wasuliPaise: 0, staxPercent: '5', amounts: undefined,

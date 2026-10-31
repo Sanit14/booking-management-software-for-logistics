@@ -5,7 +5,7 @@ import { applyDefaults } from './chargeFill';
 import { formFromLr } from './lrOpen';
 
 const lr: LrDetail = {
-  id: 7, version: 3, status: 'booked', lrNo: 245, lrYear: 2026, date: '2026-10-29', memoNo: null,
+  id: 7, version: 3, status: 'booked', lrNo: 245, lrYear: 2026, date: '2026-10-29', memoNo: null, memoId: null,
   fromStationId: 1, toStationId: 2, consignorId: 10, consignor: 'Shree Ganesh Traders', consigneeId: null, consignee: 'Kale Brothers',
   particular: 'Cloth bales', qty: 12, toPayPaise: 180000, paidPaise: 0, chargeOption: 'option1',
   godownBhadaPaise: 500, godownInsurancePaise: 250, deliveryChargesPaise: 0, hamaliPaise: 12010, wasuliPaise: 0, staxPercent: '2.5',

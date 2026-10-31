@@ -27,6 +27,8 @@ interface Props {
   onDiscard: () => void;
   /** Show this LR in the form (what a change answered with), or null for a new, empty LR. */
   onOpen: (lr: LrDetail | null) => void;
+  /** Open the memo this LR is on: taking the LR off it is done there. */
+  onOpenMemo?: (memoId: number) => void;
 }
 
 /**
@@ -34,7 +36,7 @@ interface Props {
  * Cancel asks a reason, then the System PIN; the keeper checks the PIN with the action itself, so a wrong PIN just
  * shakes the dots and nothing is written.
  */
-export default function LrActions({ lr, editing, changedElsewhere, problem, onEdit, onDiscard, onOpen }: Props) {
+export default function LrActions({ lr, editing, changedElsewhere, problem, onEdit, onDiscard, onOpen, onOpenMemo }: Props) {
   const toast = useToast();
   const { keys } = useKeys();
   const [step, setStep] = useState<Step>(null);
@@ -97,6 +99,11 @@ export default function LrActions({ lr, editing, changedElsewhere, problem, onEd
       <strong className={styles.openTitle}>{editing ? t.editing(lr.lrNo) : t.lrTitle(lr.lrNo)}</strong>
       <Chip kind={lr.status} />
       {lr.memoNo !== null && <span className={styles.openNote}>{t.memoNote(lr.memoNo)}</span>}
+      {lr.memoId !== null && onOpenMemo && (
+        <Button small variant="outline" onClick={() => onOpenMemo(lr.memoId as number)}>
+          {t.openMemo}
+        </Button>
+      )}
       {changedElsewhere && (
         <span className={styles.openWarn} role="status">
           {t.changedElsewhere}

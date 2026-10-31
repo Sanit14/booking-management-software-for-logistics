@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 11;
+export const KEEPER_VERSION = 12;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -254,6 +254,8 @@ export interface LrDetail {
   date: string;
   /** The challan number of the memo the LR is on (status `loaded`). */
   memoNo: number | null;
+  /** The memo the LR is on (to open it); null when it is on none. */
+  memoId: number | null;
   fromStationId: number;
   toStationId: number;
   /** A picked firm's id, or null for a walk-in (the name is what was typed). */
@@ -392,22 +394,24 @@ export const MAX_MEMO_LRS = 500;
  * What the loading clerk typed and ticked. Money is the typed TEXT (the keeper parses it). `date` null = today; any other
  * date needs `systemPin`. `lrIds` are the ticked LRs, 1 to 500.
  */
-export interface MemoInput {
-  /** One per open panel; the same uid sent twice returns the memo saved first. */
-  uid: string;
+export interface MemoHeaderInput {
   date: string | null;
-  systemPin?: string;
   truckId: number | null;
   driverId: number | null;
   fromStationId: number | null;
   toStationId: number | null;
   truckHire: string;
   loadingHamali: string;
+}
+export interface MemoInput extends MemoHeaderInput {
+  /** One per open panel; the same uid sent twice returns the memo saved first. */
+  uid: string;
+  systemPin?: string;
   lrIds: number[];
 }
-export type MemoField = 'date' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs';
-/** required · amount (not a rupee amount) · same (from = to) · future / date (the date) · missing (no such, or inactive, truck / driver / station; an LR id that does not exist) · many (over 500 LRs). */
-export type MemoFieldError = 'required' | 'amount' | 'same' | 'future' | 'date' | 'missing' | 'many';
+export type MemoField = 'date' | 'reason' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs';
+/** required · amount (not a rupee amount) · same (from = to) · future / date (the date) · year (an edit moved the date out of the challan's year) · missing (no such, or inactive, truck / driver / station; an LR id that does not exist) · many (over 500 LRs). */
+export type MemoFieldError = 'required' | 'amount' | 'same' | 'future' | 'date' | 'year' | 'missing' | 'many';
 
 /** A firm picked for a pending-LR filter, or text typed: any part of the name an LR was booked with (a walk-in's or a firm's). */
 export interface PartyFilter {
@@ -472,7 +476,16 @@ export interface MemoSaved extends MemoListRow {
   /** The same uid had been saved before: this is that first memo, nothing new was written. */
   again: boolean;
 }
-/** A saved memo: its header, the totals frozen when it was saved, and its LRs. */
+/** What a memo's LRs add up to: the totals frozen on the memo, or the totals of its LRs now. */
+export interface MemoTotals {
+  lrs: number;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+  chargesPaise: number;
+  staxPaise: number;
+}
+/** A saved memo: its header, the totals frozen when it was saved, the totals of its LRs now, and its LRs. */
 export interface MemoDetail extends MemoListRow {
   version: number;
   truckId: number;
@@ -483,14 +496,65 @@ export interface MemoDetail extends MemoListRow {
   toStationId: number;
   truckHirePaise: number;
   loadingHamaliPaise: number;
-  frozen: { lrs: number; qty: number; toPayPaise: number; paidPaise: number; chargesPaise: number; staxPaise: number };
+  frozen: MemoTotals;
+  /** The LRs on the memo now, added up in SQL the way they were at the save (all 0 for a cancelled memo). */
+  now: MemoTotals;
+  /** A saved memo whose LRs no longer add up to its frozen totals. Never set for a cancelled memo. */
+  differs: boolean;
   lrs: MemoLrRow[];
 }
-/** A ticked LR that could not be loaded: it is on another memo (loaded) or was cancelled meanwhile. */
+/** Saved memos list: dates are ISO, null = no bound. */
+export interface SavedMemoFilters {
+  from: string | null;
+  to: string | null;
+  truckId: number | null;
+  toStationId: number | null;
+}
+/** Where the next page of saved memos starts: older than this memo, in (date, challan number) order. */
+export interface SavedMemoCursor {
+  date: string;
+  no: number;
+}
+export interface SavedMemoRow extends MemoListRow {
+  driver: string;
+  /** The quantity frozen on the memo. */
+  qty: number;
+  differs: boolean;
+}
+export interface SavedMemoPage {
+  rows: SavedMemoRow[];
+  next: SavedMemoCursor | null;
+}
+/** An edit or a recalculation that changes nothing writes nothing: `changed` is false. */
+export interface MemoChanged {
+  memo: MemoDetail;
+  changed: boolean;
+}
+export type MemoChangeField = 'date' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs' | 'qty' | 'toPay' | 'paid' | 'charges' | 'stax';
+/** A changed field: names (not ids) for truck, driver and stations, paise for money, text otherwise. */
+export interface MemoChange {
+  field: MemoChangeField;
+  from: string | number | null;
+  to: string | number | null;
+}
+export interface MemoHistoryEntry {
+  at: string; // ISO
+  seat: string;
+  action: 'created' | 'edited' | 'removed' | 'added' | 'moved-out' | 'moved-in' | 'recalculated' | 'cancelled';
+  reason?: string;
+  /** edited: the header fields; recalculated: the totals. */
+  changes: MemoChange[];
+  /** removed, added, moved, cancelled: the LR numbers. */
+  lrNos: number[];
+  /** moved: the other memo's challan number. */
+  otherNo?: number;
+}
+/** A ticked LR that could not be loaded or changed: it is on another memo (loaded), was cancelled, or is not on this memo (booked). */
 export interface MemoTaken {
   id: number;
   lrNo: number;
-  state: 'loaded' | 'cancelled';
+  /** `booked`: the LR is not on the memo any more (another seat took it off). */
+  state: 'booked' | 'loaded' | 'cancelled';
   challanNo: number | null;
   truck: string | null;
 }
@@ -498,7 +562,11 @@ export interface MemoTaken {
 export type MemoRefusal =
   | 'memo-invalid' // `memoFields`: what to fix
   | 'memo-conflict' // `taken`: the LRs another seat got first; nothing was saved
-  | 'memo-missing';
+  | 'memo-missing'
+  | 'memo-stale' // `memo`: the current memo, to show what changed
+  | 'memo-cancelled' // a cancelled memo cannot be changed
+  | 'memo-last-lr' // taking these LRs off would leave the memo with none: cancel the memo instead
+  | 'memo-target'; // the memo to move LRs to is missing, cancelled, or the same memo
 
 export type LrRefusal =
   | 'lr-invalid' // `fields`: what to fix
@@ -524,6 +592,7 @@ export type KeeperResult<T> =
       fields?: Partial<Record<LrField, LrFieldError>>;
       memoFields?: Partial<Record<MemoField, MemoFieldError>>;
       taken?: MemoTaken[];
+      memo?: MemoDetail;
     };
 
 export type KeeperErrorCode =
@@ -617,6 +686,22 @@ export interface KeeperApi {
     get(id: number): Promise<KeeperResult<MemoDetail>>;
     /** That day's memos, newest first, at most 200 (null = today). */
     byDate(date: string | null): Promise<KeeperResult<MemoListRow[]>>;
+    /** Saved memos by (date, challan number), newest first, 100 a page: pass the previous page's `next` for the following one. */
+    list(filters: SavedMemoFilters, cursor: SavedMemoCursor | null): Promise<KeeperResult<SavedMemoPage>>;
+    /** System PIN. A stale `version` is refused with the current memo. The challan number never changes. */
+    editHeader(id: number, version: number, input: MemoHeaderInput, systemPin: string): Promise<KeeperResult<MemoChanged>>;
+    /** System PIN. The LRs go back to booked; the last LR of a memo cannot be taken off. */
+    removeLrs(id: number, lrIds: number[], systemPin: string): Promise<KeeperResult<MemoDetail>>;
+    /** System PIN. Answers with the memo the LRs left. */
+    moveLrs(id: number, lrIds: number[], targetId: number, systemPin: string): Promise<KeeperResult<MemoDetail>>;
+    /** System PIN. The same claim guard as a new memo: all or nothing. */
+    addLrs(id: number, lrIds: number[], systemPin: string): Promise<KeeperResult<MemoDetail>>;
+    /** Admin PIN: the frozen totals become the totals of the LRs now. */
+    recalculate(id: number, version: number, adminPin: string): Promise<KeeperResult<MemoChanged>>;
+    /** Admin PIN and a reason: the LRs go back to booked. There is no restore. */
+    cancel(id: number, version: number, reason: string, adminPin: string): Promise<KeeperResult<MemoDetail>>;
+    /** Newest first, at most 50. */
+    history(id: number): Promise<KeeperResult<MemoHistoryEntry[]>>;
   };
   /** One box for LR number, challan number, firm, truck and station: a few of each, never a generic query. */
   search(text: string): Promise<KeeperResult<SearchAnswer>>;

@@ -331,3 +331,109 @@
   flex-basis: 100%;
   font-weight: 700;
 }
+
+/* ---- the two tabs ---- */
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.tab {
+  height: 38px;
+  padding: 0 18px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-16);
+  font-weight: 700;
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+/* Both tabs stay mounted (the ticks and a half-typed memo survive a look at the saved ones). */
+.tabBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.tabBody[hidden] {
+  display: none;
+}
+.chips {
+  display: inline-flex;
+  gap: 6px;
+}
+
+/* ---- what can be done to a saved memo ---- */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.differsBox {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--warning);
+  border-radius: var(--r-md);
+  background: var(--warning-tint);
+  color: var(--text);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.differsBox .frozen {
+  margin: 6px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.changeBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+}
+.formGrid > * {
+  min-width: 0;
+}
+.pickerBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 62vh;
+  min-height: 0;
+}
+.historyList {
+  max-height: 55vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.historyItem {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-15);
+}
+.historyHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.historyHead span {
+  color: var(--text-2);
+}

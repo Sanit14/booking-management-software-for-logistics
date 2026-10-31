@@ -24,10 +24,13 @@ import {
   type LrUpdated,
   type MasterRow,
   type MastersAll,
+  type MemoChanged,
   type MemoDefaults,
   type MemoDetail,
+  type MemoHistoryEntry,
   type MemoListRow,
   type MemoSaved,
+  type SavedMemoPage,
   type PendingPage,
   type PendingStation,
   type PendingTotals,
@@ -259,6 +262,21 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:memos-create', (_e, input: unknown) => call<MemoSaved>('POST', '/memos/create', { input }));
   ipcMain.handle('keeper:memos-get', (_e, id: unknown) => call<MemoDetail>('POST', '/memos/get', { id }));
   ipcMain.handle('keeper:memos-by-date', (_e, date: unknown) => call<MemoListRow[]>('POST', '/memos/by-date', { date: dateOrNull(date) }));
+  // Saved memos (3.2): the keeper checks the PIN with each change; main only passes the typed values on.
+  ipcMain.handle('keeper:memos-list', (_e, filters: unknown, cursor: unknown) => call<SavedMemoPage>('POST', '/memos/list', { filters, cursor }));
+  ipcMain.handle('keeper:memos-edit', (_e, id: unknown, version: unknown, input: unknown, pin: unknown) =>
+    call<MemoChanged>('POST', '/memos/edit', { id, version, input, systemPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:memos-remove-lrs', (_e, id: unknown, lrIds: unknown, pin: unknown) => call<MemoDetail>('POST', '/memos/remove-lrs', { id, lrIds, systemPin: text(pin) }));
+  ipcMain.handle('keeper:memos-move-lrs', (_e, id: unknown, lrIds: unknown, targetId: unknown, pin: unknown) =>
+    call<MemoDetail>('POST', '/memos/move-lrs', { id, lrIds, targetId, systemPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:memos-add-lrs', (_e, id: unknown, lrIds: unknown, pin: unknown) => call<MemoDetail>('POST', '/memos/add-lrs', { id, lrIds, systemPin: text(pin) }));
+  ipcMain.handle('keeper:memos-recalculate', (_e, id: unknown, version: unknown, pin: unknown) => call<MemoChanged>('POST', '/memos/recalculate', { id, version, adminPin: text(pin) }));
+  ipcMain.handle('keeper:memos-cancel', (_e, id: unknown, version: unknown, reason: unknown, pin: unknown) =>
+    call<MemoDetail>('POST', '/memos/cancel', { id, version, reason: text(reason), adminPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:memos-history', (_e, id: unknown) => call<MemoHistoryEntry[]>('POST', '/memos/history', { id }));
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

@@ -59,6 +59,7 @@
       "!**/*.dbtest.js",
       "!**/*.map",
       "!dist-electron/keeper/testing.js",
+      "!dist-electron/keeper/memoTesting.js",
       "!**/*.{lib,exp,iobj,ipdb,pdb}",
       "!node_modules/better-sqlite3/{deps,src,bin}/**",
       "!node_modules/better-sqlite3/build/{deps,Release/obj}/**",

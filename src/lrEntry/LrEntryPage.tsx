@@ -44,7 +44,7 @@ const columns: Column<LrListRow>[] = [
  * LR and master, from this seat or any other, and only the parts that changed are fetched again. Choosing an LR in the
  * list (or typing its number) opens it in the form, read-only until Edit.
  */
-export default function LrEntryPage({ onEditing, jump, onJumpUsed }: { onEditing: (editing: boolean) => void; jump: Jump | null; onJumpUsed: () => void }) {
+export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }: { onEditing: (editing: boolean) => void; jump: Jump | null; onJumpUsed: () => void; onOpenMemo: (memoId: number) => void }) {
   const toast = useToast();
   const { keys } = useKeys();
   const findBox = useRef<HTMLInputElement>(null);
@@ -138,6 +138,7 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed }: { onEditing
             onDate={setDate}
             lr={lr ?? undefined}
             onOpen={onOpen}
+            onOpenMemo={onOpenMemo}
             draftSlot="lrEntry"
             onGuard={(h) => {
               holding.current = h;

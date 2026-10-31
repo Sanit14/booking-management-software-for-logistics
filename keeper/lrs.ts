@@ -45,7 +45,7 @@ const NOW = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
 
 /** An LR row as stored, plus the number of the memo it is on. */
 type LrRow = LrMoney & {
-  id: number; version: number; status: LrStatus; lr_year: number; lr_no: number; lr_date: string; memo_no: number | null;
+  id: number; version: number; status: LrStatus; lr_year: number; lr_no: number; lr_date: string; memo_id: number | null; memo_no: number | null;
   from_station_id: number; to_station_id: number; consignor_id: number | null; consignor_name: string; consignee_id: number | null; consignee_name: string;
   particular: string; qty: number; charge_option: ChargeOption; wasuli_paise: number;
 };
@@ -55,7 +55,7 @@ const rowOf = (db: Db, id: unknown): LrRow | undefined =>
 
 function detailOf(r: LrRow): LrDetail {
   return {
-    id: r.id, version: r.version, status: r.status, lrNo: r.lr_no, lrYear: r.lr_year, date: r.lr_date, memoNo: r.memo_no,
+    id: r.id, version: r.version, status: r.status, lrNo: r.lr_no, lrYear: r.lr_year, date: r.lr_date, memoNo: r.memo_no, memoId: r.memo_id,
     fromStationId: r.from_station_id, toStationId: r.to_station_id,
     consignorId: r.consignor_id, consignor: r.consignor_name, consigneeId: r.consignee_id, consignee: r.consignee_name,
     particular: r.particular, qty: r.qty, toPayPaise: r.topay_paise, paidPaise: r.paid_paise, chargeOption: r.charge_option,

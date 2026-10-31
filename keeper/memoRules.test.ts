@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_MEMO_LRS, type MemoInput } from '../shared';
-import { asCursor, asIds, asMemoInput, asPendingFilters, cleanMemo } from './memoRules';
+import { MAX_MEMO_LRS, type MemoHeaderInput, type MemoInput } from '../shared';
+import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters, cleanHeader, cleanIds, cleanMemo } from './memoRules';
 
 const TODAY = '2026-10-31';
 const good: MemoInput = {
@@ -86,4 +86,29 @@ test('a cursor is a real date and a whole number above 0, or nothing', () => {
   assert.equal(asCursor({ date: '2026-10-20', no: 0 }), null);
   assert.equal(asCursor({ date: '20-10-2026', no: 4 }), null);
   assert.equal(asCursor(null), null);
+});
+
+test('a header edit: the same rules as a new memo without the LRs; a request that is not an object has no header', () => {
+  assert.equal(asHeaderInput('x'), null);
+  const h = asHeaderInput({ date: '2026-10-20', truckId: 1, driverId: '2', fromStationId: 3, toStationId: 3, truckHire: '10', loadingHamali: 5 });
+  assert.deepEqual(h, { date: '2026-10-20', truckId: 1, driverId: null, fromStationId: 3, toStationId: 3, truckHire: '10', loadingHamali: '' });
+  const c = cleanHeader(h as MemoHeaderInput, TODAY);
+  assert.deepEqual(c.errors, { driver: 'required', toStation: 'same' });
+  assert.deepEqual([c.date, c.hirePaise, c.hamaliPaise], ['2026-10-20', 1000, 0]);
+  assert.equal(cleanHeader({ ...good, date: '2026-11-01' }, TODAY).errors.date, 'future');
+  assert.equal(cleanHeader({ ...good, truckHire: '1.234' }, TODAY).errors.truckHire, 'amount');
+});
+
+test('the LR ids of a take-off / move / add: 1 to 500 whole numbers, each once; the rest is refused by name', () => {
+  assert.deepEqual(cleanIds([3, 3, 4]), { ids: [3, 4], error: null });
+  assert.equal(cleanIds([]).error, 'required');
+  assert.equal(cleanIds([1, 0]).error, 'missing');
+  assert.equal(cleanIds(Array.from({ length: MAX_MEMO_LRS + 1 }, (_, i) => i + 1)).error, 'many');
+  assert.deepEqual(asLrIds([3, '4', 1.5, -1]), [3, 0, 0, 0]);
+  assert.deepEqual(asLrIds('x'), []);
+});
+
+test('the saved-memos filters: a bad date or id means no bound, never an error', () => {
+  assert.deepEqual(asSavedFilters(null), { from: null, to: null, truckId: null, toStationId: null });
+  assert.deepEqual(asSavedFilters({ from: '2026-10-01', to: 'soon', truckId: 4, toStationId: '2' }), { from: '2026-10-01', to: null, truckId: 4, toStationId: null });
 });

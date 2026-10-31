@@ -37,6 +37,7 @@
   color: var(--danger);
 }
 .toPay,
+.differs,
 .pending {
   background: var(--warning-tint);
   color: var(--warning);

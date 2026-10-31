@@ -73,6 +73,8 @@ interface Props {
   lr?: LrDetail;
   /** Show this LR (what a change answered with), or null for a new, empty one. */
   onOpen: (lr: LrDetail | null) => void;
+  /** Open the memo a saved LR is on (the Saved memos tab), when the page can. */
+  onOpenMemo?: (memoId: number) => void;
   /** True while the form holds work that opening another LR would throw away (an edit, or a half-typed new LR). */
   onGuard?: (holding: boolean) => void;
   /** Which kept draft a new LR starts from and writes to: LR Entry and Quick LR each have their own. */
@@ -86,7 +88,7 @@ interface Props {
  * amounts and the charge options' amounts come back from lrs.preview, and the number comes back from the save. The
  * form shows what it is given and never adds anything up.
  */
-export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onGuard, draftSlot, onSaved }: Props) {
+export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onOpenMemo, onGuard, draftSlot, onSaved }: Props) {
   const toast = useToast();
   const { keys } = useKeys();
   const enterToNext = useEnterToNext();
@@ -467,7 +469,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
   return (
     <Card className={styles.formCard}>
       {lr ? (
-        <LrActions lr={lr} editing={editing} changedElsewhere={editing && lr.version !== editBase} problem={problem} onEdit={startEdit} onDiscard={discardEdit} onOpen={onOpen} />
+        <LrActions lr={lr} editing={editing} changedElsewhere={editing && lr.version !== editBase} problem={problem} onEdit={startEdit} onDiscard={discardEdit} onOpen={onOpen} onOpenMemo={onOpenMemo} />
       ) : (
         <div className={styles.head}>
           <strong className={styles.headTitle}>{t.formLabel}</strong>

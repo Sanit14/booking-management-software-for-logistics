@@ -18,6 +18,8 @@ import {
   type LrUpdated,
   type MasterFields,
   type MasterKind,
+  type MemoChanged,
+  type MemoDetail,
   type MemoSaved,
   type ResultCode,
 } from '../shared';
@@ -29,7 +31,7 @@ import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './g
 import { asDefaultsInput, asLrInput } from './lrRules';
 import { makeLog } from './log';
 import { makeLrs } from './lrs';
-import { asCursor, asIds, asMemoInput, asPendingFilters } from './memoRules';
+import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters } from './memoRules';
 import { makeMasters } from './masters';
 import { makeMemos } from './memos';
 import { MIGRATIONS, migrate } from './migrations';
@@ -308,6 +310,7 @@ function main(): void {
       '/lrs/get', '/lrs/find', '/lrs/update', '/lrs/cancel', '/lrs/restore', '/lrs/history',
       '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
       '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/create', '/memos/get', '/memos/by-date',
+      '/memos/list', '/memos/edit', '/memos/remove-lrs', '/memos/move-lrs', '/memos/add-lrs', '/memos/recalculate', '/memos/cancel', '/memos/history',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -465,20 +468,35 @@ function main(): void {
     if (url.startsWith('/memos/')) {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
       const date = typeof body.date === 'string' ? body.date : null;
+      const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+      const pin = typeof body.systemPin === 'string' ? body.systemPin : '';
+      const adminPin = typeof body.adminPin === 'string' ? body.adminPin : '';
       let r: KeeperResult<unknown>;
       try {
         if (url === '/memos/defaults') r = memos.defaults(db, date);
         else if (url === '/memos/by-date') r = memos.byDate(db, date);
         else if (url === '/memos/pending') r = memos.pending(db, asPendingFilters(body.filters), asCursor(body.cursor));
         else if (url === '/memos/totals') r = memos.totals(db, asIds(body.ids));
-        else if (url === '/memos/get') {
-          if (typeof body.id !== 'number' || !Number.isInteger(body.id)) return send(res, 400, { error: 'id required' });
-          r = memos.get(db, body.id);
-        } else {
+        else if (url === '/memos/list') r = memos.list(db, asSavedFilters(body.filters), asCursor(body.cursor));
+        else if (url === '/memos/create') {
           const input = asMemoInput(body.input);
           if (!input) return send(res, 400, { error: 'input with a uid required' });
           r = memos.create(db, seat, input);
-        }
+        } else if (!whole(body.id)) return send(res, 400, { error: 'id required' });
+        else if (url === '/memos/get') r = memos.get(db, body.id);
+        else if (url === '/memos/history') r = memos.history(db, body.id);
+        else if (url === '/memos/remove-lrs') r = memos.removeLrs(db, seat, body.id, asLrIds(body.lrIds), pin);
+        else if (url === '/memos/add-lrs') r = memos.addLrs(db, seat, body.id, asLrIds(body.lrIds), pin);
+        else if (url === '/memos/move-lrs') {
+          if (!whole(body.targetId)) return send(res, 400, { error: 'targetId required' });
+          r = memos.moveLrs(db, seat, body.id, asLrIds(body.lrIds), body.targetId, pin);
+        } else if (!whole(body.version)) return send(res, 400, { error: 'version required' });
+        else if (url === '/memos/edit') {
+          const input = asHeaderInput(body.input);
+          if (!input) return send(res, 400, { error: 'input required' });
+          r = memos.editHeader(db, seat, body.id, body.version, input, pin);
+        } else if (url === '/memos/recalculate') r = memos.recalculate(db, seat, body.id, body.version, adminPin);
+        else r = memos.cancel(db, seat, body.id, body.version, typeof body.reason === 'string' ? body.reason : '', adminPin);
       } catch (e) {
         log('memos-failed', { url, seat, error: msg(e) });
         return sendResult(res, refuse('failed', msg(e)));
@@ -490,6 +508,16 @@ function main(): void {
           log('memo-saved', { seat, id: done.id, no: done.challanNo, lrs: done.lrCount });
           events.publish(['memos', 'lrs'], [done.id]);
         }
+      } else if (r.ok && (url === '/memos/edit' || url === '/memos/recalculate')) {
+        const done = r.value as MemoChanged;
+        if (done.changed) {
+          log(url === '/memos/edit' ? 'memo-edited' : 'memo-recalculated', { seat, id: done.memo.id, no: done.memo.challanNo });
+          events.publish(['memos'], [done.memo.id]);
+        }
+      } else if (r.ok && (url === '/memos/remove-lrs' || url === '/memos/add-lrs' || url === '/memos/move-lrs' || url === '/memos/cancel')) {
+        const done = r.value as MemoDetail;
+        log(url === '/memos/cancel' ? 'memo-cancelled' : 'memo-lrs-changed', { seat, id: done.id, no: done.challanNo, what: url.slice(7) });
+        events.publish(['memos', 'lrs'], url === '/memos/move-lrs' ? [done.id, Number(body.targetId)] : [done.id]);
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
         log('pin-refused', { url, seat, code: r.code, wait: r.detail });
       } else if (!r.ok && r.code === 'memo-conflict') {

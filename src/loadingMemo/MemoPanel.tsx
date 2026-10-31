@@ -9,7 +9,6 @@ import { matchKey } from '../logic/typeAhead';
 import { strings } from '../strings';
 import Button from '../ui/Button';
 import { Card } from '../ui/Card';
-import Dialog from '../ui/Dialog';
 import Field from '../ui/Field';
 import PinDialog from '../ui/PinDialog';
 import { useToast } from '../ui/Toast';
@@ -19,6 +18,7 @@ import { useKeeperData } from '../useKeeperData';
 import { useKeys } from '../useKeys';
 import { rupees } from './columns';
 import styles from './LoadingMemoPage.module.css';
+import TakenDialog from './TakenDialog';
 
 const t = strings.memo;
 const lr = strings.lr;
@@ -28,7 +28,7 @@ const TODAYS_SHOWN = 3;
 const noBox: Box = { text: '', id: null };
 type Errors = Partial<Record<MemoField, string>>;
 const labelOf = (field: string): string =>
-  ({ date: t.date, truck: t.truck, driver: t.driver, fromStation: t.from2, toStation: t.to2, truckHire: t.truckHire, loadingHamali: t.loadingHamali, lrs: t.pendingTitle })[field as MemoField] ?? field;
+  ({ date: t.date, reason: t.cancelReason, truck: t.truck, driver: t.driver, fromStation: t.from2, toStation: t.to2, truckHire: t.truckHire, loadingHamali: t.loadingHamali, lrs: t.pendingTitle })[field as MemoField] ?? field;
 
 interface Props {
   masters: MastersAll;
@@ -194,7 +194,8 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || document.querySelector('dialog[open]') || !matches(saveKey.current, e)) return;
+      // not while a dialog is open, nor while the other tab is showing
+      if (e.repeat || document.querySelector('dialog[open]') || !form.current?.offsetParent || !matches(saveKey.current, e)) return;
       e.preventDefault();
       void saveNow.current();
     };
@@ -406,14 +407,7 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
       </div>
 
       <PinDialog open={askingPin} title={lr.changeDateTitle} onCancel={() => setAskingPin(false)} onSubmit={checkPin} />
-      <Dialog open={taken !== null} title={t.conflictTitle} confirmLabel={t.conflictOk} hideCancel onCancel={closeTaken} onConfirm={closeTaken}>
-        <p>{t.conflictText}</p>
-        <ul className={styles.takenList}>
-          {(taken ?? []).map((x) => (
-            <li key={x.id}>{x.state === 'loaded' ? t.conflictLoaded(x.lrNo, x.challanNo, x.truck) : t.conflictCancelled(x.lrNo)}</li>
-          ))}
-        </ul>
-      </Dialog>
+      <TakenDialog taken={taken} text={t.conflictText} onClose={closeTaken} />
     </Card>
   );
 }

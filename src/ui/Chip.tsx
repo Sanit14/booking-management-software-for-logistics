@@ -1,7 +1,7 @@
 import { strings } from '../strings';
 import styles from './Chip.module.css';
 
-export type ChipKind = 'booked' | 'loaded' | 'cancelled' | 'toPay' | 'paid' | 'charges' | 'pending' | 'saved' | 'inactive';
+export type ChipKind = 'booked' | 'loaded' | 'cancelled' | 'toPay' | 'paid' | 'charges' | 'pending' | 'saved' | 'inactive' | 'differs';
 
 /** Status pill: a dot and a word. `count` makes it a filter chip like "Booked 3". */
 export default function Chip({ kind, count }: { kind: ChipKind; count?: number }) {

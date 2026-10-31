@@ -132,6 +132,7 @@ export default function App() {
           <LrEntryPage
             jump={jump}
             onJumpUsed={() => setJump(null)}
+            onOpenMemo={(id) => pick({ to: 'memo', id })}
             onEditing={(on) => {
               editing.current = on;
             }}

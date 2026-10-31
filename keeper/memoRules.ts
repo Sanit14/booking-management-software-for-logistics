@@ -1,6 +1,6 @@
 // What makes a loading memo acceptable. Pure: no database, no clock (the caller passes today). Money arrives as the
 // TEXT the clerk typed; this is where it becomes paise, so the screen never has to.
-import { MAX_MEMO_LRS, type MemoCursor, type MemoField, type MemoFieldError, type MemoFilters, type MemoInput, type PartyFilter } from '../shared';
+import { MAX_MEMO_LRS, type MemoCursor, type MemoField, type MemoFieldError, type MemoFilters, type MemoHeaderInput, type MemoInput, type PartyFilter, type SavedMemoFilters } from '../shared';
 import { isDate, MAX_PAISE, obj } from './lrRules';
 import { parseRupees } from './money';
 
@@ -21,7 +21,6 @@ export function asMemoInput(v: unknown): MemoInput | null {
   if (!o) return null;
   const uid = text(o, 'uid');
   if (uid === '' || uid.length > 64) return null;
-  const ids = Array.isArray(o.lrIds) ? o.lrIds : [];
   return {
     uid,
     date: typeof o.date === 'string' ? o.date : null,
@@ -32,8 +31,13 @@ export function asMemoInput(v: unknown): MemoInput | null {
     toStationId: int(o, 'toStationId'),
     truckHire: text(o, 'truckHire'),
     loadingHamali: text(o, 'loadingHamali'),
-    lrIds: ids.map((id) => (Number.isInteger(id) && (id as number) >= 1 ? (id as number) : 0)),
+    lrIds: asLrIds(o.lrIds),
   };
+}
+
+/** The LR ids of a request. A value that is not a whole number above 0 is kept as 0, which no LR has, so the rules refuse it by name. */
+export function asLrIds(v: unknown): number[] {
+  return Array.isArray(v) ? v.map((id) => (Number.isInteger(id) && (id as number) >= 1 ? (id as number) : 0)) : [];
 }
 
 /** Ids for a read (the live totals): the whole numbers above 0, at most MAX_MEMO_LRS of them. */
@@ -41,18 +45,16 @@ export function asIds(v: unknown): number[] {
   return Array.isArray(v) ? v.filter((id): id is number => Number.isInteger(id) && id >= 1).slice(0, MAX_MEMO_LRS) : [];
 }
 
-export interface CleanMemo {
+export interface CleanHeader {
   errors: MemoErrors;
   /** The date the memo is dated: the typed one, or today. */
   date: string;
   hirePaise: number;
   hamaliPaise: number;
-  /** The ticked LRs, each once. */
-  ids: number[];
 }
 
-/** Every rule that needs no database. Truck, driver, stations and LRs existing (and being active / booked) is checked where the database is. */
-export function cleanMemo(i: MemoInput, today: string): CleanMemo {
+/** The rules of a memo's header, for a new memo and for an edit alike. Existing (and active) truck, driver and stations are checked where the database is. */
+export function cleanHeader(i: MemoHeaderInput, today: string): CleanHeader {
   const errors: MemoErrors = {};
   const paise = (field: 'truckHire' | 'loadingHamali'): number => {
     try {
@@ -79,12 +81,48 @@ export function cleanMemo(i: MemoInput, today: string): CleanMemo {
   if (!isDate(date)) errors.date = 'date';
   else if (date > today) errors.date = 'future';
 
-  const ids = [...new Set(i.lrIds)];
-  if (ids.length === 0) errors.lrs = 'required';
-  else if (ids.length > MAX_MEMO_LRS) errors.lrs = 'many';
-  else if (ids.some((id) => !Number.isInteger(id) || id < 1)) errors.lrs = 'missing';
+  return { errors, date, hirePaise, hamaliPaise };
+}
 
-  return { errors, date, hirePaise, hamaliPaise, ids };
+export interface CleanMemo extends CleanHeader {
+  /** The ticked LRs, each once. */
+  ids: number[];
+}
+
+/** The LR ids of a request, each once: 1 to MAX_MEMO_LRS whole numbers above 0, else the error to answer with. */
+export function cleanIds(lrIds: number[]): { ids: number[]; error: MemoFieldError | null } {
+  const ids = [...new Set(lrIds)];
+  const error = ids.length === 0 ? 'required' : ids.length > MAX_MEMO_LRS ? 'many' : ids.some((id) => !Number.isInteger(id) || id < 1) ? 'missing' : null;
+  return { ids, error };
+}
+
+/** Every rule that needs no database. Truck, driver, stations and LRs existing (and being active / booked) is checked where the database is. */
+export function cleanMemo(i: MemoInput, today: string): CleanMemo {
+  const h = cleanHeader(i, today);
+  const { ids, error } = cleanIds(i.lrIds);
+  if (error) h.errors.lrs = error;
+  return { ...h, ids };
+}
+
+/** The request body as a header for an edit (a date left out keeps the memo's own). Null when it is not an object. */
+export function asHeaderInput(v: unknown): MemoHeaderInput | null {
+  const o = obj(v);
+  if (!o) return null;
+  return {
+    date: typeof o.date === 'string' ? o.date : null,
+    truckId: int(o, 'truckId'),
+    driverId: int(o, 'driverId'),
+    fromStationId: int(o, 'fromStationId'),
+    toStationId: int(o, 'toStationId'),
+    truckHire: text(o, 'truckHire'),
+    loadingHamali: text(o, 'loadingHamali'),
+  };
+}
+
+/** The saved-memos filters from a request body; like the pending filters, a bad value means "no bound". */
+export function asSavedFilters(v: unknown): SavedMemoFilters {
+  const o = obj(v) ?? {};
+  return { from: day(o.from), to: day(o.to), truckId: int(o, 'truckId'), toStationId: int(o, 'toStationId') };
 }
 
 const day = (v: unknown): string | null => (typeof v === 'string' && isDate(v) ? v : null);
