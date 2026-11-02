@@ -15,6 +15,12 @@ import { sampleLr, sampleMemo } from '../print/testing';
 import { renderPdf, withPage } from './print';
 
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'bm-print-test-')));
+// A CI runner (GitHub's windows-latest = Windows Server 2025, no GPU) cannot run Electron 22's GPU process: it crashes the moment it starts
+// (exit code -1073741819), over and over, until Chromium gives up ("GPU process isn't usable") and every page load fails with ERR_FAILED (-2).
+// `disable-gpu` alone only makes the GPU process draw in software; it is still a separate process. `in-process-gpu` runs that work inside the
+// main process, so there is no GPU process to crash. A PDF is drawn by software anyway. Only this test app: the shipped app is not touched.
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('in-process-gpu');
 // With no window left (the print window is closed after each PDF) Electron quits by itself unless something listens for this.
 app.on('window-all-closed', () => undefined);
 const keep = process.env.BM_PRINT_OUT; // set it to look at the PDFs
