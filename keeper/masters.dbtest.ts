@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import type { Firm, KeeperResult, MasterKind, MasterRow } from '../shared';
 import { makeMasters } from './masters';
 import { makePins } from './pins';
-import { freshDb } from './testing';
+import { freshDb, insert, insertLr } from './testing';
 
 const SYSTEM = '2222';
 
@@ -248,4 +248,43 @@ test('every write has its audit row, in the same transaction, never holding a PI
   s.db.exec("CREATE TRIGGER fail_audit BEFORE INSERT ON audit_log WHEN NEW.action = 'masters.create' BEGIN SELECT RAISE(ABORT, 'audit down'); END");
   assert.throws(() => create(s, 'stations', { name: 'Akola' }), /audit down/);
   assert.equal(count(s, 'stations'), 1, 'the station was rolled back with its audit row');
+});
+
+test('agents: a name is unique whatever the phone, a similar name asks, edits and deactivation need the System PIN', () => {
+  const s = setUp();
+  const first = saved(create(s, 'agents', { name: ' Ramesh  Pawar ', phone: '98220 12345' }));
+  assert.deepEqual(first, { id: 1, name: 'Ramesh Pawar', phone: '9822012345', active: true, version: 1 });
+  const same = refused(create(s, 'agents', { name: 'ramesh pawar', phone: '9000000000' }));
+  assert.equal(same.code, 'master-exists', 'the same name with another phone is still the same agent name');
+  assert.deepEqual(same.row, first);
+  const near = refused(create(s, 'agents', { name: 'Ramesh Pawar Junior' }));
+  assert.equal(near.code, 'master-similar');
+  assert.deepEqual(near.similar, ['Ramesh Pawar']);
+  assert.equal(saved(create(s, 'agents', { name: 'Ramesh Pawar Junior' }, true)).id, 2);
+  assert.equal(refused(create(s, 'agents', { name: 'Ravi', phone: '98x' })).detail, 'phone');
+  assert.equal(refused(create(s, 'agents', { name: '  ' })).detail, 'name');
+
+  assert.equal(refused(update(s, 'agents', first, { name: 'Ramesh P', phone: '1' }, '0000')).code, 'wrong-pin');
+  const edited = saved(update(s, 'agents', first, { name: 'Ramesh Pawar', phone: '555' }));
+  assert.equal((edited as { phone: string }).phone, '555');
+  assert.deepEqual(s.m.all(s.db).agents.map((a) => a.name), ['Ramesh Pawar', 'Ramesh Pawar Junior'], 'listed by name, in all()');
+  const off = saved(setActive(s, 'agents', edited, false));
+  assert.equal(off.active, false);
+  assert.equal(count(s, 'agents'), 2, 'nothing is deleted');
+  // (audits() sorts by its entity_id alias, so compare the set of rows, not their order)
+  assert.deepEqual(audits(s).map((a) => `${a.action} ${a.entity}`).sort(), ['masters.create agents', 'masters.create agents', 'masters.deactivate agents', 'masters.update agents']);
+});
+
+test('an agent who still has collections assigned cannot be deactivated', () => {
+  const s = setUp();
+  const agent = saved(create(s, 'agents', { name: 'Ramesh' }));
+  const lr = insertLr(s.db, { wasuli_paise: 5000 });
+  const w = insert(s.db, 'wasuli', { lr_id: lr, amount_paise: 5000, status: 'assigned', agent_id: agent.id, assigned_date: '2026-10-24', seat: 't' });
+  const r = refused(setActive(s, 'agents', agent, false));
+  assert.deepEqual([r.code, r.detail], ['master-busy', '1']);
+  assert.equal(s.m.all(s.db).agents[0].active, true);
+
+  // Collected work does not hold an agent back; neither does an unassigned row.
+  s.db.prepare("UPDATE wasuli SET status = 'collected', collected_date = '2026-10-25', collected_paise = 5000, mode = 'cash' WHERE id = ?").run(w);
+  assert.equal(saved(setActive(s, 'agents', agent, false)).active, false);
 });

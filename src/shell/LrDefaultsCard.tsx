@@ -11,7 +11,7 @@ import { useKeeperData } from '../useKeeperData';
 import styles from './SettingsPage.module.css';
 
 const t = strings.lrDefaults;
-const NONE: MastersAll = { stations: [], firms: [], trucks: [], drivers: [] };
+const NONE: MastersAll = { stations: [], firms: [], trucks: [], drivers: [], agents: [] };
 const OPTIONS = (Object.keys(strings.lr.chargeOptions) as ChargeOption[]).map((value) => ({ value, label: strings.lr.chargeOptions[value] }));
 
 /** What a new LR starts with. Whatever is changed here is saved with the Admin PIN, checked by the keeper. */

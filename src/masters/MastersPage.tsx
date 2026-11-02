@@ -13,9 +13,9 @@ import MasterForm from './MasterForm';
 import styles from './MastersPage.module.css';
 
 const t = strings.masters;
-const KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers'];
-const NONE: MastersAll = { stations: [], firms: [], trucks: [], drivers: [] };
-const MASTER_TABLES: ChangeTable[] = ['stations', 'firms', 'trucks', 'drivers'];
+const KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers', 'agents'];
+const NONE: MastersAll = { stations: [], firms: [], trucks: [], drivers: [], agents: [] };
+const MASTER_TABLES: ChangeTable[] = ['stations', 'firms', 'trucks', 'drivers', 'agents'];
 const fetchAll = () => window.bm.keeper.masters.all();
 
 /**
@@ -90,7 +90,7 @@ export default function MastersPage({ jump, onJumpUsed }: { jump: Jump | null; o
     station: { key: 'station', header: t.columns.station, width: 110, render: (r: MasterRow) => stationName((r as Firm).stationId) },
     phone: { key: 'phone', header: t.columns.phone, width: 112, render: (r: MasterRow) => ('phone' in r ? r.phone : '') },
   } satisfies Record<string, Column<MasterRow>>;
-  const columns: Column<MasterRow>[] = { stations: [col.name], firms: [col.name, col.station, col.phone], trucks: [col.number], drivers: [col.name, col.phone] }[kind];
+  const columns: Column<MasterRow>[] = { stations: [col.name], firms: [col.name, col.station, col.phone], trucks: [col.number], drivers: [col.name, col.phone], agents: [col.name, col.phone] }[kind];
 
   const rows = visibleRows(data[kind], kind, query, showInactive);
 

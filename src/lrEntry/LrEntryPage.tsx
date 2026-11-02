@@ -19,7 +19,7 @@ import LrForm from './LrForm';
 import styles from './LrEntryPage.module.css';
 
 const t = strings.lr;
-export const NONE: MastersAll = { stations: [], firms: [], trucks: [], drivers: [] };
+export const NONE: MastersAll = { stations: [], firms: [], trucks: [], drivers: [], agents: [] };
 export const MASTER_TABLES: ChangeTable[] = ['stations', 'firms', 'trucks', 'drivers'];
 const money = (paise: number) => (paise > 0 ? formatPaise(paise) : t.none);
 const text = (value: string) => (

@@ -140,3 +140,48 @@ test('the audit log is append-only', () => {
   assert.throws(() => db.prepare('DELETE FROM audit_log WHERE id = ?').run(id), /append-only/);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n, 1);
 });
+
+// Wasuli (v2): the CHECKs tie every column to the status.
+const agent = (db: ReturnType<typeof freshDb>, name = 'Ramesh') => insert(db, 'agents', { name, name_key: name.toLowerCase(), seat: 't' });
+const wasuli = (db: ReturnType<typeof freshDb>, over: Record<string, unknown> = {}) =>
+  insert(db, 'wasuli', { lr_id: insertLr(db, { wasuli_paise: 1000 }), amount_paise: 1000, seat: 't', ...over });
+
+test('wasuli: unassigned has no agent or dates, assigned has an agent and a date, collected has everything', () => {
+  const db = freshDb();
+  const a = agent(db);
+  wasuli(db);
+  wasuli(db, { status: 'assigned', agent_id: a, assigned_date: '2026-10-24' });
+  wasuli(db, { status: 'collected', agent_id: a, assigned_date: '2026-10-24', collected_date: '2026-10-25', collected_paise: 600, mode: 'upi' });
+  assert.throws(() => wasuli(db, { agent_id: a }), CHECK, 'unassigned with an agent');
+  assert.throws(() => wasuli(db, { assigned_date: '2026-10-24' }), CHECK, 'unassigned with a date');
+  assert.throws(() => wasuli(db, { status: 'assigned' }), CHECK, 'assigned without an agent');
+  assert.throws(() => wasuli(db, { status: 'assigned', agent_id: a }), CHECK, 'assigned without a date');
+  assert.throws(() => wasuli(db, { status: 'assigned', agent_id: a, assigned_date: '2026-10-24', collected_date: '2026-10-25' }), CHECK, 'assigned already collected');
+  assert.throws(() => wasuli(db, { status: 'collected', agent_id: a, assigned_date: '2026-10-24' }), CHECK, 'collected with nothing collected');
+  assert.throws(() => wasuli(db, { status: 'collected', agent_id: a, assigned_date: '2026-10-24', collected_date: '2026-10-25', mode: 'cash' }), CHECK, 'collected without an amount');
+  assert.throws(() => wasuli(db, { status: 'collected', agent_id: a, assigned_date: '2026-10-24', collected_date: '2026-10-25', collected_paise: 600 }), CHECK, 'collected without a mode');
+});
+
+test('wasuli: amounts, mode, dates and one row per LR', () => {
+  const db = freshDb();
+  const a = agent(db);
+  const done = { status: 'collected', agent_id: a, assigned_date: '2026-10-24', collected_date: '2026-10-25' };
+  assert.throws(() => wasuli(db, { amount_paise: 0 }), CHECK, 'a zero amount has no row');
+  assert.throws(() => wasuli(db, { ...done, collected_paise: 0, mode: 'cash' }), CHECK);
+  assert.throws(() => wasuli(db, { ...done, collected_paise: 1001, mode: 'cash' }), CHECK, 'more than the amount');
+  assert.throws(() => wasuli(db, { ...done, collected_paise: 600, mode: 'cheque' }), CHECK);
+  assert.throws(() => wasuli(db, { status: 'assigned', agent_id: a, assigned_date: '24-10-2026' }), CHECK);
+  for (const mode of ['cash', 'upi', 'card']) wasuli(db, { ...done, collected_paise: 1000, mode });
+  const lr = insertLr(db, { wasuli_paise: 1000 });
+  wasuli(db, { lr_id: lr });
+  assert.throws(() => wasuli(db, { lr_id: lr }), UNIQUE, 'one collection per LR');
+  assert.throws(() => wasuli(db, { lr_id: 99999 }), /FOREIGN KEY constraint failed/);
+  assert.throws(() => wasuli(db, { status: 'assigned', agent_id: 99999, assigned_date: '2026-10-24' }), /FOREIGN KEY constraint failed/);
+  assert.throws(() => wasuli(db, { amount_paise: 12.5 }), /cannot store REAL value in INTEGER column/);
+});
+
+test('agent names are unique by key', () => {
+  const db = freshDb();
+  agent(db, 'Ramesh');
+  assert.throws(() => agent(db, 'Ramesh'), UNIQUE);
+});

@@ -96,7 +96,7 @@ test('readSummary reports counts, newest LR date and the last numbers per series
   const file = db.name;
   const r = readSummary(file);
   assert.ok(r);
-  assert.equal(r.schemaVersion, 1);
+  assert.equal(r.schemaVersion, MIGRATIONS.length);
   assert.equal(r.lrs, 2);
   assert.equal(r.memos, 0);
   assert.equal(r.masters, 4); // each insertLr makes its own two stations
@@ -150,27 +150,27 @@ test('pruneBackups deletes what the rule drops, keeps the newest, and never touc
   assert.equal(left.filter((n) => n.startsWith('booking-2')).length, 48 + 1);
 });
 
-const v2: Migration = { version: 2, up: (db) => void db.exec('CREATE TABLE later (x TEXT) STRICT') };
+const next: Migration = { version: MIGRATIONS.length + 1, up: (db) => void db.exec('CREATE TABLE later (x TEXT) STRICT') };
 
 test('migrateSafely backs up an existing database before a pending migration runs', async () => {
-  const db = freshDb(); // at schema v1
+  const db = freshDb(); // at the latest schema
   insertLr(db);
   const dir = path.join(tempDir(), 'backups');
-  const r = await migrateSafely(db, dir, at(2026, 10, 24, 9, 30), [...MIGRATIONS, v2]);
-  assert.equal(r.version, 2);
+  const r = await migrateSafely(db, dir, at(2026, 10, 24, 9, 30), [...MIGRATIONS, next]);
+  assert.equal(r.version, next.version);
   assert.equal(r.backupError, undefined);
   const file = path.join(dir, 'booking-20261024-0930.db');
-  assert.equal(readSummary(file)?.schemaVersion, 1, 'the backup is the database as it was BEFORE the migration');
+  assert.equal(readSummary(file)?.schemaVersion, MIGRATIONS.length, 'the backup is the database as it was BEFORE the migration');
   assert.equal(readSummary(file)?.lrs, 1);
-  assert.equal(currentVersion(db), 2);
+  assert.equal(currentVersion(db), next.version);
 });
 
 test('migrateSafely makes no backup for a brand-new database or when nothing is pending', async () => {
   const dir = path.join(tempDir(), 'backups');
   const fresh = openDatabase(path.join(tempDir(), 'booking.db'));
-  assert.equal((await migrateSafely(fresh, dir, at(2026, 10, 24, 9, 30))).version, 1);
+  assert.equal((await migrateSafely(fresh, dir, at(2026, 10, 24, 9, 30))).version, MIGRATIONS.length);
   assert.equal(fs.existsSync(dir), false, 'nothing to lose in an empty new file');
-  assert.equal((await migrateSafely(fresh, dir, at(2026, 10, 24, 9, 31))).version, 1);
+  assert.equal((await migrateSafely(fresh, dir, at(2026, 10, 24, 9, 31))).version, MIGRATIONS.length);
   assert.equal(fs.existsSync(dir), false, 'already up to date');
 });
 
@@ -178,7 +178,7 @@ test('migrateSafely still migrates when the backup cannot be written, and says w
   const db = freshDb();
   const blocker = path.join(tempDir(), 'file');
   fs.writeFileSync(blocker, 'x');
-  const r = await migrateSafely(db, path.join(blocker, 'b'), at(2026, 10, 24, 9, 30), [...MIGRATIONS, v2]);
-  assert.equal(r.version, 2);
+  const r = await migrateSafely(db, path.join(blocker, 'b'), at(2026, 10, 24, 9, 30), [...MIGRATIONS, next]);
+  assert.equal(r.version, next.version);
   assert.ok(r.backupError, 'the failure is reported, not swallowed');
 });

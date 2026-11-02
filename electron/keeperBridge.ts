@@ -39,6 +39,10 @@ import {
   type RestorePreview,
   type RootRefusal,
   type SearchAnswer,
+  type AgentStat,
+  type WasuliChanged,
+  type WasuliPage,
+  type WasuliRow,
 } from '../shared';
 import { strings } from '../src/strings';
 import { callJson, probe, shutdown, subscribeEvents } from '../keeper/client';
@@ -281,6 +285,18 @@ export function initKeeperBridge(userDataDir: string) {
   // Company lines on printouts (3.3): the Admin PIN is checked by the keeper. What a printout carries is fetched by electron/print.ts, not by the screen.
   ipcMain.handle('keeper:print-company', () => call<PrintCompany>('POST', '/print/company'));
   ipcMain.handle('keeper:print-set-company', (_e, input: unknown, pin: unknown) => call<PrintCompany>('POST', '/print/set-company', { input, adminPin: text(pin) }));
+  // Wasuli (3.4): the keeper cleans every value and compares the rows with what the screen saw; main forwards named arguments.
+  ipcMain.handle('keeper:wasuli-list', (_e, filters: unknown, cursor: unknown) => call<WasuliPage>('POST', '/wasuli/list', { filters, cursor }));
+  ipcMain.handle('keeper:wasuli-find', (_e, no: unknown) => call<WasuliRow>('POST', '/wasuli/find', { no }));
+  ipcMain.handle('keeper:wasuli-agent-stats', (_e, period: unknown) => call<AgentStat[]>('POST', '/wasuli/agent-stats', { period }));
+  ipcMain.handle('keeper:wasuli-assign', (_e, rows: unknown, agentId: unknown) => call<WasuliChanged>('POST', '/wasuli/assign', { rows, agentId }));
+  ipcMain.handle('keeper:wasuli-reassign', (_e, row: unknown, agentId: unknown) => call<WasuliChanged>('POST', '/wasuli/reassign', { row, agentId }));
+  ipcMain.handle('keeper:wasuli-to-pool', (_e, row: unknown) => call<WasuliChanged>('POST', '/wasuli/to-pool', { row }));
+  ipcMain.handle('keeper:wasuli-collect', (_e, row: unknown, input: unknown) => call<WasuliChanged>('POST', '/wasuli/collect', { row, input }));
+  ipcMain.handle('keeper:wasuli-uncollect', (_e, row: unknown, pin: unknown) => call<WasuliChanged>('POST', '/wasuli/uncollect', { row, systemPin: text(pin) }));
+  ipcMain.handle('keeper:wasuli-remark', (_e, row: unknown, remark: unknown, pin: unknown) =>
+    call<WasuliChanged>('POST', '/wasuli/remark', { row, remark: text(remark), systemPin: text(pin) }),
+  );
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

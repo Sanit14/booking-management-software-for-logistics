@@ -17,6 +17,7 @@ import type { PageId } from './shell/pages';
 import SettingsPage from './shell/SettingsPage';
 import Sidebar from './shell/Sidebar';
 import StatusBox from './shell/StatusBox';
+import WasuliPage from './wasuli/WasuliPage';
 import SafeMode from './SafeMode';
 import { strings } from './strings';
 import Dialog from './ui/Dialog';
@@ -139,6 +140,8 @@ export default function App() {
           />
         ) : page === 'loadingMemo' ? (
           <LoadingMemoPage jump={jump} onJumpUsed={() => setJump(null)} oldestPending={summary?.oldestPending ?? null} />
+        ) : page === 'wasuli' ? (
+          <WasuliPage />
         ) : page === 'dashboard' ? (
           <DashboardPage summary={summary} onMakeMemo={() => go('loadingMemo')} onPick={pick} />
         ) : (

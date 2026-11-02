@@ -159,7 +159,51 @@ function schemaV1(db: Db): void {
   for (const [option, rule] of Object.entries(CHARGE_RULES)) seed.run(`chargeRule_${option}`, JSON.stringify(rule));
 }
 
-export const MIGRATIONS: Migration[] = [{ version: 1, up: schemaV1 }];
+// v2 (session 3.4): collection agents and the wasuli (collection) of an LR. One row per LR with a wasuli amount.
+// The CHECKs tie the columns to the status, so a half-collected or agent-less assigned row cannot exist.
+function schemaV2(db: Db): void {
+  const day = (col: string) => `CHECK (${col} IS NULL OR ${col} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')`;
+  db.exec(`
+    CREATE TABLE agents (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      name_key TEXT NOT NULL UNIQUE,
+      phone TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+      ${COMMON}
+    ) STRICT;
+
+    CREATE TABLE wasuli (
+      id INTEGER PRIMARY KEY,
+      lr_id INTEGER NOT NULL UNIQUE REFERENCES lrs (id),
+      amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+      status TEXT NOT NULL DEFAULT 'unassigned' CHECK (status IN ('unassigned', 'assigned', 'collected')),
+      agent_id INTEGER REFERENCES agents (id),
+      assigned_date TEXT ${day('assigned_date')},
+      collected_date TEXT ${day('collected_date')},
+      collected_paise INTEGER,
+      mode TEXT CHECK (mode IN ('cash', 'upi', 'card')),
+      remark TEXT NOT NULL DEFAULT '',
+      ${COMMON},
+      CHECK ((status = 'unassigned') = (agent_id IS NULL)),
+      CHECK ((status = 'unassigned') = (assigned_date IS NULL)),
+      CHECK ((status = 'collected') = (collected_date IS NOT NULL)),
+      CHECK ((collected_date IS NULL) = (collected_paise IS NULL) AND (collected_date IS NULL) = (mode IS NULL)),
+      CHECK (collected_paise IS NULL OR (collected_paise > 0 AND collected_paise <= amount_paise))
+    ) STRICT;
+    -- (status, agent_id) serves the Unassigned / Assigned lists; collected_date last serves "this agent, last 7 days".
+    CREATE INDEX wasuli_by_status ON wasuli (status, agent_id, collected_date);
+    CREATE INDEX wasuli_by_collected ON wasuli (collected_date);
+
+    -- Every LR already booked with a wasuli amount becomes a collection to follow up.
+    INSERT INTO wasuli (lr_id, amount_paise, seat) SELECT id, wasuli_paise, seat FROM lrs WHERE status != 'cancelled' AND wasuli_paise > 0;
+  `);
+}
+
+export const MIGRATIONS: Migration[] = [
+  { version: 1, up: schemaV1 },
+  { version: 2, up: schemaV2 },
+];
 
 /** The highest applied version; 0 for a file with no schema_version rows (e.g. a 1.2 database). */
 export function currentVersion(db: Db): number {

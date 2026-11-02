@@ -21,6 +21,7 @@ const nameLabel: Record<MasterKind, string> = {
   firms: t.fields.firmName,
   trucks: t.fields.truckNumber,
   drivers: t.fields.driverName,
+  agents: t.fields.agentName,
 };
 
 interface Props {
@@ -71,7 +72,7 @@ export default function MasterForm({ kind, editing, stations, onDone, onStale, o
   const build = (): MasterFields | null => {
     if (kind === 'trucks') return { number: name };
     if (kind === 'stations') return { name };
-    if (kind === 'drivers') return { name, phone };
+    if (kind === 'drivers' || kind === 'agents') return { name, phone };
     const typed = station.text.trim();
     if (typed === '') return { name, phone, stationId: null };
     // Typed in full but never picked from the list still counts when it is exactly a station.
@@ -110,6 +111,9 @@ export default function MasterForm({ kind, editing, stations, onDone, onStale, o
       case 'master-missing':
         toast.error(strings.result(r.code));
         onDone(); // nothing to edit any more
+        break;
+      case 'master-busy':
+        toast.error(t.busy(r.detail ?? '?'));
         break;
       case 'master-stale':
         toast.warning(t.stale(kind));
@@ -201,7 +205,7 @@ export default function MasterForm({ kind, editing, stations, onDone, onStale, o
             options={pickable.map((s) => ({ id: String(s.id), label: s.name }))}
           />
         )}
-        {(kind === 'firms' || kind === 'drivers') && (
+        {(kind === 'firms' || kind === 'drivers' || kind === 'agents') && (
           <Field label={t.fields.phone} hint={t.fields.phoneHint} error={errors.phone} inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
         )}
         <div className={styles.actions}>

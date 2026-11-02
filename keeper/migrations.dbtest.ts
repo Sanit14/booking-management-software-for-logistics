@@ -3,9 +3,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { migrateSafely, readSummary } from './backup';
 import { openDatabase, type Db } from './db';
 import { currentVersion, migrate, MIGRATIONS } from './migrations';
-import { insertStation, tempDir } from './testing';
+import { insertLr, insertMemo, insertStation, tempDir } from './testing';
+
+const LATEST = MIGRATIONS.length;
 
 const names = (db: Db, type: 'table' | 'index'): string[] =>
   (db.prepare('SELECT name FROM sqlite_master WHERE type = ? AND name NOT LIKE ? ORDER BY name').all(type, 'sqlite_%') as { name: string }[]).map((r) => r.name);
@@ -14,12 +17,12 @@ test('migrations are numbered 1, 2, 3... with no gap', () => {
   assert.deepEqual(MIGRATIONS.map((m) => m.version), MIGRATIONS.map((_, i) => i + 1));
 });
 
-test('an empty file reaches v1 with every table and index', () => {
+test('an empty file reaches the latest version with every table and index', () => {
   const db = openDatabase(path.join(tempDir(), 'booking.db'));
-  assert.equal(migrate(db), 1);
-  assert.equal(currentVersion(db), 1);
-  assert.deepEqual(names(db, 'table'), ['audit_log', 'counters', 'drivers', 'firms', 'lrs', 'memos', 'schema_version', 'settings', 'stations', 'trucks']);
-  assert.deepEqual(names(db, 'index').filter((n) => !n.startsWith('sqlite_')).filter((n) => /^(lrs|memos|audit)_/.test(n)), [
+  assert.equal(migrate(db), LATEST);
+  assert.equal(currentVersion(db), LATEST);
+  assert.deepEqual(names(db, 'table'), ['agents', 'audit_log', 'counters', 'drivers', 'firms', 'lrs', 'memos', 'schema_version', 'settings', 'stations', 'trucks', 'wasuli']);
+  assert.deepEqual(names(db, 'index').filter((n) => !n.startsWith('sqlite_')).filter((n) => /^(lrs|memos|audit|wasuli)_/.test(n)), [
     'audit_by_entity',
     'lrs_by_consignee',
     'lrs_by_consignor',
@@ -28,11 +31,14 @@ test('an empty file reaches v1 with every table and index', () => {
     'lrs_pending',
     'memos_by_date',
     'memos_by_truck',
+    'wasuli_by_collected',
+    'wasuli_by_status',
   ]);
   const cols = (index: string) => (db.pragma(`index_info(${index})`) as { name: string }[]).map((c) => c.name);
   assert.deepEqual(cols('lrs_pending'), ['status', 'to_station_id', 'lr_date']);
   assert.deepEqual(cols('lrs_by_consignor'), ['consignor_id', 'lr_date']);
   assert.deepEqual(cols('memos_by_truck'), ['truck_id', 'memo_date']);
+  assert.deepEqual(cols('wasuli_by_status'), ['status', 'agent_id', 'collected_date']);
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1);
 });
 
@@ -50,8 +56,8 @@ test('running migrate again changes nothing', () => {
   migrate(db);
   insertStation(db, 'Yavatmal');
   const before = JSON.stringify(db.prepare('SELECT * FROM settings ORDER BY key').all());
-  assert.equal(migrate(db), 1);
-  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM schema_version').get() as { n: number }).n, 1);
+  assert.equal(migrate(db), LATEST);
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM schema_version').get() as { n: number }).n, LATEST);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM stations').get() as { n: number }).n, 1);
   assert.equal(JSON.stringify(db.prepare('SELECT * FROM settings ORDER BY key').all()), before);
 });
@@ -66,11 +72,11 @@ test('a 1.2 database (only an empty schema_version) upgrades in place and keeps 
 
   const db = openDatabase(file);
   assert.equal(currentVersion(db), 0);
-  assert.equal(migrate(db), 1);
+  assert.equal(migrate(db), LATEST);
   assert.ok(names(db, 'table').includes('lrs'));
   assert.equal(fs.statSync(file).size >= sizeBefore, true);
   db.close();
-  assert.equal(currentVersion(openDatabase(file)), 1);
+  assert.equal(currentVersion(openDatabase(file)), LATEST);
 });
 
 test('a database from a newer keeper is refused, not touched', () => {
@@ -104,4 +110,53 @@ test('only migrations above the current version run', () => {
   assert.deepEqual(ran, [1, 2]);
   assert.equal(migrate(db, list), 3);
   assert.deepEqual(ran, [1, 2, 3]);
+});
+
+// A database as 3.3 left it (schema v1) with one LR of every kind that matters to wasuli.
+function v1WithLrs(): { db: Db; ids: Record<string, number> } {
+  const db = openDatabase(path.join(tempDir(), 'booking.db'));
+  assert.equal(migrate(db, MIGRATIONS.slice(0, 1)), 1);
+  const memo = insertMemo(db);
+  const ids = {
+    booked: insertLr(db, { wasuli_paise: 5000, seat: 'PC01' }),
+    loaded: insertLr(db, { wasuli_paise: 1200, status: 'loaded', memo_id: memo, seat: 'PC02' }),
+    cancelled: insertLr(db, { wasuli_paise: 700, status: 'cancelled' }),
+    none: insertLr(db, { wasuli_paise: 0 }),
+  };
+  return { db, ids };
+}
+const wasuliRows = (db: Db) => db.prepare('SELECT lr_id AS lrId, amount_paise AS amount, status, agent_id AS agent, assigned_date AS assigned, collected_date AS collected, seat FROM wasuli ORDER BY lr_id').all();
+
+test('v2 makes an unassigned wasuli row for every LR that is not cancelled and has an amount, and loses nothing', () => {
+  const { db, ids } = v1WithLrs();
+  const before = JSON.stringify([db.prepare('SELECT * FROM lrs ORDER BY id').all(), db.prepare('SELECT * FROM memos ORDER BY id').all(), db.prepare('SELECT * FROM stations ORDER BY id').all()]);
+  assert.equal(migrate(db), 2);
+  assert.deepEqual(wasuliRows(db), [
+    { lrId: ids.booked, amount: 5000, status: 'unassigned', agent: null, assigned: null, collected: null, seat: 'PC01' },
+    { lrId: ids.loaded, amount: 1200, status: 'unassigned', agent: null, assigned: null, collected: null, seat: 'PC02' },
+  ]);
+  const after = JSON.stringify([db.prepare('SELECT * FROM lrs ORDER BY id').all(), db.prepare('SELECT * FROM memos ORDER BY id').all(), db.prepare('SELECT * FROM stations ORDER BY id').all()]);
+  assert.equal(after, before, 'LRs, memos and masters are exactly as they were');
+  assert.equal(migrate(db), 2);
+  assert.equal(wasuliRows(db).length, 2, 'running it again makes no second row');
+});
+
+test('v2 from an empty v1 database makes empty tables', () => {
+  const db = openDatabase(path.join(tempDir(), 'booking.db'));
+  migrate(db, MIGRATIONS.slice(0, 1));
+  assert.equal(migrate(db), 2);
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM wasuli').get() as { n: number }).n, 0);
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM agents').get() as { n: number }).n, 0);
+});
+
+test('the keeper backs up a v1 database before v2 runs, and the backup is the v1 file', async () => {
+  const { db } = v1WithLrs();
+  const dir = path.join(tempDir(), 'backups');
+  const r = await migrateSafely(db, dir, new Date(2026, 9, 24, 9, 30));
+  assert.equal(r.version, 2);
+  assert.equal(r.backupError, undefined);
+  const backup = readSummary(path.join(dir, 'booking-20261024-0930.db'));
+  assert.equal(backup?.schemaVersion, 1);
+  assert.equal(backup?.lrs, 4);
+  assert.equal(wasuliRows(db).length, 2);
 });

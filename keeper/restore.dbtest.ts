@@ -60,13 +60,13 @@ test('apply swaps the file, keeps the old one as booking-before-restore-*, and t
   assert.equal(readSummary(s.dbPath)?.lrs, 1, 'the live file is now the backup');
   assert.equal(fs.existsSync(`${s.dbPath}.restoring`), false, 'no temp file left');
 
-  const v2: Migration = { version: 2, up: (db) => void db.exec('CREATE TABLE later (x TEXT) STRICT') };
+  const next: Migration = { version: MIGRATIONS.length + 1, up: (db) => void db.exec('CREATE TABLE later (x TEXT) STRICT') };
   const opened = openChecked(s.dbPath);
   assert.ok('db' in opened);
   if ('db' in opened) {
     assert.equal(opened.db.pragma('journal_mode', { simple: true }), 'wal', 'back in WAL mode once the keeper opens it');
-    assert.equal(migrate(opened.db, [...MIGRATIONS, v2]), 2);
-    assert.equal(currentVersion(opened.db), 2);
+    assert.equal(migrate(opened.db, [...MIGRATIONS, next]), next.version);
+    assert.equal(currentVersion(opened.db), next.version);
     opened.db.close();
   }
 

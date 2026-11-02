@@ -9,6 +9,7 @@ import { chargesFor, lrAmounts, parsePercent, percentText, type ChargeRule, type
 import { nameKey } from './names';
 import { nextNumber } from './numbering';
 import type { makePins } from './pins';
+import { followLr } from './wasuli';
 
 type Refusal = Extract<KeeperResult<never>, { ok: false }>;
 const refuse = (code: ResultCode, extra: Omit<Refusal, 'ok' | 'code'> = {}): Refusal => ({ ok: false, code, ...extra });
@@ -35,10 +36,10 @@ const LIST = `SELECT l.id, l.lr_no AS lrNo, l.consignor_name AS consignor, l.con
   l.qty, l.topay_paise AS toPayPaise, l.paid_paise AS paidPaise, l.status
   FROM lrs l JOIN stations s ON s.id = l.to_station_id`;
 
-function saved(db: Db, id: number, again: boolean, firmsAdded: boolean): LrSaved {
+function saved(db: Db, id: number, again: boolean, firmsAdded: boolean, wasuli = false): LrSaved {
   const row = db.prepare(`${LIST} WHERE l.id = ?`).get(id) as LrListRow;
   const money = db.prepare('SELECT * FROM lrs WHERE id = ?').get(id) as LrMoney;
-  return { row, amounts: lrAmounts(money), again, firmsAdded };
+  return { row, amounts: lrAmounts(money), again, firmsAdded, wasuli };
 }
 
 const NOW = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
@@ -199,7 +200,7 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
             );
           const id = Number(r.lastInsertRowid);
           writeAudit(db, { seat, action: 'lrs.create', entity: 'lrs', entityId: id, after: db.prepare('SELECT * FROM lrs WHERE id = ?').get(id) });
-          return ok(saved(db, id, false, firmsAdded));
+          return ok(saved(db, id, false, firmsAdded, followLr(db, seat, id, c.n.wasuli) === true)); // a new LR has no row yet, so it cannot be refused
         })();
       } catch (e) {
         if (e instanceof Stop) return e.refusal;
@@ -251,7 +252,11 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
             hamali_paise: c.n.hamali, wasuli_paise: c.n.wasuli, stax_bp: c.n.staxBp,
           };
           const diff = diffLr(row, next);
-          if (!diff) return ok({ lr: detailOf(row), firmsAdded: false, changed: false });
+          if (!diff) return ok({ lr: detailOf(row), firmsAdded: false, changed: false, wasuli: false });
+
+          // Its wasuli row follows the amount; a collected one refuses the edit. A refusal throws, so a walk-in firm that resolveLr saved is undone too.
+          const followed = followLr(db, seat, id, c.n.wasuli);
+          if (typeof followed !== 'boolean') throw new Stop(followed);
 
           // The column names come from the fixed list in lrRules, never from the request.
           const cols = Object.keys(diff.after);
@@ -261,7 +266,7 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
           // Cannot happen inside the transaction that read the version; if it ever does, nothing written so far stays.
           if (done.changes !== 1) throw new Stop(refuse('lr-stale', { lr: detailOf(rowOf(db, id) as LrRow) }));
           writeAudit(db, { seat, action: 'lrs.update', entity: 'lrs', entityId: id, before: diff.before, after: diff.after });
-          return ok({ lr: detailOf(rowOf(db, id) as LrRow), firmsAdded: r.firmsAdded, changed: true });
+          return ok({ lr: detailOf(rowOf(db, id) as LrRow), firmsAdded: r.firmsAdded, changed: true, wasuli: followed });
         })();
       } catch (e) {
         if (e instanceof Stop) return e.refusal;
@@ -281,6 +286,8 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
         if (row.status === 'loaded') return refuse('lr-on-memo', { detail: String(row.memo_no) });
         const why = cleanReason(reason);
         if (why === null) return refuse('lr-invalid', { fields: { reason: 'required' } });
+        const followed = followLr(db, seat, id, 0); // its unassigned or assigned collection goes with it; a collected one refuses
+        if (typeof followed !== 'boolean') return followed;
         return flip(db, seat, row, 'cancelled', 'lrs.cancel', { status: 'booked' }, { status: 'cancelled', reason: why });
       })();
     },
@@ -294,6 +301,8 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
         if (!row) return refuse('lr-missing');
         if (row.version !== version) return refuse('lr-stale', { lr: detailOf(row) });
         if (row.status !== 'cancelled') return refuse('lr-not-cancelled');
+        const followed = followLr(db, seat, id, row.wasuli_paise); // back as unassigned
+        if (typeof followed !== 'boolean') return followed;
         return flip(db, seat, row, 'booked', 'lrs.restore', { status: 'cancelled' }, { status: 'booked' });
       })();
     },

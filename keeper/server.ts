@@ -10,6 +10,7 @@ import {
   CHANGE_TABLES,
   KEEPER_VERSION,
   type BackupStatus,
+  type ChangeTable,
   type GuardReason,
   type KeeperHealth,
   type KeeperResult,
@@ -23,6 +24,7 @@ import {
   type MemoSaved,
   type PrintCompany,
   type ResultCode,
+  type WasuliChanged,
 } from '../shared';
 import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } from './backup';
 import { makeDashboard } from './dashboard';
@@ -42,11 +44,13 @@ import { asPrintDone, makePrint } from './print';
 import { makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
 import { search } from './search';
 import { makeSeats } from './seats';
+import { makeWasuli } from './wasuli';
+import { asCollectInput, asPeriod, asSeen, asSeenList, asWasuliCursor, asWasuliFilters } from './wasuliRules';
 
 const HOST = '127.0.0.1';
 // BM_MARKER_REFRESH_MS: tests only, so the marker's rise can be seen without waiting five minutes.
 const MARKER_REFRESH_MS = Math.max(100, Number(process.env.BM_MARKER_REFRESH_MS) || 5 * 60 * 1000);
-const MASTER_KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers'];
+const MASTER_KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers', 'agents'];
 const BACKUP_EVERY_MS = 60 * 60 * 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_EVENT_STREAMS = 32;
@@ -91,6 +95,7 @@ function main(): void {
   const lrs = makeLrs(pins, masters);
   const memos = makeMemos(pins);
   const printing = makePrint(pins, memos);
+  const wasuli = makeWasuli(pins);
   const dashboard = makeDashboard();
   const events = makeEvents();
   const seats = makeSeats();
@@ -315,6 +320,7 @@ function main(): void {
       '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/create', '/memos/get', '/memos/by-date',
       '/memos/list', '/memos/edit', '/memos/remove-lrs', '/memos/move-lrs', '/memos/add-lrs', '/memos/recalculate', '/memos/cancel', '/memos/history',
       '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/set-company',
+      '/wasuli/list', '/wasuli/find', '/wasuli/agent-stats', '/wasuli/assign', '/wasuli/reassign', '/wasuli/to-pool', '/wasuli/collect', '/wasuli/uncollect', '/wasuli/remark',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -530,6 +536,50 @@ function main(): void {
       return sendResult(res, r);
     }
 
+    // Wasuli (3.4): the lists are reads (no trace); every change is a compare-and-set on the rows the screen saw.
+    if (url.startsWith('/wasuli/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+      const pin = typeof body.systemPin === 'string' ? body.systemPin : '';
+      const seen = asSeen(body.row);
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/wasuli/list') r = wasuli.list(db, asWasuliFilters(body.filters), asWasuliCursor(body.cursor));
+        else if (url === '/wasuli/agent-stats') r = wasuli.agentStats(db, asPeriod(body.period));
+        else if (url === '/wasuli/find') {
+          if (!whole(body.no)) return send(res, 400, { error: 'no required' });
+          r = wasuli.find(db, body.no);
+        } else if (url === '/wasuli/assign') {
+          const rows = asSeenList(body.rows);
+          if (!rows || !whole(body.agentId)) return send(res, 400, { error: 'rows and agentId required' });
+          r = wasuli.assign(db, seat, rows, body.agentId);
+        } else if (!seen) return send(res, 400, { error: 'row required' });
+        else if (url === '/wasuli/reassign') {
+          if (!whole(body.agentId)) return send(res, 400, { error: 'agentId required' });
+          r = wasuli.reassign(db, seat, seen, body.agentId);
+        } else if (url === '/wasuli/to-pool') r = wasuli.toPool(db, seat, seen);
+        else if (url === '/wasuli/collect') r = wasuli.collect(db, seat, seen, asCollectInput(body.input));
+        else if (url === '/wasuli/uncollect') r = wasuli.uncollect(db, seat, seen, pin);
+        else r = wasuli.remark(db, seat, seen, typeof body.remark === 'string' ? body.remark : '', pin);
+      } catch (e) {
+        log('wasuli-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      // Never the PIN, the remark or the amount: the route, the seat and how many rows.
+      if (r.ok && !['/wasuli/list', '/wasuli/find', '/wasuli/agent-stats'].includes(url)) {
+        const done = r.value as WasuliChanged;
+        if (done.changed) {
+          log('wasuli-changed', { seat, what: url.slice(8), rows: done.rows.length });
+          events.publish(['wasuli'], done.rows.map((x) => x.id));
+        }
+      } else if (!r.ok && r.code === 'wasuli-stale') {
+        log('wasuli-stale', { seat, what: url.slice(8), rows: r.wasuli?.length ?? 0 });
+      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
+        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      }
+      return sendResult(res, r);
+    }
+
     // Printing (3.3): what a printout carries (reads, no trace), the audit row of a print that went through, the company lines.
     if (url.startsWith('/print/')) {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
@@ -592,23 +642,25 @@ function main(): void {
         log('lrs-failed', { url, seat, error: msg(e) });
         return sendResult(res, refuse('failed', msg(e)));
       }
+      // An LR change also names the firms it added and the wasuli row it touched, so the views that show those refetch.
+      const tablesOf = (firms: boolean, wasuli: boolean): ChangeTable[] => ['lrs', ...(firms ? (['firms'] as const) : []), ...(wasuli ? (['wasuli'] as const) : [])];
       // Never the PIN or the typed values: the route, the seat and the outcome.
       if (r.ok && url === '/lrs/create') {
         const done = r.value as LrSaved;
         if (!done.again) {
           log('lr-saved', { seat, id: done.row.id, no: done.row.lrNo });
-          events.publish(done.firmsAdded ? ['lrs', 'firms'] : ['lrs'], [done.row.id]);
+          events.publish(tablesOf(done.firmsAdded, done.wasuli), [done.row.id]);
         }
       } else if (r.ok && url === '/lrs/update') {
         const done = r.value as LrUpdated;
         if (done.changed) {
           log('lr-updated', { seat, id: done.lr.id, no: done.lr.lrNo });
-          events.publish(done.firmsAdded ? ['lrs', 'firms'] : ['lrs'], [done.lr.id]);
+          events.publish(tablesOf(done.firmsAdded, done.wasuli), [done.lr.id]);
         }
       } else if (r.ok && (url === '/lrs/cancel' || url === '/lrs/restore')) {
         const done = r.value as LrDetail;
         log(url === '/lrs/cancel' ? 'lr-cancelled' : 'lr-restored', { seat, id: done.id, no: done.lrNo });
-        events.publish(['lrs'], [done.id]);
+        events.publish(tablesOf(false, done.wasuliPaise > 0), [done.id]);
       } else if (r.ok && url === '/settings/set-lr-defaults') {
         events.publish(['settings']);
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {

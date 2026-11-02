@@ -91,7 +91,7 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
   const health = await waitUp(port);
   assert.equal(health.app, 'booking-manager');
   assert.equal(health.state, 'ready');
-  assert.equal(health.schemaVersion, 1);
+  assert.equal(health.schemaVersion, 2);
   assert.equal(health.dataRoot, s.root);
   assert.equal(health.dbPath, s.dbPath);
   assert.equal(health.backupDir, s.backupDir);
@@ -246,7 +246,7 @@ test('keeper: deleted database = safe mode -> list, preview, restore -> ready ag
   const preview = (await post(port, '/restore/preview', { file })).json as { ok: true; value: { token: string; live: string; backup: { schemaVersion: number } } };
   assert.equal(preview.ok, true);
   assert.equal(preview.value.live, 'missing');
-  assert.equal(preview.value.backup.schemaVersion, 1);
+  assert.equal(preview.value.backup.schemaVersion, 2);
 
   const bad = await post(port, '/restore/apply', { file, confirmToken: 'not-the-token' });
   assert.equal(bad.status, 409);
@@ -255,10 +255,10 @@ test('keeper: deleted database = safe mode -> list, preview, restore -> ready ag
   assert.equal((await waitUp(port)).state, 'safe-mode');
 
   const applied = await post(port, '/restore/apply', { file, confirmToken: preview.value.token });
-  assert.deepEqual(applied.json, { ok: true, value: { schemaVersion: 1 } });
+  assert.deepEqual(applied.json, { ok: true, value: { schemaVersion: 2 } });
   const after = await waitUp(port);
   assert.equal(after.state, 'ready');
-  assert.equal(after.schemaVersion, 1);
+  assert.equal(after.schemaVersion, 2);
   assert.equal(after.reason, undefined);
   assert.ok(after.backup?.lastAt, 'the status line knows the backup it was restored from');
   assert.match(logOf(s), /\trestore-applied\t/);
@@ -401,7 +401,7 @@ test('keeper: first-run PIN setup is set-once, wrong PINs lock after five, other
 
 // --- masters ---------------------------------------------------------------------------------------------------
 
-type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; lr?: any; similar?: string[]; taken?: any[]; memoFields?: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; lr?: any; similar?: string[]; taken?: any[]; memoFields?: any; wasuli?: any[]; wasuliFields?: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const masters = async (port: number, url: string, body: unknown, seat = 'counter-1'): Promise<Answer> => {
   const r = await callJson(port, 'POST', `/masters/${url}`, body, { seat, timeoutMs: 30000 });
   return { status: r.status, ...(r.json as object) } as Answer;
@@ -1023,4 +1023,122 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
   assert.match(log, /\tprint-done\t/);
   assert.match(log, /\tcompany-saved\t/);
   for (const secret of ['4831', '7295', 'Station Road', '07232', 'Kale Brothers']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+}));
+
+// --- wasuli (3.4) ------------------------------------------------------------------------------------------------
+
+test('keeper: two seats collect the same LR in the same instant - one wins, the other is told who was first; overlapping assigns never share a row; one event per committed change, none for a refusal; PIN, remark and agent names stay out of the log', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  const agentOf = async (name: string) => (await masters(port, 'create', { kind: 'agents', fields: { name } })).value.id as number;
+  const ramesh = await agentOf('Ramesh Pawar');
+  const suresh = await agentOf('Suresh Kale');
+  type Seen = { id: number; status: string; agentId: number | null; version: number };
+  const seenOf = (r: Seen): Seen => ({ id: r.id, status: r.status, agentId: r.agentId, version: r.version });
+  const list = async (tab: string, agentId: number | null = null) => (await lrCall(port, '/wasuli/list', { filters: { tab, agentId, period: 'week' }, cursor: null })).value;
+
+  const a = listen(port, 'counter-1');
+  const b = listen(port, 'counter-2');
+  try {
+    await until('both streams to connect', () => a.got.length >= 1 && b.got.length >= 1);
+    a.got.length = 0;
+    b.got.length = 0;
+
+    // An LR with a wasuli amount also announces the wasuli table; one without does not.
+    const first = await lrCall(port, '/lrs/create', { input: input({ wasuli: '500' }) });
+    await until('the LR event', () => a.got.length >= 1);
+    assert.deepEqual(a.got[0], { tables: ['lrs', 'wasuli'], ids: [first.value.row.id] });
+    await lrCall(port, '/lrs/create', { input: input() });
+    await until('the plain LR event', () => a.got.length >= 2);
+    assert.deepEqual(a.got[1].tables, ['lrs']);
+    for (let i = 0; i < 4; i++) assert.equal((await lrCall(port, '/lrs/create', { input: input({ wasuli: '500' }) })).ok, true);
+    await until('the other LR events', () => a.got.length >= 6 && b.got.length >= 6);
+    a.got.length = 0;
+    b.got.length = 0;
+
+    const pool = await list('unassigned');
+    assert.deepEqual([pool.count, pool.amountPaise, pool.rows.length, pool.counts.unassigned], [5, 250000, 5, 5]);
+    const rows: Seen[] = pool.rows;
+
+    // Seat 1 ticks rows 1-3 for Ramesh, seat 2 ticks rows 3-5 for Suresh: they overlap on the third, and both press at once.
+    const assign = (batch: Seen[], agentId: number, seat: string) => lrCall(port, '/wasuli/assign', { rows: batch.map(seenOf), agentId }, seat);
+    const answers = await Promise.all([assign(rows.slice(0, 3), ramesh, 'counter-1'), assign(rows.slice(2, 5), suresh, 'counter-2')]);
+    const won = answers.filter((x) => x.ok);
+    const lost = answers.filter((x) => !x.ok);
+    assert.equal(won.length, 1, 'exactly one assign went through');
+    assert.deepEqual([lost[0].status, lost[0].code], [409, 'wasuli-stale']);
+    const winnerSeat = answers[0].ok ? 'counter-1' : 'counter-2';
+    const winnerAgent = answers[0].ok ? ramesh : suresh;
+    const winnerRows = answers[0].ok ? rows.slice(0, 3) : rows.slice(2, 5);
+    const loserOnly = answers[0].ok ? rows.slice(3, 5) : rows.slice(0, 2);
+    assert.deepEqual(
+      (lost[0].wasuli ?? []).map((r: { id: number; status: string; agentId: number; seat: string }) => [r.id, r.status, r.agentId, r.seat]),
+      [[rows[2].id, 'assigned', winnerAgent, winnerSeat]],
+      'the loser is told which row it lost and who has it',
+    );
+    assert.equal((await list('unassigned')).count, 2, 'the loser did not assign its other rows');
+    assert.deepEqual((await list('unassigned')).rows.map((r: Seen) => r.id), loserOnly.map((r) => r.id));
+    const mine = await list('assigned', winnerAgent);
+    assert.deepEqual(mine.rows.map((r: Seen) => r.id), winnerRows.map((r) => r.id));
+    assert.equal((await list('assigned', winnerAgent === ramesh ? suresh : ramesh)).count, 0, 'no row on both agents');
+
+    // Both seats mark the same row collected at the same moment, with different amounts.
+    const target: Seen = mine.rows[0];
+    const collect = (amount: string, seat: string) => lrCall(port, '/wasuli/collect', { row: seenOf(target), input: { amount, mode: 'cash', remark: 'ref-9981' } }, seat);
+    const both = await Promise.all([collect('500', 'counter-1'), collect('300', 'counter-2')]);
+    assert.deepEqual(both.map((x) => x.ok).sort(), [false, true], 'exactly one collection');
+    const second = both.find((x) => !x.ok) as Answer;
+    assert.deepEqual([second.status, second.code, second.wasuli?.[0].status, second.wasuli?.[0].seat], [409, 'wasuli-stale', 'collected', both[0].ok ? 'counter-1' : 'counter-2']);
+    const done = (await list('collected', winnerAgent)).rows;
+    assert.equal(done.length, 1);
+    assert.equal(done[0].collectedPaise, both[0].ok ? 50000 : 30000, "only the winner's amount was recorded");
+
+    await until('both changes on both seats', () => a.got.length >= 2 && b.got.length >= 2);
+    assert.deepEqual(a.got.map((c) => c.tables), [['wasuli'], ['wasuli']]);
+    assert.deepEqual(b.got, a.got);
+
+    // Refused or read-only calls announce nothing: wrong PIN, bad requests, an edit of a collected LR, lists, a lookup.
+    const collected: Seen = done[0];
+    assert.equal((await lrCall(port, '/wasuli/uncollect', { row: seenOf(collected), systemPin: '0000' })).code, 'wrong-pin');
+    assert.equal((await lrCall(port, '/wasuli/collect', { input: {} })).status, 400, 'no row');
+    assert.equal((await lrCall(port, '/wasuli/assign', { rows: [], agentId: ramesh })).status, 400);
+    assert.equal((await lrCall(port, '/wasuli/find', { no: 'x' })).status, 400);
+    assert.equal((await lrCall(port, '/wasuli/collect', { row: seenOf(mine.rows[1]), input: { amount: '9,999', mode: 'cash', remark: '' } })).code, 'wasuli-invalid');
+    assert.equal((await lrCall(port, '/wasuli/find', { no: 99999 })).code, 'wasuli-missing');
+    assert.equal((await lrCall(port, '/wasuli/agent-stats', { period: 'week' })).value.length, 2);
+    const lr = (await lrCall(port, '/lrs/get', { id: done[0].lrId })).value;
+    const blocked = await lrCall(port, '/lrs/update', { id: lr.id, version: lr.version, input: input({ wasuli: '600' }), systemPin: '7295' });
+    assert.deepEqual([blocked.status, blocked.code, blocked.detail], [409, 'lr-wasuli-collected', String(lr.lrNo)]);
+    assert.equal((await lrCall(port, '/lrs/cancel', { id: lr.id, version: lr.version, reason: 'oops', systemPin: '7295' })).code, 'lr-wasuli-collected');
+
+    // The lookup by LR number, then undo with the PIN and a remark edit; each committed change is one event.
+    const found = await lrCall(port, '/wasuli/find', { no: done[0].lrNo });
+    assert.deepEqual([found.ok, found.value.id, found.value.status], [true, collected.id, 'collected']);
+    const undone = await lrCall(port, '/wasuli/uncollect', { row: seenOf(collected), systemPin: '7295' }, 'counter-2');
+    assert.deepEqual([undone.ok, undone.value.changed, undone.value.rows[0].status, undone.value.rows[0].agentId], [true, true, 'assigned', winnerAgent]);
+    await until('the undo event', () => a.got.length >= 3);
+    const again = await lrCall(port, '/wasuli/collect', { row: seenOf(undone.value.rows[0]), input: { amount: '500', mode: 'upi', remark: '' } });
+    await until('the second collect event', () => a.got.length >= 4);
+    const edited = await lrCall(port, '/wasuli/remark', { row: seenOf(again.value.rows[0]), remark: 'ref-7733', systemPin: '7295' });
+    assert.equal(edited.value.rows[0].remark, 'ref-7733');
+    await lrCall(port, '/wasuli/remark', { row: seenOf(edited.value.rows[0]), remark: 'ref-7733', systemPin: '7295' }); // the same text: nothing changes
+    await until('the remark event', () => a.got.length >= 5);
+
+    await sleep(400); // anything wrongly sent would be here by now
+    assert.equal(a.got.length, 5, 'one event per committed change, none for the refusals');
+    assert.equal(b.got.length, 5);
+  } finally {
+    a.stop();
+    b.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  assert.match(log, /\twasuli-changed\t/);
+  assert.match(log, /\twasuli-stale\t/);
+  assert.match(log, /pin-refused/);
+  for (const secret of ['4831', '7295', 'Ramesh', 'Suresh', 'ref-9981', 'ref-7733']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
 }));

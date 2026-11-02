@@ -1,4 +1,4 @@
-// Master data: stations, firms, trucks, drivers. Every write is ONE transaction with its audit row and answers with
+// Master data: stations, firms, trucks, drivers, collection agents. Every write is ONE transaction with its audit row and answers with
 // the saved row. Nothing is ever deleted: a row is deactivated, so old LRs and reports keep pointing at it.
 // Editing and deactivating need the System PIN, checked here (pins.verify) before anything is written.
 // The tables are small and the screen holds them all (all()), so name checks that SQL cannot do alone
@@ -23,12 +23,14 @@ const SELECT: Record<MasterKind, string> = {
   firms: 'SELECT id, name, station_id AS stationId, phone, active, version FROM firms',
   trucks: 'SELECT id, number, active, version FROM trucks',
   drivers: 'SELECT id, name, phone, active, version FROM drivers',
+  agents: 'SELECT id, name, phone, active, version FROM agents',
 };
 const ORDER: Record<MasterKind, string> = {
   stations: 'ORDER BY name_key',
   firms: 'ORDER BY name_key',
   trucks: 'ORDER BY number_key',
   drivers: 'ORDER BY name COLLATE NOCASE, phone',
+  agents: 'ORDER BY name_key',
 };
 
 const asRow = (raw: Record<string, unknown>): MasterRow => ({ ...raw, active: raw.active === 1 }) as unknown as MasterRow;
@@ -70,13 +72,14 @@ function clean(db: Db, kind: MasterKind, f: MasterFields, ownStation: number | n
   return out;
 }
 
-const EXISTING: Record<'stations' | 'firms' | 'trucks', string> = {
+const EXISTING: Record<Exclude<MasterKind, 'drivers'>, string> = {
   stations: 'SELECT id FROM stations WHERE name_key = ? AND id != ?',
   firms: 'SELECT id FROM firms WHERE name_key = ? AND id != ?',
   trucks: 'SELECT id FROM trucks WHERE number_key = ? AND id != ?',
+  agents: 'SELECT id FROM agents WHERE name_key = ? AND id != ?',
 };
 
-/** Exact duplicates are refused (active or not); similar firm / driver names need `confirmSimilar`. `selfId` is 0 for a new row. */
+/** Exact duplicates are refused (active or not); similar firm / agent / driver names need `confirmSimilar`. `selfId` is 0 for a new row. */
 function conflict(db: Db, kind: MasterKind, c: Clean, selfId: number, confirmSimilar: boolean): Refusal | null {
   if (kind === 'drivers') {
     const others = db.prepare('SELECT id, name, phone FROM drivers WHERE id != ? ORDER BY name COLLATE NOCASE, phone').all(selfId) as { id: number; name: string; phone: string }[];
@@ -88,8 +91,8 @@ function conflict(db: Db, kind: MasterKind, c: Clean, selfId: number, confirmSim
   }
   const dup = db.prepare(EXISTING[kind]).get(c.key, selfId) as { id: number } | undefined;
   if (dup) return refuse('master-exists', { row: byId(db, kind, dup.id) });
-  if (kind === 'firms' && !confirmSimilar) {
-    const names = (db.prepare('SELECT name FROM firms WHERE id != ? ORDER BY name_key').all(selfId) as { name: string }[]).map((r) => r.name);
+  if ((kind === 'firms' || kind === 'agents') && !confirmSimilar) {
+    const names = (db.prepare(`SELECT name FROM ${kind} WHERE id != ? ORDER BY name_key`).all(selfId) as { name: string }[]).map((r) => r.name); // kind is one of the two literals above
     const near = findSimilar(names, c.name);
     if (near.length > 0) return refuse('master-similar', { similar: near });
   }
@@ -104,7 +107,9 @@ function insertRow(db: Db, kind: MasterKind, c: Clean, seat: string): number {
         ? db.prepare('INSERT INTO firms (name, name_key, station_id, phone, seat) VALUES (?, ?, ?, ?, ?)').run(c.name, c.key, c.stationId, c.phone, seat)
         : kind === 'trucks'
           ? db.prepare('INSERT INTO trucks (number, number_key, seat) VALUES (?, ?, ?)').run(c.name, c.key, seat)
-          : db.prepare('INSERT INTO drivers (name, phone, seat) VALUES (?, ?, ?)').run(c.name, c.phone, seat);
+          : kind === 'agents'
+            ? db.prepare('INSERT INTO agents (name, name_key, phone, seat) VALUES (?, ?, ?, ?)').run(c.name, c.key, c.phone, seat)
+            : db.prepare('INSERT INTO drivers (name, phone, seat) VALUES (?, ?, ?)').run(c.name, c.phone, seat);
   return Number(r.lastInsertRowid);
 }
 
@@ -118,7 +123,9 @@ function updateRow(db: Db, kind: MasterKind, id: number, version: number, c: Cle
         ? db.prepare(`UPDATE firms SET name = ?, name_key = ?, station_id = ?, phone = ?, ${bump}`).run(c.name, c.key, c.stationId, c.phone, id, version)
         : kind === 'trucks'
           ? db.prepare(`UPDATE trucks SET number = ?, number_key = ?, ${bump}`).run(c.name, c.key, id, version)
-          : db.prepare(`UPDATE drivers SET name = ?, phone = ?, ${bump}`).run(c.name, c.phone, id, version);
+          : kind === 'agents'
+            ? db.prepare(`UPDATE agents SET name = ?, name_key = ?, phone = ?, ${bump}`).run(c.name, c.key, c.phone, id, version)
+            : db.prepare(`UPDATE drivers SET name = ?, phone = ?, ${bump}`).run(c.name, c.phone, id, version);
   return r.changes === 1;
 }
 
@@ -127,6 +134,7 @@ const SET_ACTIVE: Record<MasterKind, string> = {
   firms: `UPDATE firms SET active = ?, version = version + 1, updated_at = ${NOW} WHERE id = ? AND version = ?`,
   trucks: `UPDATE trucks SET active = ?, version = version + 1, updated_at = ${NOW} WHERE id = ? AND version = ?`,
   drivers: `UPDATE drivers SET active = ?, version = version + 1, updated_at = ${NOW} WHERE id = ? AND version = ?`,
+  agents: `UPDATE agents SET active = ?, version = version + 1, updated_at = ${NOW} WHERE id = ? AND version = ?`,
 };
 
 export function makeMasters(pins: Pick<ReturnType<typeof makePins>, 'verify'>) {
@@ -136,6 +144,7 @@ export function makeMasters(pins: Pick<ReturnType<typeof makePins>, 'verify'>) {
       firms: listAll(db, 'firms') as MastersAll['firms'],
       trucks: listAll(db, 'trucks') as MastersAll['trucks'],
       drivers: listAll(db, 'drivers') as MastersAll['drivers'],
+      agents: listAll(db, 'agents') as MastersAll['agents'],
     }),
 
     /** Adding needs no PIN: clerks add walk-in firms from LR entry too. */
@@ -184,6 +193,11 @@ export function makeMasters(pins: Pick<ReturnType<typeof makePins>, 'verify'>) {
         if (!before) return refuse('master-missing');
         if (before.version !== version) return refuse('master-stale', { row: before });
         if (before.active === active) return ok(before);
+        // Collections still assigned to an agent would be stranded: the Wasuli page offers active agents only.
+        if (!active && kind === 'agents') {
+          const open = (db.prepare("SELECT COUNT(*) AS n FROM wasuli WHERE agent_id = ? AND status = 'assigned'").get(id) as { n: number }).n;
+          if (open > 0) return refuse('master-busy', { detail: String(open) });
+        }
         if (db.prepare(SET_ACTIVE[kind]).run(active ? 1 : 0, id, version).changes !== 1) return refuse('master-stale', { row: byId(db, kind, id) });
         const after = byId(db, kind, id) as MasterRow;
         writeAudit(db, { seat, action: active ? 'masters.activate' : 'masters.deactivate', entity: kind, entityId: id, before, after });

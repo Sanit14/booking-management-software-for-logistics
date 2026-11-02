@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 13;
+export const KEEPER_VERSION = 14;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -86,7 +86,7 @@ export type PinRefusal =
   | 'bad-pin' // not exactly 4 digits
   | 'pins-same'; // Admin and System PIN must differ
 
-export type MasterKind = 'stations' | 'firms' | 'trucks' | 'drivers';
+export type MasterKind = 'stations' | 'firms' | 'trucks' | 'drivers' | 'agents';
 
 export interface Station {
   id: number;
@@ -115,7 +115,15 @@ export interface Driver {
   active: boolean;
   version: number;
 }
-export type MasterRow = Station | Firm | Truck | Driver;
+/** A collection agent (wasuli): a name that is unique, and a phone. */
+export interface Agent {
+  id: number;
+  name: string;
+  phone: string;
+  active: boolean;
+  version: number;
+}
+export type MasterRow = Station | Firm | Truck | Driver | Agent;
 
 /** Every master, active and inactive, ordered by name / number. The tables are small: the screen searches them in memory. */
 export interface MastersAll {
@@ -123,9 +131,10 @@ export interface MastersAll {
   firms: Firm[];
   trucks: Truck[];
   drivers: Driver[];
+  agents: Agent[];
 }
 
-/** What a clerk types. Each kind uses its own fields: stations name · firms name, stationId, phone · trucks number · drivers name, phone. */
+/** What a clerk types. Each kind uses its own fields: stations name · firms name, stationId, phone · trucks number · drivers and agents name, phone. */
 export interface MasterFields {
   name?: string;
   number?: string;
@@ -138,10 +147,11 @@ export type MasterRefusal =
   | 'master-similar' // `similar`: the names; resend with confirmSimilar to save anyway
   | 'master-stale' // `row`: the current row, to show what changed
   | 'master-missing'
+  | 'master-busy' // an agent who still has collections assigned cannot be deactivated; detail: how many
   | 'master-bad'; // detail: the field that is not acceptable (name, number, phone, station)
 
 /** The tables a change event can name. A view refetches only when one of its tables is named. */
-export const CHANGE_TABLES = ['stations', 'firms', 'trucks', 'drivers', 'lrs', 'memos', 'settings'] as const;
+export const CHANGE_TABLES = ['stations', 'firms', 'trucks', 'drivers', 'agents', 'lrs', 'memos', 'wasuli', 'settings'] as const;
 export type ChangeTable = (typeof CHANGE_TABLES)[number];
 /** Pushed after a committed write (and, after a reconnect, for every table: events may have been missed). */
 export interface KeeperChange {
@@ -235,6 +245,8 @@ export interface LrSaved {
   again: boolean;
   /** A walk-in consignor / consignee was saved to the firms master in the same save. */
   firmsAdded: boolean;
+  /** A wasuli row was made with the LR. */
+  wasuli: boolean;
 }
 export interface LrDay {
   date: string;
@@ -282,6 +294,8 @@ export interface LrUpdated {
   firmsAdded: boolean;
   /** False when nothing differed from what was saved: nothing was written. */
   changed: boolean;
+  /** The edit made, changed or removed the LR's wasuli row. */
+  wasuli: boolean;
 }
 /** A changed field: station names (not ids), paise for the money fields, the option code for `chargeOption`, text otherwise. */
 export interface LrChange {
@@ -645,8 +659,104 @@ export type LrRefusal =
   | 'lr-missing'
   | 'lr-cancelled' // cannot be edited or cancelled again: restore it first
   | 'lr-not-cancelled' // restore of an LR that is not cancelled
-  | 'lr-on-memo'; // cannot be cancelled while on a memo; detail: the memo's number
-export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
+  | 'lr-on-memo' // cannot be cancelled while on a memo; detail: the memo's number
+  | 'lr-wasuli-collected'; // its wasuli is collected: no edit of the amount, no cancel, until the collection is undone; detail: the LR's number
+// ---- Wasuli (3.4): collections of the LRs that carry a wasuli amount -------------------------------------------------
+
+export type WasuliStatus = 'unassigned' | 'assigned' | 'collected';
+/** Rows handed to an agent in one go (the keeper refuses more; the screen warns before it asks). */
+export const MAX_WASULI_BATCH = 500;
+export type WasuliMode = 'cash' | 'upi' | 'card';
+/** The last 7 or 30 days, today counted as one of them. */
+export type WasuliPeriod = 'week' | 'month';
+
+/** One collection with its LR. Money in paise. */
+export interface WasuliRow {
+  id: number;
+  version: number;
+  status: WasuliStatus;
+  lrId: number;
+  lrNo: number;
+  lrYear: number;
+  lrDate: string;
+  consignor: string;
+  consignee: string;
+  toStation: string;
+  /** The challan the LR is on, once loaded. */
+  challanNo: number | null;
+  /** What is owed. */
+  amountPaise: number;
+  agentId: number | null;
+  agent: string | null;
+  assignedDate: string | null;
+  collectedDate: string | null;
+  /** What came in; below `amountPaise` for a part payment. */
+  collectedPaise: number | null;
+  mode: WasuliMode | null;
+  remark: string;
+  /** The seat that last changed the row ("Already collected on PC03"). */
+  seat: string;
+  /** Days waiting: since the LR date (Unassigned) or since it was assigned (Assigned); 0 once collected. */
+  days: number;
+}
+/** What a screen saw of a row. A change is applied only while the row is still exactly so. */
+export interface WasuliSeen {
+  id: number;
+  status: WasuliStatus;
+  agentId: number | null;
+  version: number;
+}
+/** Unassigned lists every agent's pool; Assigned and Collected need an agent (`period` only matters for Collected). */
+export interface WasuliFilters {
+  tab: WasuliStatus;
+  agentId: number | null;
+  period: WasuliPeriod;
+}
+/** Where the next page starts: after (or, for Collected, before) this row. `a` is its assigned / collected date ('' for Unassigned). */
+export interface WasuliCursor {
+  a: string;
+  date: string;
+  no: number;
+}
+/** 100 rows, `next` null at the end; `count` and `amountPaise` are for the whole filter, `counts` for the three tabs. */
+export interface WasuliPage {
+  rows: WasuliRow[];
+  next: WasuliCursor | null;
+  count: number;
+  amountPaise: number;
+  counts: Record<WasuliStatus, number>;
+}
+export interface AgentStat {
+  agentId: number;
+  name: string;
+  active: boolean;
+  assignedCount: number;
+  assignedPaise: number;
+  collectedTodayCount: number;
+  collectedTodayPaise: number;
+  collectedPeriodCount: number;
+  collectedPeriodPaise: number;
+}
+/** What was typed in the collect dialog: the amount as text (the keeper parses it), the mode and a remark. */
+export interface WasuliCollectInput {
+  amount: string;
+  mode: WasuliMode | null;
+  remark: string;
+}
+export type WasuliField = 'amount' | 'mode' | 'remark' | 'agent';
+/** required · amount (not a rupee amount above 0) · over (more than the wasuli amount) · long (remark over 200 characters) · missing (no such, or inactive, agent) · same (reassigned to the agent it already has). */
+export type WasuliFieldError = 'required' | 'amount' | 'over' | 'long' | 'missing' | 'same';
+/** The rows after a change; `changed` is false when nothing differed (nothing was written). */
+export interface WasuliChanged {
+  rows: WasuliRow[];
+  changed: boolean;
+}
+export type WasuliRefusal =
+  | 'wasuli-invalid' // `wasuliFields`: what to fix
+  | 'wasuli-stale' // `wasuli`: the rows as they are now (a removed row is not there); nothing was changed
+  | 'wasuli-missing'; // find: detail `no-lr` (no such LR) or `no-wasuli` (the LR has no wasuli)
+
+export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | WasuliRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**
  * What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts).
  * `detail` on master-exists / master-similar from an LR save names the party: consignor or consignee.
@@ -664,6 +774,8 @@ export type KeeperResult<T> =
       memoFields?: Partial<Record<MemoField, MemoFieldError>>;
       taken?: MemoTaken[];
       memo?: MemoDetail;
+      wasuli?: WasuliRow[];
+      wasuliFields?: Partial<Record<WasuliField, WasuliFieldError>>;
     };
 
 export type KeeperErrorCode =
@@ -779,6 +891,23 @@ export interface KeeperApi {
     company(): Promise<KeeperResult<PrintCompany>>;
     /** Admin PIN. */
     setCompany(input: PrintCompany, adminPin: string): Promise<KeeperResult<PrintCompany>>;
+  };
+  /**
+   * Wasuli. Every change sends the rows as they were seen (`WasuliSeen`) and is refused with the current rows if one has moved on; a batch
+   * is all or nothing. Assign, reassign, back to pool and collect need no PIN; undo and a remark edit need the System PIN.
+   */
+  wasuli: {
+    /** One tab, 100 a page: pass the previous page's `next` for the following one. */
+    list(filters: WasuliFilters, cursor: WasuliCursor | null): Promise<KeeperResult<WasuliPage>>;
+    /** The collection of an LR by its number (this year's, else last year's). */
+    find(no: number): Promise<KeeperResult<WasuliRow>>;
+    agentStats(period: WasuliPeriod): Promise<KeeperResult<AgentStat[]>>;
+    assign(rows: WasuliSeen[], agentId: number): Promise<KeeperResult<WasuliChanged>>;
+    reassign(row: WasuliSeen, agentId: number): Promise<KeeperResult<WasuliChanged>>;
+    toPool(row: WasuliSeen): Promise<KeeperResult<WasuliChanged>>;
+    collect(row: WasuliSeen, input: WasuliCollectInput): Promise<KeeperResult<WasuliChanged>>;
+    uncollect(row: WasuliSeen, systemPin: string): Promise<KeeperResult<WasuliChanged>>;
+    remark(row: WasuliSeen, remark: string, systemPin: string): Promise<KeeperResult<WasuliChanged>>;
   };
   /** One box for LR number, challan number, firm, truck and station: a few of each, never a generic query. */
   search(text: string): Promise<KeeperResult<SearchAnswer>>;

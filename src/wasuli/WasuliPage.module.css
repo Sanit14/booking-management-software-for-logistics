@@ -1,0 +1,220 @@
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+/* ---- the agent and the quick collect box ---- */
+.filters {
+  flex-shrink: 0;
+}
+.filterRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 8px 12px 6px;
+}
+.filterRow > * {
+  min-width: 0;
+}
+.agentBox {
+  flex: 1 1 0;
+}
+.quickBox {
+  flex: 0 0 200px;
+}
+.agentLine {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.agentLine strong {
+  color: var(--teal-dark);
+  font-weight: 800;
+}
+
+/* ---- tabs ---- */
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 18px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-16);
+  font-weight: 700;
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+.count {
+  font-family: var(--font-num);
+  font-size: var(--fs-15);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the list ---- */
+.listCard {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.toolbar {
+  display: flex;
+  min-height: 46px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.tickedTag {
+  display: inline-flex;
+  height: 24px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: var(--orange-tint);
+  color: var(--orange-ink);
+  font-weight: 700;
+}
+.keyHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.periods {
+  display: inline-flex;
+  gap: 6px;
+}
+.period {
+  height: 32px;
+  padding: 0 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  cursor: pointer;
+}
+.period[aria-pressed='true'] {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+.tableBox {
+  --row-h: 46px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.tableBox > div {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+.tableBox table th {
+  height: 34px;
+}
+.cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tick {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--teal-dark);
+  vertical-align: middle;
+  pointer-events: none; /* the row takes the click, so a click on the box ticks once */
+}
+.owed {
+  display: block;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  line-height: 16px;
+}
+.warn {
+  color: var(--orange-ink);
+  font-weight: 700;
+}
+.late {
+  color: var(--danger);
+  font-weight: 800;
+}
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.iconOnly {
+  width: var(--control-h-sm);
+  padding: 0;
+}
+.totals {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--readonly-bg);
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.totals strong {
+  color: var(--teal-dark);
+}
+
+/* ---- dialogs ---- */
+.collectForm {
+  display: flex;
+  min-width: 340px;
+  flex-direction: column;
+  gap: 12px;
+}
+.collectFor {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-15);
+  font-weight: 600;
+}
+.fieldError {
+  margin-top: -8px;
+  color: var(--danger);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.dialogForm {
+  display: flex;
+  min-width: 320px;
+  flex-direction: column;
+  gap: 12px;
+}

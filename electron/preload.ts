@@ -84,6 +84,17 @@ const keeper: KeeperApi = {
     company: () => ipcRenderer.invoke('keeper:print-company'),
     setCompany: (input, adminPin) => ipcRenderer.invoke('keeper:print-set-company', input, adminPin),
   },
+  wasuli: {
+    list: (filters, cursor) => ipcRenderer.invoke('keeper:wasuli-list', filters, cursor),
+    find: (no) => ipcRenderer.invoke('keeper:wasuli-find', no),
+    agentStats: (period) => ipcRenderer.invoke('keeper:wasuli-agent-stats', period),
+    assign: (rows, agentId) => ipcRenderer.invoke('keeper:wasuli-assign', rows, agentId),
+    reassign: (row, agentId) => ipcRenderer.invoke('keeper:wasuli-reassign', row, agentId),
+    toPool: (row) => ipcRenderer.invoke('keeper:wasuli-to-pool', row),
+    collect: (row, input) => ipcRenderer.invoke('keeper:wasuli-collect', row, input),
+    uncollect: (row, pin) => ipcRenderer.invoke('keeper:wasuli-uncollect', row, pin),
+    remark: (row, remark, pin) => ipcRenderer.invoke('keeper:wasuli-remark', row, remark, pin),
+  },
   search: (text) => ipcRenderer.invoke('keeper:search', text),
 };
 

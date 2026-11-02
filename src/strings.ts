@@ -46,6 +46,7 @@ const resultText: Record<ResultCode, string> = {
   'master-similar': 'A similar entry already exists.',
   'master-stale': 'This entry was changed on another computer.',
   'master-missing': 'That entry no longer exists.',
+  'master-busy': 'That agent still has collections assigned. Reassign them or send them back to the pool first.',
   'master-bad': 'One of the values cannot be saved.',
   'lr-invalid': 'The LR cannot be saved yet. Check the marked boxes.',
   'lr-stale': 'This LR was changed on another computer.',
@@ -53,6 +54,7 @@ const resultText: Record<ResultCode, string> = {
   'lr-cancelled': 'This LR is cancelled. Restore it first.',
   'lr-not-cancelled': 'This LR is not cancelled.',
   'lr-on-memo': 'This LR is on a loading memo. Take it off the memo first.',
+  'lr-wasuli-collected': 'The wasuli of this LR is already collected. Undo the collection first.',
   'memo-invalid': 'The memo cannot be saved yet. Check the marked boxes.',
   'memo-conflict': 'Some of the ticked LRs were just loaded by another computer. Nothing was saved.',
   'memo-missing': 'That memo no longer exists.',
@@ -61,6 +63,9 @@ const resultText: Record<ResultCode, string> = {
   'memo-last-lr': 'A memo cannot be left with no LR. Cancel the memo instead.',
   'memo-target': 'Pick another saved memo to move the LRs to.',
   'company-invalid': 'The company name is needed, and each line can have at most 100 characters.',
+  'wasuli-invalid': 'The collection cannot be saved yet. Check the marked boxes.',
+  'wasuli-stale': 'Another computer changed this collection. The list is refreshed.',
+  'wasuli-missing': 'That collection was not found.',
   'no-database': 'There is no database to back up right now.',
   cancelled: 'No folder was chosen.',
   failed: 'It did not work',
@@ -68,7 +73,7 @@ const resultText: Record<ResultCode, string> = {
 };
 
 const contactAdmin = 'Do not enter data. Please contact the administrator.';
-const masterOne: Record<MasterKind, string> = { stations: 'station', firms: 'firm', trucks: 'truck', drivers: 'driver' };
+const masterOne: Record<MasterKind, string> = { stations: 'station', firms: 'firm', trucks: 'truck', drivers: 'driver', agents: 'agent' };
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const two = (n: number) => String(n).padStart(2, '0');
 const time = (iso: string) => {
@@ -322,6 +327,111 @@ export const strings = {
       lrs: 'LRs', qty: 'Qty', toPay: 'To pay', paid: 'Paid', charges: 'Charges', stax: 'Service tax',
     } as Record<string, string>,
   },
+  wasuli: {
+    tabsLabel: 'Wasuli lists',
+    tabs: { unassigned: 'Unassigned', assigned: 'Assigned', collected: 'Collected' },
+    agent: 'Agent',
+    agentList: 'Agents',
+    agentPlaceholder: 'Pick an agent',
+    agentHint: (pending: number) => `${pending} pending`,
+    noAgent: 'Pick an agent to see their collections.',
+    noAgentsAtAll: 'Add an agent in Masters first.',
+    agentLine: (assigned: number, assignedAmount: string, today: number, todayAmount: string) =>
+      `${assigned} assigned · ${assignedAmount} to collect · today ${today} collected · ${todayAmount}`,
+    quickLabel: 'LR no. to collect',
+    quickPlaceholder: 'LR number, Enter',
+    quickBad: 'Type the LR number.',
+    quickNeedAgent: 'Pick an agent first.',
+    noLr: (no: number) => `No LR ${no} this year or last year.`,
+    noWasuli: (no: number) => `LR ${no} has no wasuli to collect.`,
+    alreadyCollected: (no: number) => `LR ${no} is already collected.`,
+    notAssigned: (no: number) => `LR ${no} is not assigned to any agent yet.`,
+    otherAgent: (no: number, name: string) => `LR ${no} is assigned to ${name}.`,
+    period: { week: 'Last 7 days', month: 'Last 30 days' },
+    periodLabel: 'Period',
+    assignTo: (name: string) => `Assign to ${name}`,
+    assignPickAgent: 'Pick an agent to assign to',
+    ticked: (n: number) => `${n} ticked`,
+    tooMany: (max: number) => `At most ${max} at a time. Untick some.`,
+    tickLabel: (lrNo: number) => `Tick LR ${lrNo}`,
+    columns: {
+      tick: '',
+      lr: 'LR',
+      lrDate: 'LR date',
+      assigned: 'Assigned',
+      collectedOn: 'Collected',
+      consignee: 'Consignee',
+      to: 'To',
+      challan: 'Challan',
+      amount: 'Amount',
+      collectedAmount: 'Collected',
+      days: 'Waiting',
+      mode: 'Paid by',
+      remark: 'Remark',
+      actions: 'Actions',
+    },
+    days: (n: number) => (n === 0 ? 'Today' : `${n}d`),
+    mode: { cash: 'Cash', upi: 'UPI', card: 'Card' },
+    owed: (amount: string) => `of ${amount}`,
+    collect: 'Collect',
+    collectLabel: (lrNo: number) => `Collect LR ${lrNo}`,
+    reassignLabel: (lrNo: number) => `Reassign LR ${lrNo}`,
+    toPoolLabel: (lrNo: number) => `Send LR ${lrNo} back to the pool`,
+    remarkLabel: (lrNo: number) => `Edit the remark of LR ${lrNo}`,
+    undoLabel: (lrNo: number) => `Undo the collection of LR ${lrNo}`,
+    listLabel: { unassigned: 'Unassigned collections', assigned: 'Assigned collections', collected: 'Collected collections' },
+    empty: {
+      unassigned: 'Nothing is waiting for an agent.',
+      assigned: (name: string) => `${name} has nothing assigned.`,
+      collected: (name: string) => `${name} has collected nothing in this period.`,
+    },
+    totals: (shown: number, count: number, amount: string) => `Showing ${shown} of ${count} · Total ${amount}`,
+    loadMore: (more: number) => `Load more (${more} more)`,
+    // toasts
+    assigned: (n: number, name: string) => `${n} assigned to ${name}`,
+    collected: (lrNo: number, amount: string) => `LR ${lrNo} collected · ${amount}`,
+    pooled: (lrNo: number) => `LR ${lrNo} is back in the pool`,
+    reassigned: (lrNo: number, name: string) => `LR ${lrNo} now with ${name}`,
+    undone: (lrNo: number) => `LR ${lrNo} is pending again`,
+    remarkSaved: (lrNo: number) => `Remark of LR ${lrNo} saved`,
+    remarkSame: 'The remark is the same. Nothing changed.',
+    // a row that moved on while the screen showed it: who has it now
+    moved: (rows: { lrNo: number; status: string; agent: string | null; seat: string }[]): string => {
+      if (rows.length === 0) return 'Another computer changed this collection. The list is refreshed.';
+      const r = rows[0];
+      const what = r.status === 'collected' ? `collected by ${r.agent ?? 'an agent'}` : r.status === 'assigned' ? `assigned to ${r.agent ?? 'an agent'}` : 'back in the pool';
+      return `LR ${r.lrNo} was changed on ${r.seat}: it is now ${what}${rows.length > 1 ? ` (and ${rows.length - 1} more changed)` : ''}. The list is refreshed.`;
+    },
+    // collect dialog
+    collectTitle: (lrNo: number, date: string) => `Collect LR ${lrNo} · ${date}`,
+    collectFor: (consignee: string, amount: string) => `${consignee} owes ${amount}`,
+    amountLabel: 'Amount collected',
+    amountHint: 'Less than owed is a part payment.',
+    modeLabel: 'Paid by',
+    modeChoose: 'Choose…',
+    remarkField: 'Remark',
+    remarkHint: 'Optional. A UPI reference, what is still due…',
+    collectConfirm: 'Collected',
+    fieldError: {
+      required: 'Required.',
+      amount: 'Enter an amount above 0.',
+      over: 'More than is owed.',
+      long: 'At most 200 characters.',
+      missing: 'Pick an agent from the list.',
+      same: 'That is the agent it already has.',
+    } as Record<string, string>,
+    // reassign, back to pool, undo, remark
+    reassignTitle: (lrNo: number) => `Reassign LR ${lrNo}`,
+    newAgent: 'New agent',
+    reassignConfirm: 'Reassign',
+    poolTitle: 'Send back to the pool?',
+    poolText: (lrNo: number, consignee: string) => `LR ${lrNo} (${consignee}) goes back to the unassigned pool.`,
+    poolConfirm: 'Send back',
+    undoTitle: 'Undo the collection',
+    remarkTitle: (lrNo: number) => `Remark of LR ${lrNo}`,
+    remarkSavePin: 'Save the remark',
+    remarkConfirm: 'Next',
+  },
   leave: {
     title: 'Discard changes?',
     text: 'This LR is being edited and the changes are not saved. Leaving the page throws them away.',
@@ -537,7 +647,7 @@ export const strings = {
   },
   masters: {
     tabsLabel: 'Kind of master',
-    tabs: { stations: 'Stations', firms: 'Firms', trucks: 'Trucks', drivers: 'Drivers' } as Record<MasterKind, string>,
+    tabs: { stations: 'Stations', firms: 'Firms', trucks: 'Trucks', drivers: 'Drivers', agents: 'Agents' } as Record<MasterKind, string>,
     searchLabel: 'Search',
     searchPlaceholder: 'Type to search',
     showInactive: 'Show inactive',
@@ -551,6 +661,7 @@ export const strings = {
       stationName: 'Station name',
       firmName: 'Firm name',
       driverName: 'Driver name',
+      agentName: 'Agent name',
       truckNumber: 'Truck number',
       firmStation: 'Station',
       firmStationHint: 'Optional. Pick from the list.',
@@ -570,6 +681,7 @@ export const strings = {
     reactivated: (name: string) => `Reactivated: ${name}`,
     exists: (name: string) => `Already exists: ${name}`,
     existsInactive: (name: string) => `Already exists but is inactive: ${name}`,
+    busy: (open: string) => `This agent still has ${open} ${open === '1' ? 'collection' : 'collections'} assigned. Reassign ${open === '1' ? 'it' : 'them'} or send ${open === '1' ? 'it' : 'them'} back to the pool, then deactivate.`,
     bad: {
       name: 'Enter a name of up to 100 characters.',
       number: 'Enter the truck number.',
@@ -777,7 +889,11 @@ export const strings = {
     tooLong: 'At most 100 characters.',
   },
   result: (code: ResultCode, detail?: string): string =>
-    code === 'pin-locked' ? `Too many wrong tries. Try again in ${detail ?? '60'} seconds.` : `${resultText[code]}${detail ? `: ${detail}` : ''}`,
+    code === 'pin-locked'
+      ? `Too many wrong tries. Try again in ${detail ?? '60'} seconds.`
+      : code === 'lr-wasuli-collected' && detail
+        ? `Wasuli already collected for LR ${detail} — undo the collection first.`
+        : `${resultText[code]}${detail ? `: ${detail}` : ''}`,
 
   safeMode: {
     title: 'Restore a backup',
