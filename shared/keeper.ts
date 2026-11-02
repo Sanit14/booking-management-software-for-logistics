@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 12;
+export const KEEPER_VERSION = 13;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -568,6 +568,77 @@ export type MemoRefusal =
   | 'memo-last-lr' // taking these LRs off would leave the memo with none: cancel the memo instead
   | 'memo-target'; // the memo to move LRs to is missing, cancelled, or the same memo
 
+/** The company lines printed at the top of every printout (Settings, Admin PIN). The name is required; the other lines may be empty. */
+export interface PrintCompany {
+  name: string;
+  address: string;
+  phone: string;
+  gstin: string;
+}
+/** One LR line of a printed memo. Amounts are text, already formatted by the keeper ('–' = nothing). */
+export interface PrintMemoRow {
+  sr: number;
+  lrNo: number;
+  consignor: string;
+  consignee: string;
+  destination: string;
+  particular: string;
+  qty: number;
+  toPay: string;
+  paid: string;
+}
+/** Exactly what a loading memo prints: text only, so the template does no maths. Totals are the ones frozen when the memo was saved. */
+export interface PrintMemo {
+  company: PrintCompany;
+  challanNo: number;
+  challanYear: number;
+  /** dd-mm-yyyy */
+  date: string;
+  truck: string;
+  driver: string;
+  from: string;
+  to: string;
+  truckHire: string;
+  loadingHamali: string;
+  cancelled: boolean;
+  /** The LRs no longer add up to the frozen totals (3.2): the print says so. */
+  differs: boolean;
+  /** By LR number. */
+  rows: PrintMemoRow[];
+  totals: { lrs: number; qty: number; toPay: string; paid: string };
+}
+/** Exactly what an LR prints. `mode` says which of To pay / Paid the freight is; every amount is formatted text. */
+export interface PrintLr {
+  company: PrintCompany;
+  lrNo: number;
+  lrYear: number;
+  /** dd-mm-yyyy */
+  date: string;
+  from: string;
+  to: string;
+  consignor: string;
+  consignee: string;
+  particular: string;
+  qty: number;
+  mode: 'topay' | 'paid' | 'none';
+  freight: string;
+  godownBhada: string;
+  godownInsurance: string;
+  deliveryCharges: string;
+  hamali: string;
+  staxPercent: string;
+  stax: string;
+  total: string;
+  cancelled: boolean;
+}
+/** A print or a saved PDF that went through: it is written to the audit log. */
+export interface PrintDone {
+  kind: 'memo' | 'lr';
+  id: number;
+  how: 'print' | 'pdf';
+}
+export type PrintRefusal = 'company-invalid'; // `detail`: the box to fix (name, address, phone, gstin)
+
 export type LrRefusal =
   | 'lr-invalid' // `fields`: what to fix
   | 'lr-stale' // `lr`: the current LR, to show what changed
@@ -575,7 +646,7 @@ export type LrRefusal =
   | 'lr-cancelled' // cannot be edited or cancelled again: restore it first
   | 'lr-not-cancelled' // restore of an LR that is not cancelled
   | 'lr-on-memo'; // cannot be cancelled while on a memo; detail: the memo's number
-export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
+export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**
  * What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts).
  * `detail` on master-exists / master-similar from an LR save names the party: consignor or consignee.
@@ -702,6 +773,12 @@ export interface KeeperApi {
     cancel(id: number, version: number, reason: string, adminPin: string): Promise<KeeperResult<MemoDetail>>;
     /** Newest first, at most 50. */
     history(id: number): Promise<KeeperResult<MemoHistoryEntry[]>>;
+  };
+  /** The company lines on printouts. What is printed, and the print itself, is main's job (`PrintApi`): the screen cannot name those routes. */
+  print: {
+    company(): Promise<KeeperResult<PrintCompany>>;
+    /** Admin PIN. */
+    setCompany(input: PrintCompany, adminPin: string): Promise<KeeperResult<PrintCompany>>;
   };
   /** One box for LR number, challan number, firm, truck and station: a few of each, never a generic query. */
   search(text: string): Promise<KeeperResult<SearchAnswer>>;

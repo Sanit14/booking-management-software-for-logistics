@@ -1,0 +1,252 @@
+// Runs under Electron's Node via scripts/test-db.cjs (needs the rebuilt better-sqlite3).
+// Printing (3.3): what a memo and an LR print, the company lines, and the audit row of every print.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import type { KeeperResult, PrintCompany } from '../shared';
+import { inr, lrAmounts, type LrMoney } from './money';
+import { ADMIN, SYSTEM, book, create, refused, saved, setUp, type Set } from './memoTesting';
+import { makePrint } from './print';
+import { fastest } from './testing';
+
+const got = <T>(r: KeeperResult<T>): T => {
+  assert.ok(r.ok, r.ok ? '' : `${r.code} ${r.detail ?? ''}`);
+  return r.value;
+};
+const n = (s: Set, table: string) => (s.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+const setup = () => {
+  const s = setUp();
+  return { s, print: makePrint(s.pins, s.memos) };
+};
+const audits = (s: Set, action: string) =>
+  s.db.prepare('SELECT seat, entity, entity_id AS entityId, after_json AS after FROM audit_log WHERE action = ? ORDER BY id').all(action) as {
+    seat: string; entity: string; entityId: string; after: string | null;
+  }[];
+
+// ---- the memo ----
+
+test('print.memo: the header, the rows in LR-number order and the totals frozen at the save, all as formatted text', () => {
+  const { s, print } = setup();
+  const a = book(s, { qty: '4', toPay: '1,800', paid: '', particular: 'Cloth bales' });
+  const b = book(s, { qty: '2', toPay: '', paid: '2,500.50', particular: 'Steel pipes', consignor: { firmId: s.patil, name: '', addToFirms: false } });
+  const m = saved(create(s, [b.id, a.id], { truckHire: '4,500', loadingHamali: '250.75' }));
+  const p = got(print.memo(s.db, m.id));
+
+  assert.equal(p.challanNo, m.challanNo);
+  assert.equal(p.challanYear, 2026);
+  assert.equal(p.date, '31-10-2026');
+  assert.deepEqual([p.truck, p.driver, p.from, p.to], ['MH 29 BE 1234', 'Ramesh Pawar', 'Yavatmal', 'Nagpur']);
+  assert.deepEqual([p.truckHire, p.loadingHamali], ['4,500.00', '250.75']);
+  assert.deepEqual([p.cancelled, p.differs], [false, false]);
+  assert.deepEqual(p.rows.map((r) => [r.sr, r.lrNo]), [[1, a.no], [2, b.no]]);
+  assert.deepEqual(p.rows[0], {
+    sr: 1, lrNo: a.no, consignor: 'Shree Ganesh Traders', consignee: 'Patil Hardware', destination: 'Nagpur', particular: 'Cloth bales', qty: 4, toPay: '1,800.00', paid: '–',
+  });
+  assert.deepEqual([p.rows[1].toPay, p.rows[1].paid, p.rows[1].consignor], ['–', '2,500.50', 'Patil Hardware']);
+  assert.deepEqual(p.totals, { lrs: 2, qty: 6, toPay: '1,800.00', paid: '2,500.50' });
+});
+
+test('print.memo: rows go by LR number (year, then number), not by date or by the order the memo was ticked', () => {
+  const { s, print } = setup();
+  const today = book(s); // 2026, number 1
+  const backdated = book(s, { date: '2026-10-01' }); // 2026, number 2, but an earlier date
+  const lastYear = book(s, { date: '2025-12-30', consignor: { firmId: s.patil, name: '', addToFirms: false } }); // 2025, number 1
+  const m = saved(create(s, [backdated.id, today.id, lastYear.id]));
+  const rows = got(print.memo(s.db, m.id)).rows;
+  assert.deepEqual(rows.map((r) => r.lrNo), [1, 1, 2]);
+  assert.equal(rows[0].consignor, 'Patil Hardware', 'the 2025 LR 1 comes before the 2026 LR 1');
+  assert.equal(rows[2].lrNo, backdated.no);
+});
+
+test('print.memo: after an LR changes the rows show the LR now but the totals stay the frozen ones, and the memo says it differs', () => {
+  const { s, print } = setup();
+  const a = book(s, { toPay: '1,000' });
+  const b = book(s, { toPay: '500' });
+  const m = saved(create(s, [a.id, b.id]));
+  s.db.prepare('UPDATE lrs SET topay_paise = 120000 WHERE id = ?').run(a.id); // 1,000 -> 1,200 after the memo was saved
+  const p = got(print.memo(s.db, m.id));
+  assert.equal(p.differs, true);
+  assert.equal(p.rows[0].toPay, '1,200.00');
+  assert.equal(p.totals.toPay, '1,500.00');
+  assert.equal(p.totals.lrs, 2);
+});
+
+test('print.memo: a cancelled memo prints with its frozen totals, no rows (its LRs are pending again) and the cancelled flag', () => {
+  const { s, print } = setup();
+  const a = book(s, { toPay: '1,000' });
+  const m = saved(create(s, [a.id]));
+  got(s.memos.cancel(s.db, 'seat-1', m.id, 1, 'wrong truck', ADMIN));
+  const p = got(print.memo(s.db, m.id));
+  assert.equal(p.cancelled, true);
+  assert.equal(p.differs, false);
+  assert.deepEqual(p.rows, []);
+  assert.deepEqual(p.totals, { lrs: 1, qty: 3, toPay: '1,000.00', paid: '0.00' });
+});
+
+test('print.memo: a memo that is not there is refused and writes nothing', () => {
+  const { s, print } = setup();
+  const before = n(s, 'audit_log');
+  assert.equal(refused(print.memo(s.db, 999)).code, 'memo-missing');
+  assert.equal(n(s, 'audit_log'), before);
+});
+
+test('print.memo: a 500-LR memo is read in well under 100 ms', () => {
+  const { s, print } = setup();
+  const ids = Array.from({ length: 500 }, () => book(s).id);
+  const m = saved(create(s, ids));
+  assert.equal(got(print.memo(s.db, m.id)).rows.length, 500);
+  assert.ok(fastest(5, () => print.memo(s.db, m.id)) < 100);
+});
+
+// ---- the LR ----
+
+test('print.lr: every amount is lrAmounts, formatted, for a to-pay LR with charges and tax', () => {
+  const { s, print } = setup();
+  const lr = book(s, { toPay: '1,800', godownBhada: '10', godownInsurance: '5', deliveryCharges: '2', hamali: '12.50', staxPercent: '5', qty: '7' });
+  const p = got(print.lr(s.db, lr.id));
+  const row = s.db.prepare('SELECT * FROM lrs WHERE id = ?').get(lr.id) as LrMoney;
+  const a = lrAmounts(row);
+  assert.equal(p.mode, 'topay');
+  assert.equal(p.freight, inr(a.freight));
+  assert.equal(p.stax, inr(a.stax));
+  assert.equal(p.total, inr(a.total));
+  // the same, worked by hand: 1,800 + (10 + 5 + 2 + 12.50) + 5 % of 1,800
+  assert.deepEqual(
+    [p.freight, p.godownBhada, p.godownInsurance, p.deliveryCharges, p.hamali, p.staxPercent, p.stax, p.total],
+    ['1,800.00', '10.00', '5.00', '2.00', '12.50', '5', '90.00', '1,919.50'],
+  );
+  assert.deepEqual([p.lrNo, p.lrYear, p.date, p.from, p.to, p.qty, p.cancelled], [lr.no, 2026, '31-10-2026', 'Yavatmal', 'Nagpur', 7, false]);
+  assert.deepEqual([p.consignor, p.consignee, p.particular], ['Shree Ganesh Traders', 'Patil Hardware', 'Cloth bales']);
+});
+
+test('print.lr: a paid LR says Paid and its total is freight + charges + tax, the same as for to pay', () => {
+  const { s, print } = setup();
+  const lr = book(s, { toPay: '', paid: '2,000', hamali: '40', staxPercent: '2.5' });
+  const p = got(print.lr(s.db, lr.id));
+  assert.equal(p.mode, 'paid');
+  assert.deepEqual([p.freight, p.stax, p.total], ['2,000.00', '50.00', '2,090.00']);
+});
+
+test('print.lr: an LR with no freight says so, a walk-in is printed as typed, and a cancelled LR carries the flag', () => {
+  const { s, print } = setup();
+  const lr = book(s, { toPay: '', paid: '', consignor: { firmId: null, name: '  Ravi   Kale ', addToFirms: false } });
+  const p = got(print.lr(s.db, lr.id));
+  assert.equal(p.mode, 'none');
+  assert.equal(p.freight, '0.00');
+  assert.equal(p.consignor, 'Ravi Kale', 'as it was saved: the keeper trimmed the typed name when the LR was booked');
+  got(s.lrs.cancel(s.db, 'seat-1', lr.id, 1, 'duplicate', SYSTEM));
+  assert.equal(got(print.lr(s.db, lr.id)).cancelled, true);
+});
+
+test('print.lr: an LR that is not there is refused', () => {
+  const { s, print } = setup();
+  assert.equal(refused(print.lr(s.db, 999)).code, 'lr-missing');
+});
+
+// ---- the audit row ----
+
+test('done: one audit row per print or saved PDF, with the seat, the id and how; none for a memo or LR that is not there', () => {
+  const { s, print } = setup();
+  const lr = book(s);
+  const m = saved(create(s, [lr.id]));
+  got(print.done(s.db, 'PC02', { kind: 'memo', id: m.id, how: 'print' }));
+  got(print.done(s.db, 'PC02', { kind: 'memo', id: m.id, how: 'pdf' }));
+  got(print.done(s.db, 'PC03', { kind: 'lr', id: lr.id, how: 'pdf' }));
+  const memoRows = audits(s, 'print.memo');
+  assert.deepEqual(memoRows.map((r) => [r.seat, r.entity, r.entityId, JSON.parse(r.after as string)]), [
+    ['PC02', 'memos', String(m.id), { how: 'print' }],
+    ['PC02', 'memos', String(m.id), { how: 'pdf' }],
+  ]);
+  assert.deepEqual(audits(s, 'print.lr').map((r) => [r.seat, r.entity, r.entityId, JSON.parse(r.after as string)]), [['PC03', 'lrs', String(lr.id), { how: 'pdf' }]]);
+
+  const before = n(s, 'audit_log');
+  assert.equal(refused(print.done(s.db, 'PC02', { kind: 'memo', id: 999, how: 'print' })).code, 'memo-missing');
+  assert.equal(refused(print.done(s.db, 'PC02', { kind: 'lr', id: 999, how: 'print' })).code, 'lr-missing');
+  assert.equal(n(s, 'audit_log'), before);
+});
+
+test('done: printing leaves the LR and memo histories as they were', () => {
+  const { s, print } = setup();
+  const lr = book(s);
+  const m = saved(create(s, [lr.id]));
+  const lrHistory = got(s.lrs.history(s.db, lr.id)).length;
+  const memoHistory = got(s.memos.history(s.db, m.id)).length;
+  got(print.done(s.db, 'PC02', { kind: 'lr', id: lr.id, how: 'print' }));
+  got(print.done(s.db, 'PC02', { kind: 'memo', id: m.id, how: 'print' }));
+  assert.equal(got(s.lrs.history(s.db, lr.id)).length, lrHistory);
+  assert.equal(got(s.memos.history(s.db, m.id)).length, memoHistory);
+});
+
+test('done: 60 prints do not push the created / edited entries out of the 50 a history shows', () => {
+  const { s, print } = setup();
+  const lr = book(s);
+  const m = saved(create(s, [lr.id]));
+  for (let i = 0; i < 60; i++) {
+    got(print.done(s.db, 'PC02', { kind: 'lr', id: lr.id, how: 'print' }));
+    got(print.done(s.db, 'PC02', { kind: 'memo', id: m.id, how: i % 2 ? 'pdf' : 'print' }));
+  }
+  assert.deepEqual(got(s.lrs.history(s.db, lr.id)).map((h) => h.action), ['created']);
+  assert.deepEqual(got(s.memos.history(s.db, m.id)).map((h) => h.action), ['created']);
+  assert.equal(audits(s, 'print.lr').length + audits(s, 'print.memo').length, 120, 'every print is still in the audit log');
+});
+
+// ---- the company lines ----
+
+const company = (over: Partial<PrintCompany> = {}): PrintCompany => ({ name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5', ...over });
+
+test('company: until it is set the name is Sundeep Freight Movers and the other lines are empty', () => {
+  const { s, print } = setup();
+  assert.deepEqual(print.company(s.db), { name: 'Sundeep Freight Movers', address: '', phone: '', gstin: '' });
+  // and the printouts carry it
+  const lr = book(s);
+  assert.equal(got(print.lr(s.db, lr.id)).company.name, 'Sundeep Freight Movers');
+});
+
+test('company: the Admin PIN saves it, trimmed with inner runs of spaces made one; the printouts carry it; one audit row has before and after', () => {
+  const { s, print } = setup();
+  const saved1 = got(print.setCompany(s.db, 'PC02', company({ name: '  Sundeep   Freight  Movers ', address: ' Station Road ' }), ADMIN));
+  assert.deepEqual(saved1, company({ address: 'Station Road' }));
+  assert.deepEqual(print.company(s.db), company({ address: 'Station Road' }));
+  const lr = book(s);
+  assert.deepEqual(got(print.lr(s.db, lr.id)).company, company({ address: 'Station Road' }));
+  const rows = audits(s, 'settings.company');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].seat, 'PC02');
+  assert.equal(rows[0].entityId, 'company');
+  const after = JSON.parse(rows[0].after as string);
+  assert.equal(after.address, 'Station Road');
+  assert.ok(!JSON.stringify(rows).includes(ADMIN), 'the PIN is never written');
+});
+
+test('company: a wrong PIN or the System PIN writes nothing; the PIN is checked before the boxes', () => {
+  const { s, print } = setup();
+  const before = { settings: n(s, 'settings'), audit: n(s, 'audit_log') };
+  assert.equal(refused(print.setCompany(s.db, 'PC02', company(), '9999')).code, 'wrong-pin');
+  assert.equal(refused(print.setCompany(s.db, 'PC02', company(), SYSTEM)).code, 'wrong-pin');
+  assert.equal(refused(print.setCompany(s.db, 'PC02', company({ name: '' }), '9999')).code, 'wrong-pin');
+  assert.deepEqual({ settings: n(s, 'settings'), audit: n(s, 'audit_log') }, before);
+});
+
+test('company: an empty name or a line over 100 characters is refused naming the box, and nothing is written', () => {
+  const { s, print } = setup();
+  const before = { settings: n(s, 'settings'), audit: n(s, 'audit_log') };
+  for (const [over, box] of [
+    [{ name: '   ' }, 'name'],
+    [{ name: 'x'.repeat(101) }, 'name'],
+    [{ address: 'y'.repeat(101) }, 'address'],
+    [{ phone: 'z'.repeat(101) }, 'phone'],
+    [{ gstin: 'g'.repeat(101) }, 'gstin'],
+  ] as const) {
+    const r = refused(print.setCompany(s.db, 'PC02', company(over), ADMIN));
+    assert.equal(r.code, 'company-invalid');
+    assert.equal(r.detail, box);
+  }
+  assert.deepEqual({ settings: n(s, 'settings'), audit: n(s, 'audit_log') }, before);
+  got(print.setCompany(s.db, 'PC02', company({ name: 'x'.repeat(100), address: '', phone: '', gstin: '' }), ADMIN)); // exactly 100 is fine, and the optional lines may be empty
+});
+
+test('company: saving the same lines again writes no new audit row', () => {
+  const { s, print } = setup();
+  got(print.setCompany(s.db, 'PC02', company(), ADMIN));
+  got(print.setCompany(s.db, 'PC02', company(), ADMIN));
+  assert.equal(audits(s, 'settings.company').length, 1);
+});

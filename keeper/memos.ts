@@ -533,7 +533,7 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
       const rows = db
         .prepare(
           `SELECT at, seat, action, before_json AS before, after_json AS after FROM audit_log
-           WHERE entity = 'memos' AND entity_id = ? ORDER BY at DESC, id DESC LIMIT ${HISTORY_LIMIT}`,
+           WHERE entity = 'memos' AND entity_id = ? AND action NOT LIKE 'print.%' ORDER BY at DESC, id DESC LIMIT ${HISTORY_LIMIT}`,
         )
         .all(String(id)) as { at: string; seat: string; action: string; before: string | null; after: string | null }[];
       const nameOf = (table: 'trucks' | 'drivers' | 'stations', value: unknown): string | null => {

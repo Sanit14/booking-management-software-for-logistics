@@ -21,6 +21,7 @@ import {
   type MemoChanged,
   type MemoDetail,
   type MemoSaved,
+  type PrintCompany,
   type ResultCode,
 } from '../shared';
 import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } from './backup';
@@ -37,6 +38,7 @@ import { makeMemos } from './memos';
 import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
 import { makePins } from './pins';
+import { asPrintDone, makePrint } from './print';
 import { makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
 import { search } from './search';
 import { makeSeats } from './seats';
@@ -88,6 +90,7 @@ function main(): void {
   const masters = makeMasters(pins);
   const lrs = makeLrs(pins, masters);
   const memos = makeMemos(pins);
+  const printing = makePrint(pins, memos);
   const dashboard = makeDashboard();
   const events = makeEvents();
   const seats = makeSeats();
@@ -311,6 +314,7 @@ function main(): void {
       '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
       '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/create', '/memos/get', '/memos/by-date',
       '/memos/list', '/memos/edit', '/memos/remove-lrs', '/memos/move-lrs', '/memos/add-lrs', '/memos/recalculate', '/memos/cancel', '/memos/history',
+      '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/set-company',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -523,6 +527,34 @@ function main(): void {
       } else if (!r.ok && r.code === 'memo-conflict') {
         log('memo-conflict', { seat, taken: r.taken?.length ?? 0 });
       }
+      return sendResult(res, r);
+    }
+
+    // Printing (3.3): what a printout carries (reads, no trace), the audit row of a print that went through, the company lines.
+    if (url.startsWith('/print/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/print/company') r = ok(printing.company(db));
+        else if (url === '/print/set-company') {
+          const input = body.input !== null && typeof body.input === 'object' && !Array.isArray(body.input) ? (body.input as PrintCompany) : ({} as PrintCompany);
+          r = printing.setCompany(db, seat, input, typeof body.adminPin === 'string' ? body.adminPin : '');
+        } else if (url === '/print/done') {
+          const done = asPrintDone(body);
+          if (!done) return send(res, 400, { error: 'kind, id and how required' });
+          r = printing.done(db, seat, done);
+        } else if (typeof body.id !== 'number' || !Number.isInteger(body.id)) return send(res, 400, { error: 'id required' });
+        else r = url === '/print/memo' ? printing.memo(db, body.id) : printing.lr(db, body.id);
+      } catch (e) {
+        log('print-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      // Never the PIN or the company lines: the route, the seat and the outcome.
+      if (r.ok && url === '/print/done') log('print-done', { seat, kind: body.kind, id: body.id, how: body.how });
+      else if (r.ok && url === '/print/set-company') {
+        log('company-saved', { seat });
+        events.publish(['settings']);
+      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) log('pin-refused', { url, seat, code: r.code, wait: r.detail });
       return sendResult(res, r);
     }
 

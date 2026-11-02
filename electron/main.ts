@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path from 'node:path';
 import { initKeeperBridge } from './keeperBridge';
+import { initPrint } from './print';
 import { loadKeys, saveKeys } from './seatKeys';
 import { initUpdater } from './updater';
 
@@ -68,7 +69,9 @@ if (!app.requestSingleInstanceLock()) {
     const userData = app.getPath('userData');
     ipcMain.handle('seat:keys-get', () => loadKeys(userData));
     ipcMain.handle('seat:keys-set', (_e, keys: unknown) => saveKeys(userData, keys));
-    initUpdater(initKeeperBridge(userData));
+    const bridge = initKeeperBridge(userData);
+    initUpdater(bridge);
+    initPrint(bridge);
     mainWindow = createWindow();
   });
 }

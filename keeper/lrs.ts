@@ -303,7 +303,7 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
       const rows = db
         .prepare(
           `SELECT at, seat, action, before_json AS before, after_json AS after FROM audit_log
-           WHERE entity = 'lrs' AND entity_id = ? ORDER BY at DESC, id DESC LIMIT ${HISTORY_LIMIT}`,
+           WHERE entity = 'lrs' AND entity_id = ? AND action NOT LIKE 'print.%' ORDER BY at DESC, id DESC LIMIT ${HISTORY_LIMIT}`,
         )
         .all(String(id)) as { at: string; seat: string; action: string; before: string | null; after: string | null }[];
       const stationName = (sid: unknown) => (db.prepare('SELECT name FROM stations WHERE id = ?').get(sid) as { name: string } | undefined)?.name;

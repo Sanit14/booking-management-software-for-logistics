@@ -5,22 +5,29 @@ import { strings } from '../strings';
 import styles from './Toast.module.css';
 
 type Kind = 'success' | 'error' | 'warning' | 'info';
+/** A button inside a toast, such as Print on "Challan 13 saved". Pressing it also closes the toast. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
 interface Toast {
   id: number;
   kind: Kind;
   title: string;
   detail?: string;
+  action?: ToastAction;
 }
 
 const AUTO_HIDE_MS = 4000; // success and info only; errors and warnings stay until closed
+const AUTO_HIDE_WITH_ACTION_MS = 10000; // long enough to reach for the button
 const MAX_SHOWN = 4; // repeated errors must not pile up off the screen: the oldest goes
 const icons = { success: Check, error: X, warning: TriangleAlert, info: Info };
 
 interface Api {
-  success: (title: string, detail?: string) => void;
-  error: (title: string, detail?: string) => void;
-  warning: (title: string, detail?: string) => void;
-  info: (title: string, detail?: string) => void;
+  success: (title: string, detail?: string, action?: ToastAction) => void;
+  error: (title: string, detail?: string, action?: ToastAction) => void;
+  warning: (title: string, detail?: string, action?: ToastAction) => void;
+  info: (title: string, detail?: string, action?: ToastAction) => void;
 }
 
 const ToastContext = createContext<Api | null>(null);
@@ -38,8 +45,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const api = useMemo<Api>(() => {
-    const show = (kind: Kind) => (title: string, detail?: string) =>
-      setToasts((all) => [...all, { id: nextId++, kind, title, detail }].slice(-MAX_SHOWN));
+    const show = (kind: Kind) => (title: string, detail?: string, action?: ToastAction) =>
+      setToasts((all) => [...all, { id: nextId++, kind, title, detail, action }].slice(-MAX_SHOWN));
     return { success: show('success'), error: show('error'), warning: show('warning'), info: show('info') };
   }, []);
 
@@ -77,7 +84,7 @@ function ToastItem({ toast: t, onClose }: { toast: Toast; onClose: () => void })
   // The timer belongs to the toast: it is cleared when the toast is closed or the provider goes away.
   useEffect(() => {
     if (!autoHide) return;
-    const timer = window.setTimeout(onClose, AUTO_HIDE_MS);
+    const timer = window.setTimeout(onClose, t.action ? AUTO_HIDE_WITH_ACTION_MS : AUTO_HIDE_MS);
     return () => window.clearTimeout(timer);
     // onClose is a new function every render; the timer must start once per toast
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,6 +99,18 @@ function ToastItem({ toast: t, onClose }: { toast: Toast; onClose: () => void })
         <strong className={styles.title}>{t.title}</strong>
         {t.detail && <span className={styles.detail}>{t.detail}</span>}
       </span>
+      {t.action && (
+        <button
+          type="button"
+          className={styles.action}
+          onClick={() => {
+            t.action?.onClick();
+            onClose();
+          }}
+        >
+          {t.action.label}
+        </button>
+      )}
       <button type="button" className={styles.close} aria-label={strings.ui.dismiss} onClick={onClose}>
         <X size={16} strokeWidth={2.2} aria-hidden="true" />
       </button>

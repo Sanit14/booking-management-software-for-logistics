@@ -19,6 +19,7 @@ import { useToast } from '../ui/Toast';
 import TypeAhead from '../ui/TypeAhead';
 import { useEnterToNext } from '../ui/useEnterToNext';
 import { useKeys } from '../useKeys';
+import { usePrint } from '../usePrint';
 import LrActions from './LrActions';
 import styles from './LrEntryPage.module.css';
 
@@ -90,6 +91,7 @@ interface Props {
  */
 export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onOpenMemo, onGuard, draftSlot, onSaved }: Props) {
   const toast = useToast();
+  const print = usePrint();
   const { keys } = useKeys();
   const enterToNext = useEnterToNext();
   const nameOf = (id: number) => stations.find((s) => s.id === id)?.name ?? '';
@@ -315,7 +317,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
       if (r.ok) {
         const { row, again } = r.value;
         if (again) toast.info(t.savedAgain(row.lrNo));
-        else toast.success(t.saved(row.lrNo), t.savedDetail(row.consignor, row.consignee, row.toStation));
+        else toast.success(t.saved(row.lrNo), t.savedDetail(row.consignor, row.consignee, row.toStation), { label: strings.print.printLr, onClick: () => void print.lr(row.id, row.lrNo, 'print') });
         try {
           localStorage.setItem(OPTION_KEY, state.option);
         } catch {
@@ -562,6 +564,16 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
               </div>
             ))}
           </dl>
+          {lr && locked && (
+            <div className={styles.printButtons}>
+              <Button small variant="outline" onClick={() => void print.lr(lr.id, lr.lrNo, 'print')}>
+                {strings.print.printLr}
+              </Button>
+              <Button small variant="outline" onClick={() => void print.lr(lr.id, lr.lrNo, 'pdf')}>
+                {strings.print.savePdf}
+              </Button>
+            </div>
+          )}
           {!locked && (
             <Button type="submit" className={styles.save} keyCap={keyLabel(keys.saveLr)} disabled={busy}>
               {busy ? t.saving : t.save}

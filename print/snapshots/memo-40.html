@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Loading memo 13</title>
+<style>
+@page{size:A4 portrait;margin:0}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#fff;color:#000}
+body{font:9pt/1.25 "Times New Roman",Times,serif}
+.page{position:relative;width:210mm;height:296mm;padding:10mm;break-after:page;page-break-after:always}
+.page:last-child{break-after:auto;page-break-after:auto}
+.co{text-align:center}
+.co .name{font-size:14pt;font-weight:bold;line-height:1.2}
+.co div{line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.foot{position:absolute;right:10mm;bottom:10mm}
+.stamp{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-22deg);border:1mm solid #000;padding:2mm 8mm;font:bold 44pt/1 Arial,Helvetica,sans-serif;letter-spacing:2mm;color:transparent;-webkit-text-stroke:.45mm #000;white-space:nowrap}
+table{border-collapse:collapse;table-layout:fixed;width:100%}
+th,td{border:.2mm solid #000;padding:0 1.2mm;text-align:left;vertical-align:middle}
+th{font-weight:bold}
+.n{text-align:right;font-variant-numeric:tabular-nums}
+.memo .co{margin-bottom:2mm}
+.memo .head{text-align:center;font-size:12pt;font-weight:bold;letter-spacing:.5mm;border-top:.4mm solid #000;border-bottom:.4mm solid #000;padding:1mm 0;margin-bottom:2mm}
+.memo .det{display:grid;grid-template-columns:1fr 1fr;column-gap:6mm;row-gap:.8mm;margin-bottom:3mm;font-size:10pt}
+.memo .det div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo .det b{display:inline-block;min-width:30mm}
+.memo .cont{font-size:10pt;font-weight:bold;height:6mm;margin-bottom:2mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo th{height:6.5mm}
+.memo td{height:5.6mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo td.n{overflow:visible;text-overflow:clip}
+.memo .tot{display:flex;gap:6mm;align-items:center;height:6.5mm;padding:0 1.2mm;border:.2mm solid #000;border-top:0}
+.memo .tot .l{flex:1;font-weight:bold}
+.memo .none{height:8mm;text-align:center;font-style:italic}
+.memo .note{margin-top:2mm;font-style:italic}
+.lr .co{margin-bottom:2mm}
+.lr .head{display:flex;justify-content:space-between;align-items:baseline;border-top:.4mm solid #000;border-bottom:.4mm solid #000;padding:1mm 0;margin-bottom:3mm;font-size:11pt}
+.lr .head .t{font-size:12pt;font-weight:bold;letter-spacing:.5mm}
+.lr .cols{display:flex;gap:6mm;align-items:flex-start}
+.lr .l{width:108mm}
+.lr .r{width:76mm}
+.lr td{height:6.4mm;font-size:10pt}
+.lr .l th{width:24mm;font-size:10pt}
+.lr .amt th{text-align:right;font-size:10pt}
+.lr .tot td{font-weight:bold;font-size:11pt;border-top:.5mm solid #000}
+.lr .sign{position:absolute;right:10mm;bottom:12mm;width:60mm;border-top:.3mm solid #000;text-align:center;padding-top:1mm}
+</style>
+</head>
+<body>
+<section class="page memo">
+<div class="co">
+<div class="name">Sundeep Freight Movers</div>
+<div>Station Road, Yavatmal 445001</div>
+<div>Ph 07232 245678</div>
+<div>GSTIN 27ABCDE1234F1Z5</div>
+</div>
+<div class="head">LOADING MEMO</div>
+<div class="det">
+<div>
+<b>Challan No.</b> 13</div>
+<div>
+<b>Date</b> 31-10-2026</div>
+<div>
+<b>Truck No.</b> MH 29 BE 1234</div>
+<div>
+<b>Driver</b> Ramesh Pawar</div>
+<div>
+<b>From</b> Yavatmal</div>
+<div>
+<b>To</b> Nagpur</div>
+<div>
+<b>Truck hire (₹)</b> 4,500.00</div>
+<div>
+<b>Loading hamali (₹)</b> 250.75</div>
+</div>
+<table>
+<colgroup>
+<col style="width:8mm">
+<col style="width:13mm">
+<col style="width:34mm">
+<col style="width:34mm">
+<col style="width:20mm">
+<col style="width:28mm">
+<col style="width:9mm">
+<col style="width:22mm">
+<col style="width:22mm">
+</colgroup>
+<thead>
+<tr>
+<th>Sr</th>
+<th>LR No.</th>
+<th>Consignor</th>
+<th>Consignee</th>
+<th>Destination</th>
+<th>Particular</th>
+<th class="n">Qty</th>
+<th class="n">To pay (₹)</th>
+<th class="n">Paid (₹)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="n">1</td>
+<td class="n">1200</td>
+<td>Shree Ganesh Traders</td>
+<td>Kale Brothers</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">3</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">2</td>
+<td class="n">1201</td>
+<td>Patil Hardware</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">4</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">3</td>
+<td class="n">1202</td>
+<td>Kale Brothers</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">5</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">4</td>
+<td class="n">1203</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">6</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">5</td>
+<td class="n">1204</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Shree Ganesh Traders</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">7</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">6</td>
+<td class="n">1205</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Patil Hardware</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">3</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">7</td>
+<td class="n">1206</td>
+<td>Shree Ganesh Traders</td>
+<td>Kale Brothers</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">4</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">8</td>
+<td class="n">1207</td>
+<td>Patil Hardware</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">5</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">9</td>
+<td class="n">1208</td>
+<td>Kale Brothers</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">6</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">10</td>
+<td class="n">1209</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">7</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">11</td>
+<td class="n">1210</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Shree Ganesh Traders</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">3</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">12</td>
+<td class="n">1211</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Patil Hardware</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">4</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">13</td>
+<td class="n">1212</td>
+<td>Shree Ganesh Traders</td>
+<td>Kale Brothers</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">5</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">14</td>
+<td class="n">1213</td>
+<td>Patil Hardware</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">6</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">15</td>
+<td class="n">1214</td>
+<td>Kale Brothers</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">7</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">16</td>
+<td class="n">1215</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">3</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">17</td>
+<td class="n">1216</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Shree Ganesh Traders</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">4</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">18</td>
+<td class="n">1217</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Patil Hardware</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">5</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">19</td>
+<td class="n">1218</td>
+<td>Shree Ganesh Traders</td>
+<td>Kale Brothers</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">6</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">20</td>
+<td class="n">1219</td>
+<td>Patil Hardware</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">7</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">21</td>
+<td class="n">1220</td>
+<td>Kale Brothers</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">3</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">22</td>
+<td class="n">1221</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">4</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">23</td>
+<td class="n">1222</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Shree Ganesh Traders</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">5</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">24</td>
+<td class="n">1223</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Patil Hardware</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">6</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">25</td>
+<td class="n">1224</td>
+<td>Shree Ganesh Traders</td>
+<td>Kale Brothers</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">7</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">26</td>
+<td class="n">1225</td>
+<td>Patil Hardware</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">3</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">27</td>
+<td class="n">1226</td>
+<td>Kale Brothers</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">4</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">28</td>
+<td class="n">1227</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">5</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">29</td>
+<td class="n">1228</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Shree Ganesh Traders</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">6</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">30</td>
+<td class="n">1229</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">7</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">31</td>
+<td class="n">1230</td>
+<td>Shree Ganesh Traders</td>
+<td>Kale Brothers</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">3</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">32</td>
+<td class="n">1231</td>
+<td>Patil Hardware</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">4</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">33</td>
+<td class="n">1232</td>
+<td>Kale Brothers</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">5</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">34</td>
+<td class="n">1233</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">6</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">35</td>
+<td class="n">1234</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Shree Ganesh Traders</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">7</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+</tbody>
+</table>
+<div class="foot">Page 1 of 2</div>
+</section>
+<section class="page memo">
+<div class="cont">Sundeep Freight Movers — Loading memo 13 (continued)</div>
+<table>
+<colgroup>
+<col style="width:8mm">
+<col style="width:13mm">
+<col style="width:34mm">
+<col style="width:34mm">
+<col style="width:20mm">
+<col style="width:28mm">
+<col style="width:9mm">
+<col style="width:22mm">
+<col style="width:22mm">
+</colgroup>
+<thead>
+<tr>
+<th>Sr</th>
+<th>LR No.</th>
+<th>Consignor</th>
+<th>Consignee</th>
+<th>Destination</th>
+<th>Particular</th>
+<th class="n">Qty</th>
+<th class="n">To pay (₹)</th>
+<th class="n">Paid (₹)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="n">36</td>
+<td class="n">1235</td>
+<td>Rathod &lt;Steel&gt; &quot;House&quot;</td>
+<td>Patil Hardware</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">3</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">37</td>
+<td class="n">1236</td>
+<td>Shree Ganesh Traders</td>
+<td>Kale Brothers</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">4</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">38</td>
+<td class="n">1237</td>
+<td>Patil Hardware</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">5</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+<tr>
+<td class="n">39</td>
+<td class="n">1238</td>
+<td>Kale Brothers</td>
+<td>Deshmukh Agro Industries Private Limited</td>
+<td>Nagpur</td>
+<td>Hardware &amp; fittings</td>
+<td class="n">6</td>
+<td class="n">1,800.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td class="n">40</td>
+<td class="n">1239</td>
+<td>Jain Cloth Stores &amp; Sons</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Nagpur</td>
+<td>Cloth bales</td>
+<td class="n">7</td>
+<td class="n">–</td>
+<td class="n">2,500.50</td>
+</tr>
+</tbody>
+</table>
+<div class="tot">
+<span class="l">Total · LRs: 40</span>
+<span>Qty <b>200</b>
+</span>
+<span>To pay (₹) <b>1,23,456.00</b>
+</span>
+<span>Paid (₹) <b>9,87,654.50</b>
+</span>
+</div>
+<div class="note">LRs changed after saving — recalculate to update totals</div>
+<div class="foot">Page 2 of 2</div>
+</section>
+</body>
+</html>

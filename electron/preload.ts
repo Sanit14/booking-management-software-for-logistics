@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { KeeperApi, KeysApi, UpdateApi, UpdateState } from '../shared';
+import type { KeeperApi, KeysApi, PrintApi, UpdateApi, UpdateState } from '../shared';
 
 // A sandboxed preload cannot call app.getVersion(); main passes it as an argument.
 const PREFIX = '--app-version=';
@@ -80,6 +80,10 @@ const keeper: KeeperApi = {
     cancel: (id, version, reason, pin) => ipcRenderer.invoke('keeper:memos-cancel', id, version, reason, pin),
     history: (id) => ipcRenderer.invoke('keeper:memos-history', id),
   },
+  print: {
+    company: () => ipcRenderer.invoke('keeper:print-company'),
+    setCompany: (input, adminPin) => ipcRenderer.invoke('keeper:print-set-company', input, adminPin),
+  },
   search: (text) => ipcRenderer.invoke('keeper:search', text),
 };
 
@@ -102,4 +106,9 @@ const keys: KeysApi = {
   set: (map) => ipcRenderer.invoke('seat:keys-set', map),
 };
 
-contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update, keys });
+const print: PrintApi = {
+  memo: (id, how) => ipcRenderer.invoke('print:memo', id, how),
+  lr: (id, how) => ipcRenderer.invoke('print:lr', id, how),
+};
+
+contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update, keys, print });

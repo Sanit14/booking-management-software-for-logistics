@@ -7,5 +7,6 @@ interface Window {
     keeper: import('../shared').KeeperApi;
     update: import('../shared').UpdateApi;
     keys: import('../shared').KeysApi;
+    print: import('../shared').PrintApi;
   };
 }

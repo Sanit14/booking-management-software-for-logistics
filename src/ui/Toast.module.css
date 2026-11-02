@@ -83,3 +83,20 @@
 .close:hover {
   background: var(--bg);
 }
+
+.action {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-15);
+  font-weight: 600;
+  cursor: pointer;
+}
+.action:hover {
+  background: var(--bg);
+}

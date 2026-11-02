@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Loading memo 13</title>
+<style>
+@page{size:A4 portrait;margin:0}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#fff;color:#000}
+body{font:9pt/1.25 "Times New Roman",Times,serif}
+.page{position:relative;width:210mm;height:296mm;padding:10mm;break-after:page;page-break-after:always}
+.page:last-child{break-after:auto;page-break-after:auto}
+.co{text-align:center}
+.co .name{font-size:14pt;font-weight:bold;line-height:1.2}
+.co div{line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.foot{position:absolute;right:10mm;bottom:10mm}
+.stamp{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-22deg);border:1mm solid #000;padding:2mm 8mm;font:bold 44pt/1 Arial,Helvetica,sans-serif;letter-spacing:2mm;color:transparent;-webkit-text-stroke:.45mm #000;white-space:nowrap}
+table{border-collapse:collapse;table-layout:fixed;width:100%}
+th,td{border:.2mm solid #000;padding:0 1.2mm;text-align:left;vertical-align:middle}
+th{font-weight:bold}
+.n{text-align:right;font-variant-numeric:tabular-nums}
+.memo .co{margin-bottom:2mm}
+.memo .head{text-align:center;font-size:12pt;font-weight:bold;letter-spacing:.5mm;border-top:.4mm solid #000;border-bottom:.4mm solid #000;padding:1mm 0;margin-bottom:2mm}
+.memo .det{display:grid;grid-template-columns:1fr 1fr;column-gap:6mm;row-gap:.8mm;margin-bottom:3mm;font-size:10pt}
+.memo .det div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo .det b{display:inline-block;min-width:30mm}
+.memo .cont{font-size:10pt;font-weight:bold;height:6mm;margin-bottom:2mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo th{height:6.5mm}
+.memo td{height:5.6mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo td.n{overflow:visible;text-overflow:clip}
+.memo .tot{display:flex;gap:6mm;align-items:center;height:6.5mm;padding:0 1.2mm;border:.2mm solid #000;border-top:0}
+.memo .tot .l{flex:1;font-weight:bold}
+.memo .none{height:8mm;text-align:center;font-style:italic}
+.memo .note{margin-top:2mm;font-style:italic}
+.lr .co{margin-bottom:2mm}
+.lr .head{display:flex;justify-content:space-between;align-items:baseline;border-top:.4mm solid #000;border-bottom:.4mm solid #000;padding:1mm 0;margin-bottom:3mm;font-size:11pt}
+.lr .head .t{font-size:12pt;font-weight:bold;letter-spacing:.5mm}
+.lr .cols{display:flex;gap:6mm;align-items:flex-start}
+.lr .l{width:108mm}
+.lr .r{width:76mm}
+.lr td{height:6.4mm;font-size:10pt}
+.lr .l th{width:24mm;font-size:10pt}
+.lr .amt th{text-align:right;font-size:10pt}
+.lr .tot td{font-weight:bold;font-size:11pt;border-top:.5mm solid #000}
+.lr .sign{position:absolute;right:10mm;bottom:12mm;width:60mm;border-top:.3mm solid #000;text-align:center;padding-top:1mm}
+</style>
+</head>
+<body>
+<section class="page memo">
+<div class="co">
+<div class="name">Sundeep Freight Movers</div>
+<div>Station Road, Yavatmal 445001</div>
+<div>Ph 07232 245678</div>
+<div>GSTIN 27ABCDE1234F1Z5</div>
+</div>
+<div class="head">LOADING MEMO</div>
+<div class="det">
+<div>
+<b>Challan No.</b> 13</div>
+<div>
+<b>Date</b> 31-10-2026</div>
+<div>
+<b>Truck No.</b> MH 29 BE 1234</div>
+<div>
+<b>Driver</b> Ramesh Pawar</div>
+<div>
+<b>From</b> Yavatmal</div>
+<div>
+<b>To</b> Nagpur</div>
+<div>
+<b>Truck hire (₹)</b> 4,500.00</div>
+<div>
+<b>Loading hamali (₹)</b> 250.75</div>
+</div>
+<table>
+<colgroup>
+<col style="width:8mm">
+<col style="width:13mm">
+<col style="width:34mm">
+<col style="width:34mm">
+<col style="width:20mm">
+<col style="width:28mm">
+<col style="width:9mm">
+<col style="width:22mm">
+<col style="width:22mm">
+</colgroup>
+<thead>
+<tr>
+<th>Sr</th>
+<th>LR No.</th>
+<th>Consignor</th>
+<th>Consignee</th>
+<th>Destination</th>
+<th>Particular</th>
+<th class="n">Qty</th>
+<th class="n">To pay (₹)</th>
+<th class="n">Paid (₹)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="none" colspan="9">No LRs on this memo</td>
+</tr>
+</tbody>
+</table>
+<div class="tot">
+<span class="l">Total · LRs: 3</span>
+<span>Qty <b>9</b>
+</span>
+<span>To pay (₹) <b>1,000.00</b>
+</span>
+<span>Paid (₹) <b>0.00</b>
+</span>
+</div>
+<div class="foot">Page 1 of 1</div>
+<div class="stamp">CANCELLED</div>
+</section>
+</body>
+</html>

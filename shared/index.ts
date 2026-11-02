@@ -2,3 +2,4 @@
 export * from './keeper';
 export * from './update';
 export * from './keys';
+export * from './print';

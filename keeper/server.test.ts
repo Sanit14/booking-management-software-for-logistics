@@ -959,3 +959,68 @@ test('keeper: one seat takes an LR off a memo while another adds it to a differe
   assert.match(log, /\tmemo-cancelled\t/);
   for (const secret of ['4831', '7295', 'Wrong truck', 'Ramesh', 'MH 29']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
 }));
+
+// --- printing ----------------------------------------------------------------------------------------------------
+
+test('keeper: printing over the real routes - the memo and LR as printed, the company lines behind the Admin PIN, the audit of a print that went through; reads and prints raise no event; no PIN or company text in the log', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { from, to, input } = await seed(port);
+  const truck = (await masters(port, 'create', { kind: 'trucks', fields: { number: 'MH 29 BE 1234' } })).value.id as number;
+  const driver = (await masters(port, 'create', { kind: 'drivers', fields: { name: 'Ramesh Pawar' } })).value.id as number;
+  const lrIds: number[] = [];
+  for (let i = 0; i < 2; i++) lrIds.push((await lrCall(port, '/lrs/create', { input: input() })).value.row.id);
+  const memo = (await lrCall(port, '/memos/create', { input: { uid: 'print-memo', date: null, truckId: truck, driverId: driver, fromStationId: from, toStationId: to, truckHire: '4,500', loadingHamali: '', lrIds } })).value;
+  const call = (url: string, body: Record<string, unknown>, seat = 'counter-1') => lrCall(port, url, body, seat);
+  const COMPANY = { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal', phone: '07232 245678', gstin: '' };
+
+  const a = listen(port, 'counter-1');
+  const b = listen(port, 'counter-2');
+  try {
+    await until('both streams to connect', () => a.got.length >= 1 && b.got.length >= 1);
+    a.got.length = 0;
+    b.got.length = 0;
+
+    const printed = await call('/print/memo', { id: memo.id });
+    assert.deepEqual([printed.ok, printed.value.rows.length, printed.value.totals, printed.value.truckHire, printed.value.company.name], [true, 2, { lrs: 2, qty: 6, toPay: '3,600.00', paid: '0.00' }, '4,500.00', 'Sundeep Freight Movers']);
+    const lr = await call('/print/lr', { id: lrIds[0] });
+    // 1,800 freight + 5 + 5 + 2 + 30 charges + 5 % tax on the freight (90) = 1,932
+    assert.deepEqual([lr.value.mode, lr.value.freight, lr.value.stax, lr.value.total, lr.value.consignee], ['topay', '1,800.00', '90.00', '1,932.00', 'Kale Brothers']);
+
+    assert.equal((await call('/print/memo', {})).status, 400);
+    assert.equal((await call('/print/lr', { id: 'x' })).status, 400);
+    assert.equal((await call('/print/done', { kind: 'memo', id: memo.id })).status, 400);
+    assert.equal((await call('/print/done', { kind: 'memo', id: memo.id, how: 'email' })).status, 400);
+    assert.deepEqual([(await call('/print/memo', { id: 999 })).code, (await call('/print/lr', { id: 999 })).code, (await call('/print/done', { kind: 'lr', id: 999, how: 'print' })).code], ['memo-missing', 'lr-missing', 'lr-missing']);
+    assert.equal((await call('/print/done', { kind: 'memo', id: memo.id, how: 'print' }, 'counter-2')).ok, true);
+    assert.equal((await call('/print/done', { kind: 'lr', id: lrIds[0], how: 'pdf' }, 'counter-2')).ok, true);
+
+    // The company lines: Admin PIN only; a refusal changes nothing and raises no event.
+    assert.equal((await call('/print/set-company', { input: COMPANY, adminPin: '0000' })).code, 'wrong-pin');
+    assert.equal((await call('/print/set-company', { input: COMPANY, adminPin: '7295' })).code, 'wrong-pin', 'the System PIN is not the Admin PIN');
+    const bad = await call('/print/set-company', { input: { ...COMPANY, name: '  ' }, adminPin: '4831' });
+    assert.deepEqual([bad.status, bad.code, bad.detail], [409, 'company-invalid', 'name']);
+    assert.equal((await call('/print/set-company', { adminPin: '4831' })).code, 'company-invalid', 'a body without lines is refused, not saved');
+    assert.equal((await call('/print/company', {})).value.address, '');
+    await sleep(400);
+    assert.deepEqual([a.got.length, b.got.length], [0, 0], 'reads, prints and refusals raise no event');
+
+    const saved = await call('/print/set-company', { input: COMPANY, adminPin: '4831' }, 'counter-2');
+    assert.deepEqual([saved.ok, saved.value], [true, COMPANY]);
+    await until('the settings event on both seats', () => a.got.length >= 1 && b.got.length >= 1);
+    assert.deepEqual([a.got[0].tables, b.got[0].tables], [['settings'], ['settings']]);
+    assert.equal((await call('/print/memo', { id: memo.id })).value.company.address, 'Station Road, Yavatmal');
+    assert.equal((await call('/print/company', {})).value.phone, '07232 245678');
+  } finally {
+    a.stop();
+    b.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  assert.match(log, /\tprint-done\t/);
+  assert.match(log, /\tcompany-saved\t/);
+  for (const secret of ['4831', '7295', 'Station Road', '07232', 'Kale Brothers']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+}));

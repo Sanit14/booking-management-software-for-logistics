@@ -34,6 +34,7 @@ import {
   type PendingPage,
   type PendingStation,
   type PendingTotals,
+  type PrintCompany,
   type RecentLr,
   type RestorePreview,
   type RootRefusal,
@@ -277,6 +278,9 @@ export function initKeeperBridge(userDataDir: string) {
     call<MemoDetail>('POST', '/memos/cancel', { id, version, reason: text(reason), adminPin: text(pin) }),
   );
   ipcMain.handle('keeper:memos-history', (_e, id: unknown) => call<MemoHistoryEntry[]>('POST', '/memos/history', { id }));
+  // Company lines on printouts (3.3): the Admin PIN is checked by the keeper. What a printout carries is fetched by electron/print.ts, not by the screen.
+  ipcMain.handle('keeper:print-company', () => call<PrintCompany>('POST', '/print/company'));
+  ipcMain.handle('keeper:print-set-company', (_e, input: unknown, pin: unknown) => call<PrintCompany>('POST', '/print/set-company', { input, adminPin: text(pin) }));
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

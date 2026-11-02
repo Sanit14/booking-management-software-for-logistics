@@ -111,3 +111,8 @@
   font-weight: 700;
   color: var(--danger);
 }
+
+/* A text box that fills the card (the card lines up its content to the left). */
+.stretch {
+  align-self: stretch;
+}

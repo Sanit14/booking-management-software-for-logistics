@@ -275,11 +275,18 @@
 }
 
 /* ---- a saved memo, read-only (in a dialog) ---- */
-.viewHead {
+.viewTop {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin: 0 0 8px;
+}
+.viewHead {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
   color: var(--teal-dark);
   font-size: var(--fs-17);
   font-weight: 800;

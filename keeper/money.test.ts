@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chargesFor, lrAmounts, parsePercent, parseRupees, percentText, taxPaise, type ChargeRule, type LrMoney } from './money';
+import { chargesFor, inr, lrAmounts, parsePercent, parseRupees, percentText, taxPaise, type ChargeRule, type LrMoney } from './money';
+
+test('inr: Indian grouping with two decimals, as printed on paper', () => {
+  assert.equal(inr(0), '0.00');
+  assert.equal(inr(5), '0.05');
+  assert.equal(inr(99999), '999.99');
+  assert.equal(inr(100000), '1,000.00');
+  assert.equal(inr(12345678), '1,23,456.78');
+  assert.equal(inr(123456789), '12,34,567.89');
+  assert.equal(inr(1234567890000), '12,34,56,78,900.00');
+  assert.equal(inr(parseRupees('1,250.50')), '1,250.50'); // what parseRupees reads, inr writes back
+});
+
+test('inr: refuses what is not whole, non-negative paise', () => {
+  for (const bad of [-1, 1.5, NaN, Infinity]) assert.throws(() => inr(bad), /invalid/, String(bad));
+});
 
 test('parsePercent: a percentage with at most 2 decimals becomes basis points; empty is 0', () => {
   assert.equal(parsePercent(''), 0);

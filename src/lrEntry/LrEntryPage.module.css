@@ -159,6 +159,13 @@
 .save {
   flex: 0 0 190px;
 }
+/* An opened LR in view mode: Print LR and Save PDF take the place of Save. */
+.printButtons {
+  display: flex;
+  flex: 0 0 190px;
+  gap: 8px;
+  justify-content: flex-end;
+}
 
 /* The head of the form card: "New LR" and the next number, or an opened LR's number, status and buttons. */
 .head,

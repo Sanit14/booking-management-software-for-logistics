@@ -38,6 +38,13 @@ export function percentText(bp: number): string {
   return `${Math.floor(bp / 100)}${bp % 100 ? `.${String(bp % 100).padStart(2, '0').replace(/0$/, '')}` : ''}`;
 }
 
+/** 123456789 -> "12,34,567.89": the amount as printed on paper, Indian grouping, always two decimals, no sign. */
+export function inr(paise: number): string {
+  const rupees = String(Math.floor(whole(paise, 'amount') / 100));
+  const head = rupees.length > 3 ? `${rupees.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',')},` : '';
+  return `${head}${rupees.slice(-3)}.${String(paise % 100).padStart(2, '0')}`;
+}
+
 /** Service tax on `basePaise` at `bp` basis points (500 = 5%), rounded half up. The only tax code. */
 export function taxPaise(basePaise: number, bp: number): number {
   whole(basePaise, 'tax base');

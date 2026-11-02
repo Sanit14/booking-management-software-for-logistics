@@ -14,6 +14,7 @@ import Table from '../ui/Table';
 import { useToast } from '../ui/Toast';
 import TypeAhead, { type Option } from '../ui/TypeAhead';
 import { useKeeperData } from '../useKeeperData';
+import { usePrint } from '../usePrint';
 import { lrColumns, rupees } from './columns';
 import styles from './LoadingMemoPage.module.css';
 import MemoHistory from './MemoHistory';
@@ -84,6 +85,7 @@ interface Props {
  */
 export default function MemoView({ id, masters, today, oldestPending }: Props) {
   const toast = useToast();
+  const print = usePrint();
   const memo = useKeeperData<MemoDetail | null>(() => window.bm.keeper.memos.get(id), ['memos', 'lrs'], null, [id]).data;
   const [step, setStep] = useState<Step>(null);
   const [ticks, setTicks] = useState<Ticks>(new Set()); // LRs on this memo picked for Remove / Move
@@ -210,11 +212,19 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
   const lrRows: MemoLrRow[] = memo.lrs;
   return (
     <>
-      <h3 className={styles.viewHead}>
-        {t.viewHead(memo.challanNo, isoToDisplay(memo.date))}
-        <Chip kind={memo.status} />
-        {memo.differs && <Chip kind="differs" />}
-      </h3>
+      <div className={styles.viewTop}>
+        <h3 className={styles.viewHead}>
+          {t.viewHead(memo.challanNo, isoToDisplay(memo.date))}
+          <Chip kind={memo.status} />
+          {memo.differs && <Chip kind="differs" />}
+        </h3>
+        <Button small variant="outline" onClick={() => void print.memo(memo.id, memo.challanNo, 'print')}>
+          {strings.print.print}
+        </Button>
+        <Button small variant="outline" onClick={() => void print.memo(memo.id, memo.challanNo, 'pdf')}>
+          {strings.print.savePdf}
+        </Button>
+      </div>
       <dl className={styles.details}>
         {(
           [

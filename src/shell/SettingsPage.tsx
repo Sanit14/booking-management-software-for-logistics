@@ -5,6 +5,7 @@ import Button from '../ui/Button';
 import { Card } from '../ui/Card';
 import { useToast } from '../ui/Toast';
 import Page from './Page';
+import CompanyCard from './CompanyCard';
 import KeysCard from './KeysCard';
 import LrDefaultsCard from './LrDefaultsCard';
 import PinsCard from './PinsCard';
@@ -46,6 +47,7 @@ export default function SettingsPage({ health, onExported, onComponents }: { hea
         </Card>
         <PinsCard />
         <LrDefaultsCard />
+        <CompanyCard />
         <KeysCard />
         <UpdateCard />
         <Card title={strings.settings.backupTitle}>

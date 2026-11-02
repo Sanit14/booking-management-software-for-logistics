@@ -16,6 +16,7 @@ import TypeAhead, { type Option } from '../ui/TypeAhead';
 import { useEnterToNext } from '../ui/useEnterToNext';
 import { useKeeperData } from '../useKeeperData';
 import { useKeys } from '../useKeys';
+import { usePrint } from '../usePrint';
 import { rupees } from './columns';
 import styles from './LoadingMemoPage.module.css';
 import TakenDialog from './TakenDialog';
@@ -50,6 +51,7 @@ interface Props {
  */
 export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTaken, onOpen }: Props) {
   const toast = useToast();
+  const print = usePrint();
   const { keys } = useKeys();
   const enterToNext = useEnterToNext();
   const form = useRef<HTMLFormElement>(null);
@@ -168,9 +170,9 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
         lrIds: ids,
       });
       if (!r.ok) return handleRefusal(r);
-      const { challanNo, lrCount, again } = r.value;
+      const { id, challanNo, lrCount, again } = r.value;
       if (again) toast.info(t.savedAgain(challanNo));
-      else toast.success(t.saved(challanNo), t.savedDetail(lrCount));
+      else toast.success(t.saved(challanNo), t.savedDetail(lrCount), { label: strings.print.print, onClick: () => void print.memo(id, challanNo, 'print') });
       // Ready for the next truck: the date and From stay, everything about this truck goes.
       attempt.current = { key: '', uid: crypto.randomUUID() };
       setTruck(noBox);
