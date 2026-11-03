@@ -69,6 +69,8 @@ end and print the owner's PowerShell steps in this order: inside the worktree `g
 `git log -1` (confirm the commit exists); then from the main folder `git merge <branch>`, `git log -1` (confirm
 the merge), and only then `git worktree remove <path>` (**never `--force`**: it deletes uncommitted work — the
 first 1.7 attempt was lost this way), `git branch -d <branch>`, `npm install`, `npm run postinstall`.
+End every session's steps with `git push` and `gh run list --limit 3` (the owner pushes after every session and
+checks the GitHub run is green before the next one).
 
 ## Out of scope until after launch
 Agent page, booking-side wasuli rules (v1 copies DM's Wasuli page), the LR website, any cloud sync.
