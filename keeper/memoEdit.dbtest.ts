@@ -474,11 +474,12 @@ test('speed: the saved-memos list answers in under 100 ms over 5 000 memos, and 
   const lrs = Array.from({ length: 200 }, () => book(s));
   const m = saved(create(s, lrs.map((l) => l.id)));
   const ids = lrs.slice(0, 100).map((l) => l.id);
-  const t2 = fastest(3, () => {
+  const t2 = fastest(5, () => {
     got(s.memos.removeLrs(s.db, 'seat-1', m.id, ids, SYSTEM));
     got(s.memos.addLrs(s.db, 'seat-1', m.id, ids, SYSTEM));
   });
-  // each change checks the System PIN with scrypt (about 170 ms by design): the budget is for the rest
-  const pinMs = fastest(3, () => s.pins.verify(s.db, 'system', SYSTEM));
+  // each change checks the System PIN with scrypt (about 170 ms by design): the budget is for the rest.
+  // Fastest of 5 like the other speed budgets: a busy PC (the Stop hook's check next to another job) slows one run, not all five.
+  const pinMs = fastest(5, () => s.pins.verify(s.db, 'system', SYSTEM));
   assert.ok(t2 - 2 * pinMs < 100, `remove + add took ${t2.toFixed(1)} ms with two PIN checks of ${pinMs.toFixed(1)} ms`);
 });
