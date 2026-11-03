@@ -21,5 +21,15 @@ jobs:
       # better-sqlite3 for Electron 22 (the tests spawn the keeper as Electron-as-node). `npm ci` runs it too;
       # the explicit step is the card's and costs a minute (HANDOFF 1.5: a fresh install once left the wrong build).
       - run: npm run postinstall
-      - run: npm run check
+      # `npm run check` step by step, in its order, WITHOUT its last step (`npm run test:electron`, the real-Electron print test):
+      # Electron 22 cannot load any page on GitHub's Windows Server 2025 runner (every load fails with ERR_FAILED -2, cause never found),
+      # so that step is red there whatever the code does. It still runs in `npm run check` on the dev PC, which is its proof.
+      # If the `check` script in package.json changes, change this list with it.
+      - run: npm run typecheck
+      - run: npx eslint . --max-warnings 0
+      - run: npm run clean:node
+      - run: npm run build:node
+      - run: node --test
+        working-directory: dist-electron
+      - run: npm run test:db
       - run: npm run dist
