@@ -95,6 +95,13 @@ const keeper: KeeperApi = {
     uncollect: (row, pin) => ipcRenderer.invoke('keeper:wasuli-uncollect', row, pin),
     remark: (row, remark, pin) => ipcRenderer.invoke('keeper:wasuli-remark', row, remark, pin),
   },
+  firms: {
+    accounts: (filters, cursor) => ipcRenderer.invoke('keeper:firms-accounts', filters, cursor),
+    statement: (query, cursor) => ipcRenderer.invoke('keeper:firms-statement', query, cursor),
+    statementTop: (query) => ipcRenderer.invoke('keeper:firms-top', query),
+    kpis: (query) => ipcRenderer.invoke('keeper:firms-kpis', query),
+    months: (firmId, year, role) => ipcRenderer.invoke('keeper:firms-months', firmId, year, role),
+  },
   search: (text) => ipcRenderer.invoke('keeper:search', text),
 };
 
@@ -120,6 +127,7 @@ const keys: KeysApi = {
 const print: PrintApi = {
   memo: (id, how) => ipcRenderer.invoke('print:memo', id, how),
   lr: (id, how) => ipcRenderer.invoke('print:lr', id, how),
+  firmStatement: (query, how) => ipcRenderer.invoke('print:firm-statement', query, how),
 };
 
 contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update, keys, print });

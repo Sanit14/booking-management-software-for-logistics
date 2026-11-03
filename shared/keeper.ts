@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 14;
+export const KEEPER_VERSION = 15;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -645,13 +645,59 @@ export interface PrintLr {
   total: string;
   cancelled: boolean;
 }
-/** A print or a saved PDF that went through: it is written to the audit log. */
+/** One LR line of a printed firm statement. Amounts are text, already formatted by the keeper ('–' = nothing). */
+export interface PrintStatementRow {
+  lrNo: number;
+  /** dd-mm-yyyy */
+  date: string;
+  /** The other party as booked. */
+  party: string;
+  to: string;
+  qty: number;
+  toPay: string;
+  paid: string;
+  /** Charges + service tax. */
+  chargesTax: string;
+  total: string;
+}
+/** A statement carries at most this many LRs on paper (the print page is one data: URL, which Chromium refuses above 2 MB); more asks for a shorter period. */
+export const MAX_STATEMENT_PRINT_ROWS = 1000;
+/** Exactly what a firm statement prints: text only. Totals are for the whole period, the same as the screen's. */
+export interface PrintFirmStatement {
+  company: PrintCompany;
+  firm: string;
+  role: FirmRole;
+  /** dd-mm-yyyy */
+  from: string;
+  to: string;
+  /** By (date, LR number). */
+  rows: PrintStatementRow[];
+  totals: {
+    lrs: number;
+    qty: number;
+    toPay: string;
+    paid: string;
+    charges: string;
+    stax: string;
+    total: string;
+    /** The wasuli amounts of these LRs and what came in; the paper shows the line only when something is owed. */
+    wasuliOwed: string;
+    wasuliCollected: string;
+    hasWasuli: boolean;
+  };
+}
+/** A print or a saved PDF that went through: it is written to the audit log. A firm statement names the period and role it was printed for (`id` is the firm). */
 export interface PrintDone {
-  kind: 'memo' | 'lr';
+  kind: 'memo' | 'lr' | 'firm';
   id: number;
   how: 'print' | 'pdf';
+  from?: string;
+  to?: string;
+  role?: FirmRole;
 }
-export type PrintRefusal = 'company-invalid'; // `detail`: the box to fix (name, address, phone, gstin)
+export type PrintRefusal =
+  | 'company-invalid' // `detail`: the box to fix (name, address, phone, gstin)
+  | 'print-too-long'; // a statement over MAX_STATEMENT_PRINT_ROWS LRs; `detail`: how many it has
 
 export type LrRefusal =
   | 'lr-invalid' // `fields`: what to fix
@@ -755,6 +801,134 @@ export type WasuliRefusal =
   | 'wasuli-invalid' // `wasuliFields`: what to fix
   | 'wasuli-stale' // `wasuli`: the rows as they are now (a removed row is not there); nothing was changed
   | 'wasuli-missing'; // find: detail `no-lr` (no such LR) or `no-wasuli` (the LR has no wasuli)
+
+// ---- Firm Accounts (3.5): what a firm sent and received in a period. Read-only; every figure is added up by the keeper ----
+
+/** Which side of the LR the firm is on. `both` = consignor or consignee (an LR with the firm on both sides counts once). */
+export type FirmRole = 'both' | 'consignor' | 'consignee';
+/** A period, both days included (YYYY-MM-DD). */
+export interface FirmRange {
+  from: string;
+  to: string;
+}
+/** The firm list's filters. `period` set = only firms with a (non-cancelled) LR dated in it. */
+export interface FirmAccountFilters {
+  text: string;
+  stationId: number | null;
+  showInactive: boolean;
+  period: FirmRange | null;
+}
+/** One firm with the LRs it has had, whatever the dates (cancelled LRs left out). */
+export interface FirmAccountRow {
+  id: number;
+  name: string;
+  station: string | null;
+  phone: string;
+  active: boolean;
+  asConsignor: number;
+  asConsignee: number;
+  lastLrDate: string | null;
+}
+/** Firms are listed by name; the next page starts after this name key. */
+export interface FirmAccountCursor {
+  key: string;
+}
+/** 100 firms, `next` null at the end; `count` is for the whole filter. */
+export interface FirmAccountPage {
+  rows: FirmAccountRow[];
+  next: FirmAccountCursor | null;
+  count: number;
+}
+/** What every statement read is asked for: one firm, a period, a role. */
+export interface StatementQuery extends FirmRange {
+  firmId: number;
+  role: FirmRole;
+}
+/** One LR of the statement. Money in paise; `totalPaise` = freight + charges + service tax (the same on a To pay and a Paid LR). */
+export interface StatementRow {
+  lrId: number;
+  lrNo: number;
+  lrYear: number;
+  date: string;
+  /** The side(s) the firm is on in this LR. */
+  role: FirmRole;
+  /** The other party as booked: the consignee when the firm is the consignor, else the consignor. */
+  party: string;
+  fromStation: string;
+  toStation: string;
+  particular: string;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+  chargesPaise: number;
+  staxPaise: number;
+  totalPaise: number;
+  status: 'booked' | 'loaded';
+  /** The memo the LR is on (to open it) and its challan number. */
+  memoId: number | null;
+  challanNo: number | null;
+  /** The LR's wasuli row, if it has one: its state, what is owed and what came in. */
+  wasuliStatus: WasuliStatus | null;
+  wasuliPaise: number;
+  wasuliCollectedPaise: number;
+}
+/** The whole period (not just the rows loaded). `wasuliOwedPaise` = the wasuli amounts of these LRs, collected or not. */
+export interface StatementTotals {
+  lrs: number;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+  chargesPaise: number;
+  staxPaise: number;
+  totalPaise: number;
+  wasuliOwedPaise: number;
+  wasuliCollectedPaise: number;
+}
+/** The next page starts after this LR (date, then number: a date fixes the year). */
+export interface StatementCursor {
+  date: string;
+  no: number;
+}
+/** 100 rows by (date, LR number), `next` null at the end, and the totals of the whole period. */
+export interface StatementPage {
+  rows: StatementRow[];
+  next: StatementCursor | null;
+  totals: StatementTotals;
+}
+export interface TopItem {
+  name: string;
+  lrs: number;
+}
+/** The five most frequent of each, with their LR counts. */
+export interface StatementTop {
+  parties: TopItem[];
+  stations: TopItem[];
+  trucks: TopItem[];
+}
+/** What the KPI cards show. `trips` = distinct saved memos the LRs are on; freight = to pay + paid. */
+export interface FirmFigures {
+  lrs: number;
+  trips: number;
+  qty: number;
+  freightPaise: number;
+  totalPaise: number;
+  wasuliCollectedPaise: number;
+}
+/** The period, the period of the same length just before it, and the growth % of each figure (null when the figure before was 0). */
+export interface FirmKpis {
+  range: FirmRange;
+  previous: FirmRange;
+  now: FirmFigures;
+  before: FirmFigures;
+  growth: Record<keyof FirmFigures, number | null>;
+}
+/** One month of the growth chart. `growth` = freight against the month before; null when that was 0, and for the month in progress and later ones. */
+export interface FirmMonth {
+  month: string; // YYYY-MM
+  lrs: number;
+  freightPaise: number;
+  growth: number | null;
+}
 
 export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | WasuliRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**
@@ -908,6 +1082,20 @@ export interface KeeperApi {
     collect(row: WasuliSeen, input: WasuliCollectInput): Promise<KeeperResult<WasuliChanged>>;
     uncollect(row: WasuliSeen, systemPin: string): Promise<KeeperResult<WasuliChanged>>;
     remark(row: WasuliSeen, remark: string, systemPin: string): Promise<KeeperResult<WasuliChanged>>;
+  };
+  /**
+   * Firm Accounts: what a firm sent and received. Reads only (no event, nothing written); the period is both days included, by LR date.
+   * An unknown firm answers `master-missing`.
+   */
+  firms: {
+    /** Every firm (active and inactive), by name, 100 a page: pass the previous page's `next` for the following one. */
+    accounts(filters: FirmAccountFilters, cursor: FirmAccountCursor | null): Promise<KeeperResult<FirmAccountPage>>;
+    /** The firm's non-cancelled LRs in the period by (date, number), 100 a page, with the totals of the whole period. */
+    statement(query: StatementQuery, cursor: StatementCursor | null): Promise<KeeperResult<StatementPage>>;
+    statementTop(query: StatementQuery): Promise<KeeperResult<StatementTop>>;
+    kpis(query: StatementQuery): Promise<KeeperResult<FirmKpis>>;
+    /** The 12 months of a calendar year. */
+    months(firmId: number, year: number, role: FirmRole): Promise<KeeperResult<FirmMonth[]>>;
   };
   /** One box for LR number, challan number, firm, truck and station: a few of each, never a generic query. */
   search(text: string): Promise<KeeperResult<SearchAnswer>>;

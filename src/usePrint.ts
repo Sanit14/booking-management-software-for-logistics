@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { PrintDone } from '../shared';
+import type { PrintDone, StatementQuery } from '../shared';
 import { strings } from './strings';
 import { useToast } from './ui/Toast';
 
@@ -27,6 +27,7 @@ export function usePrint() {
     return {
       memo: (id: number, challanNo: number, how: PrintDone['how']) => run(() => window.bm.print.memo(id, how), strings.print.memoSent(challanNo)),
       lr: (id: number, lrNo: number, how: PrintDone['how']) => run(() => window.bm.print.lr(id, how), strings.print.lrSent(lrNo)),
+      firmStatement: (query: StatementQuery, firm: string, how: PrintDone['how']) => run(() => window.bm.print.firmStatement(query, how), strings.print.statementSent(firm)),
     };
   }, [toast]);
 }

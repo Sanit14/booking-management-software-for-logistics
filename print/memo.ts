@@ -13,14 +13,15 @@ export const TOTALS_ROWS = 3;
 
 /**
  * How many rows go on each sheet. The last sheet always has room for the totals and at least one row (the totals never sit
- * alone); a memo with no rows is one sheet. Always at least one sheet.
+ * alone); a memo with no rows is one sheet. Always at least one sheet. The capacities are the memo's unless another printout
+ * (the firm statement) says its own.
  */
-export function paginate(rows: number): number[] {
+export function paginate(rows: number, firstRows = FIRST_ROWS, nextRows = NEXT_ROWS, totalsRows = TOTALS_ROWS): number[] {
   const sizes: number[] = [];
   let left = rows;
   for (let sheet = 0; ; sheet++) {
-    const capacity = sheet === 0 ? FIRST_ROWS : NEXT_ROWS;
-    if (left <= capacity - TOTALS_ROWS) {
+    const capacity = sheet === 0 ? firstRows : nextRows;
+    if (left <= capacity - totalsRows) {
       sizes.push(left);
       return sizes;
     }

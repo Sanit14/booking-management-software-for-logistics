@@ -8,10 +8,12 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { BrowserWindow, app } from 'electron';
+import { MAX_STATEMENT_PRINT_ROWS } from '../shared';
 import { lrHtml } from '../print/lr';
 import { FIRST_ROWS, NEXT_ROWS, TOTALS_ROWS, memoHtml, paginate } from '../print/memo';
+import { STATEMENT_FIRST_ROWS, STATEMENT_NEXT_ROWS, STATEMENT_TOTALS_ROWS, paginateStatement, statementHtml } from '../print/statement';
 import { A4, A5_LANDSCAPE, type PageSpec } from '../print/template';
-import { sampleLr, sampleMemo } from '../print/testing';
+import { sampleLr, sampleMemo, sampleStatement } from '../print/testing';
 import { renderPdf, withPage } from './print';
 
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'bm-print-test-')));
@@ -59,6 +61,22 @@ async function overrun(html: string): Promise<number> {
       return worst;
     })()`);
     return (px as number) / (96 / 25.4);
+  } finally {
+    win.destroy();
+  }
+}
+/**
+ * The cells of a statement that were cut: a ruled line is one line, so a column too narrow for its figure ends it in "…" (or runs over its
+ * neighbour). Only the party and To may be cut (a long name); the LR number, date, quantity and every amount must show whole.
+ */
+async function cutCells(html: string): Promise<string[]> {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    return (await win.webContents.executeJavaScript(`[...document.querySelectorAll('.stmt tbody tr')]
+      .flatMap((tr) => [...tr.children].map((td, i) => ({ td, i })))
+      .filter(({ td, i }) => i !== 2 && i !== 3 && td.scrollWidth > td.clientWidth + 0.5)
+      .map(({ td, i }) => i + ':' + td.textContent)`)) as string[];
   } finally {
     win.destroy();
   }
@@ -144,6 +162,48 @@ void app.whenReady().then(async () => {
       const html = memoHtml(sampleMemo(n, { ...worst, differs: true }));
       assert.equal(sheets(await pdfOf(`memo-long-${n}`, html, A4)), paginate(n).length);
       await noOverrun(`memo-long-${n}`, html);
+    });
+  }
+
+  // A firm statement (3.5): the same proof as the memo — the sheet count is the template's, nothing runs into the footer — with the
+  // tallest totals block (the wasuli line) and the longest lines, at every edge of every sheet, up to the most one printout carries.
+  const statementWorst = (n: number) => {
+    const base = sampleStatement(n);
+    return {
+      ...base,
+      firm: long,
+      company: worst.company,
+      rows: base.rows.map((r, i) => (i % 3 === 0 ? { ...r, party: long, to: long } : r)),
+      totals: { ...base.totals, hasWasuli: true, wasuliOwed: '12,34,567.89', wasuliCollected: '1,23,456.78' },
+    };
+  };
+  await check('a 1-LR statement is one A4 portrait sheet', async () => {
+    const html = statementHtml(sampleStatement(1));
+    const pdf = await pdfOf('statement-1', html, A4);
+    assert.equal(sheets(pdf), 1);
+    const [w, h] = size(pdf);
+    near(w, 595);
+    near(h, 842);
+    await noOverrun('statement-1', html);
+  });
+  await check('a statement shows a 6-digit LR number, a date, a 3-digit quantity and amounts up to 9,99,999.99 (12,34,567.89 in Total) whole', async () => {
+    const base = sampleStatement(12);
+    const widest = { ...base, rows: base.rows.map((r) => ({ ...r, lrNo: 109999, date: '31-12-2026', qty: 120, toPay: '9,99,999.99', paid: '9,99,999.99', chargesTax: '99,999.99', total: '12,34,567.89' })) };
+    assert.deepEqual(await cutCells(statementHtml(widest)), []);
+    // the check can see a cut: the first version of the Date column (17 mm) cut every date
+    const html = statementHtml(widest).replace('<col style="width:20mm">', '<col style="width:12mm">');
+    assert.ok((await cutCells(html)).length > 0, 'a 12 mm Date column is cut');
+  });
+  await check('a 60-LR statement is two sheets (header row on each, totals on the last)', async () => {
+    assert.equal(paginateStatement(60).length, 2);
+    assert.equal(sheets(await pdfOf('statement-60', statementHtml(sampleStatement(60)), A4)), 2);
+  });
+  const S = { first: STATEMENT_FIRST_ROWS, next: STATEMENT_NEXT_ROWS, totals: STATEMENT_TOTALS_ROWS };
+  for (const n of [0, S.first - S.totals, S.first - S.totals + 1, S.first, S.first + 1, S.first + S.next - S.totals, S.first + S.next - S.totals + 1, S.first + S.next, S.first + S.next + 1, 150, MAX_STATEMENT_PRINT_ROWS]) {
+    await check(`a statement of ${n} LRs (longest lines, wasuli line): the PDF has the ${paginateStatement(n).length} sheet(s) the template made`, async () => {
+      const html = statementHtml(statementWorst(n));
+      assert.equal(sheets(await pdfOf(`statement-${n}`, html, A4)), paginateStatement(n).length);
+      await noOverrun(`statement-${n}`, html);
     });
   }
 

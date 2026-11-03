@@ -1,9 +1,22 @@
 // Printing (3.3): the keeper answers with exactly what is printed, every amount already formatted (`inr`), so the template
 // does no maths. Memo totals are the ones frozen when the memo was saved. Reads write nothing; a print or a saved PDF that
 // went through is written to the audit log by `done`, and the company lines are changed with the Admin PIN.
-import { MAX_MEMO_LRS, type KeeperResult, type PrintCompany, type PrintDone, type PrintLr, type PrintMemo, type ResultCode } from '../shared';
+import {
+  MAX_MEMO_LRS,
+  MAX_STATEMENT_PRINT_ROWS,
+  type KeeperResult,
+  type PrintCompany,
+  type PrintDone,
+  type PrintFirmStatement,
+  type PrintLr,
+  type PrintMemo,
+  type ResultCode,
+  type StatementQuery,
+} from '../shared';
 import { writeAudit } from './audit';
 import type { Db } from './db';
+import type { makeFirmAccounts } from './firmAccounts';
+import { asRange, asRole } from './firmRules';
 import type { makeMemos } from './memos';
 import { inr, lrAmounts, percentText, type LrMoney } from './money';
 import type { makePins } from './pins';
@@ -37,15 +50,26 @@ interface LrPrintRow extends LrMoney {
   status: string;
 }
 
-/** The body of /print/done: a memo or an LR, its id, and whether it was printed or saved as a PDF; null when it is anything else. */
+/**
+ * The body of /print/done: a memo, an LR or a firm statement, its id, and whether it was printed or saved as a PDF; null when it is
+ * anything else. A firm statement also names its period and role (it is a different printout for each).
+ */
 export function asPrintDone(v: unknown): PrintDone | null {
   const o = (v !== null && typeof v === 'object' ? v : {}) as Record<string, unknown>;
-  const kind = o.kind === 'memo' || o.kind === 'lr' ? o.kind : null;
+  const kind = o.kind === 'memo' || o.kind === 'lr' || o.kind === 'firm' ? o.kind : null;
   const how = o.how === 'print' || o.how === 'pdf' ? o.how : null;
-  return kind && how && typeof o.id === 'number' && Number.isInteger(o.id) ? { kind, id: o.id, how } : null;
+  if (!kind || !how || typeof o.id !== 'number' || !Number.isInteger(o.id)) return null;
+  if (kind !== 'firm') return { kind, id: o.id, how };
+  const range = asRange(o);
+  const role = asRole(o.role);
+  return range && role ? { kind, id: o.id, how, ...range, role } : null;
 }
 
-export function makePrint(pins: Pick<ReturnType<typeof makePins>, 'verify'>, memos: Pick<ReturnType<typeof makeMemos>, 'get'>) {
+export function makePrint(
+  pins: Pick<ReturnType<typeof makePins>, 'verify'>,
+  memos: Pick<ReturnType<typeof makeMemos>, 'get'>,
+  firms: Pick<ReturnType<typeof makeFirmAccounts>, 'statement'>,
+) {
   const company = (db: Db): PrintCompany => {
     const get = (key: string) => (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
     return { name: get(COMPANY_KEYS.name) || DEFAULT_NAME, address: get(COMPANY_KEYS.address) ?? '', phone: get(COMPANY_KEYS.phone) ?? '', gstin: get(COMPANY_KEYS.gstin) ?? '' };
@@ -139,11 +163,47 @@ export function makePrint(pins: Pick<ReturnType<typeof makePins>, 'verify'>, mem
       });
     },
 
-    /** A print or a saved PDF went through: one audit row (`print.memo` / `print.lr`). A cancelled Windows dialog never gets here. */
+    /**
+     * A firm's statement for a period, whole (not one page): the LRs by (date, number), every amount formatted, the totals of the
+     * period. Refused above MAX_STATEMENT_PRINT_ROWS LRs (`detail` = how many): the print page is one data: URL.
+     */
+    firmStatement(db: Db, q: StatementQuery): KeeperResult<PrintFirmStatement> {
+      const firm = db.prepare('SELECT name FROM firms WHERE id = ?').get(q.firmId) as { name: string } | undefined;
+      if (!firm) return refuse('master-missing');
+      const first = firms.statement(db, q, null);
+      if (!first.ok) return first;
+      const t = first.value.totals;
+      if (t.lrs > MAX_STATEMENT_PRINT_ROWS) return refuse('print-too-long', { detail: String(t.lrs) });
+      const rows = [...first.value.rows];
+      for (let next = first.value.next; next; ) {
+        const more = firms.statement(db, q, next);
+        if (!more.ok) return more;
+        rows.push(...more.value.rows);
+        next = more.value.next;
+      }
+      return ok({
+        company: company(db),
+        firm: firm.name,
+        role: q.role,
+        from: display(q.from),
+        to: display(q.to),
+        rows: rows.map((r) => ({
+          lrNo: r.lrNo, date: display(r.date), party: r.party, to: r.toStation, qty: r.qty,
+          toPay: dash(r.toPayPaise), paid: dash(r.paidPaise), chargesTax: dash(r.chargesPaise + r.staxPaise), total: inr(r.totalPaise),
+        })),
+        totals: {
+          lrs: t.lrs, qty: t.qty, toPay: inr(t.toPayPaise), paid: inr(t.paidPaise), charges: inr(t.chargesPaise), stax: inr(t.staxPaise), total: inr(t.totalPaise),
+          wasuliOwed: inr(t.wasuliOwedPaise), wasuliCollected: inr(t.wasuliCollectedPaise), hasWasuli: t.wasuliOwedPaise > 0,
+        },
+      });
+    },
+
+    /** A print or a saved PDF went through: one audit row (`print.memo` / `print.lr` / `print.firm`). A cancelled Windows dialog never gets here. */
     done(db: Db, seat: string, d: PrintDone): KeeperResult<true> {
-      const table = d.kind === 'memo' ? 'memos' : 'lrs';
-      if (db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(d.id) === undefined) return refuse(d.kind === 'memo' ? 'memo-missing' : 'lr-missing');
-      db.transaction(() => writeAudit(db, { seat, action: `print.${d.kind}`, entity: table, entityId: d.id, after: { how: d.how } }))();
+      const table = d.kind === 'memo' ? 'memos' : d.kind === 'lr' ? 'lrs' : 'firms';
+      if (db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(d.id) === undefined) return refuse(d.kind === 'memo' ? 'memo-missing' : d.kind === 'lr' ? 'lr-missing' : 'master-missing');
+      const after = d.kind === 'firm' ? { how: d.how, from: d.from, to: d.to, role: d.role } : { how: d.how };
+      db.transaction(() => writeAudit(db, { seat, action: `print.${d.kind}`, entity: table, entityId: d.id, after }))();
       return ok(true);
     },
   };

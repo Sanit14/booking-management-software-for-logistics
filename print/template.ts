@@ -63,9 +63,9 @@ th{font-weight:bold}
 `;
 };
 
-/** A complete page for the print window: `body` is the pages (`<section class="page …">`), one per sheet. */
-export function pageDocument(title: string, spec: PageSpec, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${css(spec)}</style></head><body>${body}</body></html>`;
+/** A complete page for the print window: `body` is the pages (`<section class="page …">`), one per sheet. `extraCss` is the printout's own rules, after the shared ones. */
+export function pageDocument(title: string, spec: PageSpec, body: string, extraCss = ''): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${css(spec)}${extraCss}</style></head><body>${body}</body></html>`;
 }
 
 /** The company lines at the top of a page: the name, then the address, phone and GSTIN lines that are not empty. */

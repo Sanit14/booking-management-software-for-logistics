@@ -2,11 +2,12 @@
 // Printing (3.3): what a memo and an LR print, the company lines, and the audit row of every print.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { KeeperResult, PrintCompany } from '../shared';
+import { MAX_STATEMENT_PRINT_ROWS, type KeeperResult, type PrintCompany } from '../shared';
 import { inr, lrAmounts, type LrMoney } from './money';
-import { ADMIN, SYSTEM, book, create, refused, saved, setUp, type Set } from './memoTesting';
+import { makeFirmAccounts } from './firmAccounts';
+import { ADMIN, SYSTEM, book, create, now, refused, saved, setUp, type Set } from './memoTesting';
 import { makePrint } from './print';
-import { fastest } from './testing';
+import { fastest, insertLr } from './testing';
 
 const got = <T>(r: KeeperResult<T>): T => {
   assert.ok(r.ok, r.ok ? '' : `${r.code} ${r.detail ?? ''}`);
@@ -15,7 +16,7 @@ const got = <T>(r: KeeperResult<T>): T => {
 const n = (s: Set, table: string) => (s.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
 const setup = () => {
   const s = setUp();
-  return { s, print: makePrint(s.pins, s.memos) };
+  return { s, print: makePrint(s.pins, s.memos, makeFirmAccounts(now)) };
 };
 const audits = (s: Set, action: string) =>
   s.db.prepare('SELECT seat, entity, entity_id AS entityId, after_json AS after FROM audit_log WHERE action = ? ORDER BY id').all(action) as {
@@ -142,7 +143,107 @@ test('print.lr: an LR that is not there is refused', () => {
   assert.equal(refused(print.lr(s.db, 999)).code, 'lr-missing');
 });
 
+// ---- a firm statement ----
+
+const party = (firmId: number) => ({ firmId, name: '', addToFirms: false });
+const OCT = { from: '2026-10-01', to: '2026-10-31' };
+/** A = Shree Ganesh Traders, B = Patil Hardware. Worked by hand: a 1,900.50 · b 2,062.76 · c 350.00 (B to A, wasuli 500) · d 100.00. */
+function firmWorld() {
+  const w = setup();
+  const [A, B] = [w.s.ganesh, w.s.patil];
+  const a = book(w.s, { date: '2026-10-05', qty: '3', toPay: '1,800', godownBhada: '10.50', staxPercent: '5', consignor: party(A), consignee: party(B) });
+  const b = book(w.s, { date: '2026-10-10', qty: '2', toPay: '', paid: '2,000.50', hamali: '12.25', staxPercent: '2.5', consignor: party(A), consignee: party(B) });
+  const c = book(w.s, { date: '2026-10-12', qty: '5', toPay: '333.33', wasuli: '500', staxPercent: '5', consignor: party(B), consignee: party(A) });
+  const d = book(w.s, { date: '2026-10-15', qty: '1', toPay: '100', consignor: party(A), consignee: party(B) });
+  return { ...w, A, B, a, b, c, d };
+}
+
+test('print.firmStatement: the firm, the period and the LRs by date, every amount as formatted text (a dash for nothing)', () => {
+  const { s, print, A, a, b, c, d } = firmWorld();
+  const p = got(print.firmStatement(s.db, { firmId: A, role: 'both', ...OCT }));
+  assert.deepEqual([p.firm, p.role, p.from, p.to], ['Shree Ganesh Traders', 'both', '01-10-2026', '31-10-2026']);
+  assert.equal(p.company.name, 'Sundeep Freight Movers');
+  assert.deepEqual(p.rows.map((r) => r.lrNo), [a.no, b.no, c.no, d.no]);
+  assert.deepEqual(p.rows[0], { lrNo: a.no, date: '05-10-2026', party: 'Patil Hardware', to: 'Nagpur', qty: 3, toPay: '1,800.00', paid: '–', chargesTax: '100.50', total: '1,900.50' });
+  assert.deepEqual([p.rows[1].toPay, p.rows[1].paid, p.rows[1].chargesTax, p.rows[1].total], ['–', '2,000.50', '62.26', '2,062.76'], 'charges 12.25 + tax 50.01');
+  assert.deepEqual([p.rows[2].party, p.rows[2].chargesTax, p.rows[2].total], ['Patil Hardware', '16.67', '350.00'], 'LR c: the other party is its consignor');
+  assert.deepEqual([p.rows[3].chargesTax, p.rows[3].total], ['–', '100.00'], 'no charges, no tax');
+  assert.deepEqual(p.totals, {
+    lrs: 4, qty: 11, toPay: '2,233.33', paid: '2,000.50', charges: '22.75', stax: '156.68', total: '4,413.26', wasuliOwed: '500.00', wasuliCollected: '0.00', hasWasuli: true,
+  });
+});
+
+test('print.firmStatement: each row is lrAmounts formatted, and the printed totals are the sums of the unrounded rows', () => {
+  const { s, print, A } = firmWorld();
+  const p = got(print.firmStatement(s.db, { firmId: A, role: 'both', ...OCT }));
+  const lrs = s.db.prepare("SELECT * FROM lrs WHERE lr_date BETWEEN '2026-10-01' AND '2026-10-31' ORDER BY lr_date, lr_no").all() as (LrMoney & { lr_no: number })[];
+  p.rows.forEach((r, i) => {
+    const m = lrAmounts(lrs[i]);
+    assert.equal(r.total, inr(m.total), `LR ${r.lrNo}`);
+    assert.equal(r.chargesTax, m.charges + m.stax > 0 ? inr(m.charges + m.stax) : '–');
+  });
+  const sum = lrs.reduce((t, l) => t + lrAmounts(l).total, 0);
+  assert.equal(p.totals.total, inr(sum));
+});
+
+test('print.firmStatement: the role narrows it, and a statement with nothing owed has no wasuli line', () => {
+  const { s, print, A, B } = firmWorld();
+  const consignor = got(print.firmStatement(s.db, { firmId: A, role: 'consignor', ...OCT }));
+  assert.equal(consignor.rows.length, 3);
+  assert.deepEqual([consignor.totals.hasWasuli, consignor.totals.wasuliOwed], [false, '0.00']);
+  const consignee = got(print.firmStatement(s.db, { firmId: A, role: 'consignee', ...OCT }));
+  assert.deepEqual(consignee.rows.map((r) => r.total), ['350.00']);
+  assert.equal(consignee.totals.hasWasuli, true);
+  const empty = got(print.firmStatement(s.db, { firmId: B, role: 'both', from: '2026-02-01', to: '2026-02-28' }));
+  assert.deepEqual([empty.rows.length, empty.totals.lrs, empty.totals.total, empty.totals.toPay], [0, 0, '0.00', '0.00']);
+});
+
+test('print.firmStatement: the whole period is read, not one page of 100; 1,000 LRs print and 1,001 are refused with their number', () => {
+  const { s, print, A } = firmWorld();
+  const extra = MAX_STATEMENT_PRINT_ROWS - 4;
+  for (let i = 0; i < extra; i++) insertLr(s.db, { consignor_id: A, lr_date: '2026-10-20', lr_no: 7000 + i, topay_paise: 100 });
+  const p = got(print.firmStatement(s.db, { firmId: A, role: 'consignor', ...OCT }));
+  assert.equal(p.rows.length, MAX_STATEMENT_PRINT_ROWS - 1, 'a, b, d and the extra ones (c is the other side)');
+  insertLr(s.db, { consignor_id: A, lr_date: '2026-10-20', lr_no: 9000, topay_paise: 100 });
+  const exactly = got(print.firmStatement(s.db, { firmId: A, role: 'consignor', ...OCT }));
+  assert.equal(exactly.rows.length, MAX_STATEMENT_PRINT_ROWS);
+  assert.equal(exactly.totals.lrs, MAX_STATEMENT_PRINT_ROWS);
+  const lastNo = exactly.rows[exactly.rows.length - 1].lrNo;
+  assert.equal(lastNo, 9000, 'by date, then number');
+  insertLr(s.db, { consignor_id: A, lr_date: '2026-10-20', lr_no: 9001, topay_paise: 100 });
+  const tooLong = refused(print.firmStatement(s.db, { firmId: A, role: 'consignor', ...OCT }));
+  assert.deepEqual([tooLong.code, tooLong.detail], ['print-too-long', String(MAX_STATEMENT_PRINT_ROWS + 1)]);
+  assert.equal(got(print.firmStatement(s.db, { firmId: A, role: 'consignor', from: '2026-10-21', to: '2026-10-31' })).rows.length, 0, 'a shorter period prints');
+});
+
+test('print.firmStatement: a firm that is not there is refused and nothing is written', () => {
+  const { s, print } = firmWorld();
+  const before = n(s, 'audit_log');
+  assert.equal(refused(print.firmStatement(s.db, { firmId: 999, role: 'both', ...OCT })).code, 'master-missing');
+  assert.equal(n(s, 'audit_log'), before);
+});
+
+test('print.firmStatement: 1,000 LRs are read in well under 300 ms', () => {
+  const { s, print, A } = firmWorld();
+  for (let i = 0; i < MAX_STATEMENT_PRINT_ROWS - 4; i++) insertLr(s.db, { consignor_id: A, lr_date: '2026-10-20', lr_no: 7000 + i, topay_paise: 100 });
+  assert.equal(got(print.firmStatement(s.db, { firmId: A, role: 'both', ...OCT })).rows.length, MAX_STATEMENT_PRINT_ROWS);
+  assert.ok(fastest(5, () => print.firmStatement(s.db, { firmId: A, role: 'both', ...OCT })) < 300);
+});
+
 // ---- the audit row ----
+
+test('done: a firm statement writes print.firm with the firm, how, the period and the role; none for a firm that is not there', () => {
+  const { s, print, A } = firmWorld();
+  got(print.done(s.db, 'PC02', { kind: 'firm', id: A, how: 'pdf', ...OCT, role: 'consignee' }));
+  got(print.done(s.db, 'PC03', { kind: 'firm', id: A, how: 'print', from: '2026-10-05', to: '2026-10-05', role: 'both' }));
+  assert.deepEqual(audits(s, 'print.firm').map((r) => [r.seat, r.entity, r.entityId, JSON.parse(r.after as string)]), [
+    ['PC02', 'firms', String(A), { how: 'pdf', ...OCT, role: 'consignee' }],
+    ['PC03', 'firms', String(A), { how: 'print', from: '2026-10-05', to: '2026-10-05', role: 'both' }],
+  ]);
+  const before = n(s, 'audit_log');
+  assert.equal(refused(print.done(s.db, 'PC02', { kind: 'firm', id: 999, how: 'print', ...OCT, role: 'both' })).code, 'master-missing');
+  assert.equal(n(s, 'audit_log'), before);
+});
 
 test('done: one audit row per print or saved PDF, with the seat, the id and how; none for a memo or LR that is not there', () => {
   const { s, print } = setup();

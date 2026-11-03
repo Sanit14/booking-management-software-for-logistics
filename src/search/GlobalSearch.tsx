@@ -19,7 +19,7 @@ interface Props {
   keyCap?: string;
 }
 
-function RowText({ row }: { row: Row }) {
+function RowText({ row, onPick }: { row: Row; onPick: (jump: Jump) => void }) {
   switch (row.group) {
     case 'lr':
       return (
@@ -47,6 +47,22 @@ function RowText({ row }: { row: Row }) {
           <strong className={styles.main}>{row.item.name}</strong>
           <span className={styles.detail}>{row.item.station ?? ''}</span>
           {!row.item.active && <Chip kind="inactive" />}
+          {row.alt && (
+            // The row opens the firm in Masters; this opens its account (Ctrl+Enter does the same from the keyboard).
+            <button
+              type="button"
+              className={styles.account}
+              tabIndex={-1}
+              aria-label={t.accountLabel(row.item.name)}
+              onMouseDown={(e) => e.preventDefault()} // the box keeps the cursor
+              onClick={(e) => {
+                e.stopPropagation();
+                onPick(row.alt as Jump);
+              }}
+            >
+              {t.account}
+            </button>
+          )}
         </>
       );
     case 'truck':
@@ -121,14 +137,15 @@ export default function GlobalSearch({ onPick, floating, keyCap }: Props) {
       e.preventDefault();
       if (typed === '' || e.repeat) return; // a held Enter must not pick again
       if (current) {
-        if (active >= 0) onPick(rows[active].jump);
+        // Ctrl+Enter takes a row's second action (a firm's account) when it has one.
+        if (active >= 0) onPick((e.ctrlKey && rows[active].alt) || rows[active].jump);
       } else {
         // The answer on screen is for older text: ask for what is typed now and take its first result.
         ticket.current++;
         void window.bm.keeper.search(typed).then((r) => {
           if (!alive.current) return; // closed (Esc) before the answer came: nothing to open
           const first = r.ok ? flatten(r.value)[0] : undefined;
-          if (first) onPick(first.jump);
+          if (first) onPick((e.ctrlKey && first.alt) || first.jump);
           else if (!r.ok) toast.error(strings.result(r.code, r.detail));
         });
       }
@@ -184,7 +201,7 @@ export default function GlobalSearch({ onPick, floating, keyCap }: Props) {
                     onMouseMove={() => active !== i && setActive(i)}
                     onClick={() => current && onPick(row.jump)} // rows of older text are not picked
                   >
-                    <RowText row={row} />
+                    <RowText row={row} onPick={(jump) => current && onPick(jump)} />
                   </div>
                 </li>
               ))}

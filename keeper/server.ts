@@ -30,6 +30,8 @@ import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } fro
 import { makeDashboard } from './dashboard';
 import { businessRows, closeDatabase, hasTable, openChecked, raiseMarker, type Db } from './db';
 import { makeEvents } from './events';
+import { makeFirmAccounts } from './firmAccounts';
+import { asAccountCursor, asAccountFilters, asRole, asStatementCursor, asStatementQuery, asYear } from './firmRules';
 import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './guard';
 import { asDefaultsInput, asLrInput } from './lrRules';
 import { makeLog } from './log';
@@ -94,7 +96,8 @@ function main(): void {
   const masters = makeMasters(pins);
   const lrs = makeLrs(pins, masters);
   const memos = makeMemos(pins);
-  const printing = makePrint(pins, memos);
+  const firmAccounts = makeFirmAccounts();
+  const printing = makePrint(pins, memos, firmAccounts);
   const wasuli = makeWasuli(pins);
   const dashboard = makeDashboard();
   const events = makeEvents();
@@ -319,8 +322,9 @@ function main(): void {
       '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
       '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/create', '/memos/get', '/memos/by-date',
       '/memos/list', '/memos/edit', '/memos/remove-lrs', '/memos/move-lrs', '/memos/add-lrs', '/memos/recalculate', '/memos/cancel', '/memos/history',
-      '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/set-company',
+      '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/set-company', '/print/firm-statement',
       '/wasuli/list', '/wasuli/find', '/wasuli/agent-stats', '/wasuli/assign', '/wasuli/reassign', '/wasuli/to-pool', '/wasuli/collect', '/wasuli/uncollect', '/wasuli/remark',
+      '/firms/accounts', '/firms/statement', '/firms/top', '/firms/kpis', '/firms/months',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -580,6 +584,29 @@ function main(): void {
       return sendResult(res, r);
     }
 
+    // Firm Accounts (3.5): reads only — no event, and nothing logged (a firm's name and its amounts are not for the log).
+    if (url.startsWith('/firms/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/firms/accounts') r = firmAccounts.accounts(db, asAccountFilters(body.filters), asAccountCursor(body.cursor));
+        else if (url === '/firms/months') {
+          const year = asYear(body.year);
+          const role = asRole(body.role);
+          if (!year || !role || typeof body.firmId !== 'number' || !Number.isInteger(body.firmId)) return send(res, 400, { error: 'firmId, year and role required' });
+          r = firmAccounts.months(db, body.firmId, year, role);
+        } else {
+          const query = asStatementQuery(body.query);
+          if (!query) return send(res, 400, { error: 'query with a firm, two dates and a role required' });
+          r = url === '/firms/statement' ? firmAccounts.statement(db, query, asStatementCursor(body.cursor)) : url === '/firms/top' ? firmAccounts.statementTop(db, query) : firmAccounts.kpis(db, query);
+        }
+      } catch (e) {
+        log('firms-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      return sendResult(res, r);
+    }
+
     // Printing (3.3): what a printout carries (reads, no trace), the audit row of a print that went through, the company lines.
     if (url.startsWith('/print/')) {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
@@ -591,8 +618,12 @@ function main(): void {
           r = printing.setCompany(db, seat, input, typeof body.adminPin === 'string' ? body.adminPin : '');
         } else if (url === '/print/done') {
           const done = asPrintDone(body);
-          if (!done) return send(res, 400, { error: 'kind, id and how required' });
+          if (!done) return send(res, 400, { error: 'kind, id and how required (a firm statement also its period and role)' });
           r = printing.done(db, seat, done);
+        } else if (url === '/print/firm-statement') {
+          const query = asStatementQuery(body.query);
+          if (!query) return send(res, 400, { error: 'query with a firm, two dates and a role required' });
+          r = printing.firmStatement(db, query);
         } else if (typeof body.id !== 'number' || !Number.isInteger(body.id)) return send(res, 400, { error: 'id required' });
         else r = url === '/print/memo' ? printing.memo(db, body.id) : printing.lr(db, body.id);
       } catch (e) {

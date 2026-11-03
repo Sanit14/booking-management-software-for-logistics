@@ -11,6 +11,9 @@ import {
   KEEPER_VERSION,
   type BackupInfo,
   type DashboardSummary,
+  type FirmAccountPage,
+  type FirmKpis,
+  type FirmMonth,
   type KeeperErrorCode,
   type KeeperPush,
   type KeeperResult,
@@ -39,6 +42,8 @@ import {
   type RestorePreview,
   type RootRefusal,
   type SearchAnswer,
+  type StatementPage,
+  type StatementTop,
   type AgentStat,
   type WasuliChanged,
   type WasuliPage,
@@ -297,6 +302,12 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:wasuli-remark', (_e, row: unknown, remark: unknown, pin: unknown) =>
     call<WasuliChanged>('POST', '/wasuli/remark', { row, remark: text(remark), systemPin: text(pin) }),
   );
+  // Firm Accounts (3.5): reads only; the keeper checks the firm, the dates and the role. Main forwards named arguments.
+  ipcMain.handle('keeper:firms-accounts', (_e, filters: unknown, cursor: unknown) => call<FirmAccountPage>('POST', '/firms/accounts', { filters, cursor }));
+  ipcMain.handle('keeper:firms-statement', (_e, query: unknown, cursor: unknown) => call<StatementPage>('POST', '/firms/statement', { query, cursor }));
+  ipcMain.handle('keeper:firms-top', (_e, query: unknown) => call<StatementTop>('POST', '/firms/top', { query }));
+  ipcMain.handle('keeper:firms-kpis', (_e, query: unknown) => call<FirmKpis>('POST', '/firms/kpis', { query }));
+  ipcMain.handle('keeper:firms-months', (_e, firmId: unknown, year: unknown, role: unknown) => call<FirmMonth[]>('POST', '/firms/months', { firmId, year, role }));
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

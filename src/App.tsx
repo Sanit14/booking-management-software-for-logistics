@@ -3,6 +3,7 @@ import type { DashboardSummary, KeeperStatus } from '../shared';
 import styles from './App.module.css';
 import ComponentsPage from './ComponentsPage';
 import DashboardPage from './dashboard/DashboardPage';
+import FirmAccountsPage from './firmAccounts/FirmAccountsPage';
 import { matches } from './logic/keymap';
 import type { Jump } from './logic/searchResults';
 import LoadingMemoPage from './loadingMemo/LoadingMemoPage';
@@ -24,7 +25,7 @@ import Dialog from './ui/Dialog';
 import { useKeeperData } from './useKeeperData';
 import { useKeys } from './useKeys';
 
-const pageOf = (j: Jump): PageId => (j.to === 'lr' ? 'lrEntry' : j.to === 'master' ? 'masters' : 'loadingMemo');
+const pageOf = (j: Jump): PageId => (j.to === 'lr' ? 'lrEntry' : j.to === 'master' ? 'masters' : j.to === 'account' ? 'firmAccounts' : 'loadingMemo');
 
 // `npm run dev -- --components` opens the Components page straight away, without needing the keeper.
 const COMPONENTS_ONLY = window.location.hash === '#components';
@@ -142,6 +143,8 @@ export default function App() {
           <LoadingMemoPage jump={jump} onJumpUsed={() => setJump(null)} oldestPending={summary?.oldestPending ?? null} />
         ) : page === 'wasuli' ? (
           <WasuliPage />
+        ) : page === 'firmAccounts' ? (
+          <FirmAccountsPage today={summary?.date ?? null} jump={jump} onJumpUsed={() => setJump(null)} onPick={pick} />
         ) : page === 'dashboard' ? (
           <DashboardPage summary={summary} onMakeMemo={() => go('loadingMemo')} onPick={pick} />
         ) : (

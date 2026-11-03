@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PrintLr, PrintMemo, PrintMemoRow } from '../shared';
+import type { PrintFirmStatement, PrintLr, PrintMemo, PrintMemoRow, PrintStatementRow } from '../shared';
 
 const NAMES = ['Shree Ganesh Traders', 'Patil Hardware', 'Kale Brothers', 'Jain Cloth Stores & Sons', 'Deshmukh Agro Industries Private Limited', 'Rathod <Steel> "House"'];
 
@@ -60,6 +60,34 @@ export function sampleLr(over: Partial<PrintLr> = {}): PrintLr {
     stax: '90.00',
     total: '1,919.50',
     cancelled: false,
+    ...over,
+  };
+}
+
+/** A firm statement of `count` LRs. Every tenth LR has a party name too long for its column, so the one-line rule is exercised. */
+export function sampleStatement(count: number, over: Partial<PrintFirmStatement> = {}): PrintFirmStatement {
+  const rows: PrintStatementRow[] = Array.from({ length: count }, (_, i) => ({
+    lrNo: 1200 + i,
+    date: `${String(1 + (i % 28)).padStart(2, '0')}-10-2026`,
+    party: i % 10 === 9 ? 'Maharashtra State Cooperative Marketing Federation Limited, Yavatmal' : NAMES[(i + 2) % NAMES.length],
+    to: i % 4 === 0 ? 'Nagpur' : 'Amravati',
+    qty: 3 + (i % 5),
+    toPay: i % 2 === 0 ? '1,800.00' : '–',
+    paid: i % 2 === 0 ? '–' : '2,500.50',
+    chargesTax: i % 3 === 0 ? '132.00' : '–',
+    total: i % 2 === 0 ? '1,932.00' : '2,632.50',
+  }));
+  return {
+    company: { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5' },
+    firm: 'Shree Ganesh Traders',
+    role: 'both',
+    from: '01-10-2026',
+    to: '31-10-2026',
+    rows,
+    totals: {
+      lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', charges: '12,345.00', stax: '5,678.90', total: '11,29,134.40',
+      wasuliOwed: '0.00', wasuliCollected: '0.00', hasWasuli: false,
+    },
     ...over,
   };
 }

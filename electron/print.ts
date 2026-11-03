@@ -5,9 +5,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, type WebContents } from 'electron';
-import type { KeeperResult, PrintDone, PrintLr, PrintMemo } from '../shared';
+import type { KeeperResult, PrintDone, PrintFirmStatement, PrintLr, PrintMemo, StatementQuery } from '../shared';
+import { asStatementQuery } from '../keeper/firmRules';
 import { lrFileName, lrHtml } from '../print/lr';
 import { memoFileName, memoHtml } from '../print/memo';
+import { statementFileName, statementHtml } from '../print/statement';
 import { A4, A5_LANDSCAPE, type PageSpec } from '../print/template';
 import { strings } from '../src/strings';
 import type { KeeperBridge } from './keeperBridge';
@@ -81,7 +83,8 @@ async function savePdf(page: Page): Promise<Outcome> {
 
 export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
   let busy = false; // a second press (a double click) while a dialog is open would open a second dialog and write a second audit row
-  const run = async (kind: PrintDone['kind'], id: unknown, how: unknown): Promise<Outcome> => {
+  // A firm statement is a different printout for each period and role: `query` says which (its `firmId` is the id).
+  const run = async (kind: PrintDone['kind'], id: unknown, how: unknown, query?: StatementQuery): Promise<Outcome> => {
     if (typeof id !== 'number' || !Number.isInteger(id) || (how !== 'print' && how !== 'pdf')) return { ok: false, code: 'failed', detail: 'bad request' };
     if (busy) return { ok: false, code: 'cancelled' };
     busy = true;
@@ -91,14 +94,18 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
         const data = await bridge.call<PrintMemo>('POST', '/print/memo', { id });
         if (!data.ok) return data;
         page = { html: memoHtml(data.value), spec: A4, fileName: memoFileName(data.value) };
-      } else {
+      } else if (kind === 'lr') {
         const data = await bridge.call<PrintLr>('POST', '/print/lr', { id });
         if (!data.ok) return data;
         page = { html: lrHtml(data.value), spec: A5_LANDSCAPE, fileName: lrFileName(data.value) };
+      } else {
+        const data = await bridge.call<PrintFirmStatement>('POST', '/print/firm-statement', { query });
+        if (!data.ok) return data;
+        page = { html: statementHtml(data.value), spec: A4, fileName: statementFileName(data.value) };
       }
       const outcome = how === 'pdf' ? await savePdf(page) : await sendToPrinter(page);
       // The audit row is for a print that went through; failing to write it does not undo the paper.
-      if (outcome.ok) await bridge.call('POST', '/print/done', { kind, id, how });
+      if (outcome.ok) await bridge.call('POST', '/print/done', query ? { kind, id, how, from: query.from, to: query.to, role: query.role } : { kind, id, how });
       return outcome;
     } catch (e) {
       // Never the message itself: a failed load quotes the page, names included. A file error says only its code (EBUSY, EACCES).
@@ -111,4 +118,8 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
   };
   ipcMain.handle('print:memo', (_e, id: unknown, how: unknown) => run('memo', id, how));
   ipcMain.handle('print:lr', (_e, id: unknown, how: unknown) => run('lr', id, how));
+  ipcMain.handle('print:firm-statement', (_e, query: unknown, how: unknown): Promise<Outcome> => {
+    const q = asStatementQuery(query);
+    return q ? run('firm', q.firmId, how, q) : Promise.resolve({ ok: false, code: 'failed', detail: 'bad request' });
+  });
 }

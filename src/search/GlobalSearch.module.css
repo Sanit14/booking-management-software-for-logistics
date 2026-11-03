@@ -115,3 +115,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A firm row's second action, next to "open in Masters" (the row itself). */
+.account {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  cursor: pointer;
+}
+.account:hover {
+  border-color: var(--teal-dark);
+}

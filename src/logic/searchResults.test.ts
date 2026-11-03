@@ -30,6 +30,11 @@ test('rows come in the order LR, challan, firm, truck, station, each with where 
   assert.equal(new Set(rows.map((r) => r.key)).size, rows.length, 'keys are unique, so a firm and a station with one id do not collide');
 });
 
+test('a firm row also says where its Account action leads; no other row has a second action', () => {
+  const rows = flatten(answer);
+  assert.deepEqual(rows.filter((r) => r.alt).map((r) => [r.group, r.alt]), [['firm', { to: 'account', id: 5 }], ['firm', { to: 'account', id: 6 }]]);
+});
+
 test('a group with nothing in it leaves no rows; an empty answer has none at all', () => {
   assert.deepEqual(flatten({ lrs: [], memos: [], firms: [], trucks: [{ id: 1, number: 'X', active: true }], stations: [] }).map((r) => r.group), ['truck']);
   assert.deepEqual(flatten({ lrs: [], memos: [], firms: [], trucks: [], stations: [] }), []);

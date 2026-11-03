@@ -1162,3 +1162,66 @@ test('keeper: two seats collect the same LR in the same instant - one wins, the 
   assert.match(log, /pin-refused/);
   for (const secret of ['4831', '7295', 'Ramesh', 'Suresh', 'ref-9981', 'ref-7733']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
+
+// --- Firm Accounts -----------------------------------------------------------------------------------------------
+
+test('keeper: Firm Accounts over the real routes - list, statement, top lists, KPIs, months; bad requests are refused; reads raise no event and leave no firm name or amount in the log', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input, firm } = await seed(port);
+  const a = listen(port, 'counter-1');
+  try {
+    await until('the stream to connect', () => a.got.length >= 1);
+    await lrCall(port, '/lrs/create', { input: input() });
+    await lrCall(port, '/lrs/create', { input: input() });
+    await until('the LR events', () => a.got.length >= 3);
+    const today = (await lrCall(port, '/lrs/defaults', { date: null })).value.today as string;
+    const query = { firmId: firm, from: `${today.slice(0, 4)}-01-01`, to: today, role: 'consignor' };
+
+    const list = (await lrCall(port, '/firms/accounts', { filters: {}, cursor: null })).value;
+    assert.deepEqual([list.count, list.next, list.rows.map((r: { name: string; asConsignor: number; asConsignee: number; lastLrDate: string }) => [r.name, r.asConsignor, r.asConsignee, r.lastLrDate])], [1, null, [['Shree Ganesh Traders', 2, 0, today]]]);
+    assert.deepEqual((await lrCall(port, '/firms/accounts', { filters: { text: 'zzz' }, cursor: null })).value.rows, []);
+
+    // Each LR: to pay 1,800.00 + charges 42.00 + tax 5% of 1,800 = 90.00 -> 1,932.00
+    const statement = (await lrCall(port, '/firms/statement', { query, cursor: null })).value;
+    assert.deepEqual(statement.rows.map((r: { party: string; toPayPaise: number; chargesPaise: number; staxPaise: number; totalPaise: number }) => [r.party, r.toPayPaise, r.chargesPaise, r.staxPaise, r.totalPaise]), [
+      ['Kale Brothers', 180000, 4200, 9000, 193200],
+      ['Kale Brothers', 180000, 4200, 9000, 193200],
+    ]);
+    assert.deepEqual([statement.totals.lrs, statement.totals.qty, statement.totals.totalPaise, statement.next], [2, 6, 386400, null]);
+    assert.equal((await lrCall(port, '/firms/statement', { query: { ...query, role: 'consignee' }, cursor: null })).value.totals.lrs, 0, 'Kale Brothers is a walk-in: the firm is not on that side');
+    assert.deepEqual((await lrCall(port, '/firms/top', { query })).value, { parties: [{ name: 'Kale Brothers', lrs: 2 }], stations: [{ name: 'Nagpur', lrs: 2 }], trucks: [] });
+    const kpis = (await lrCall(port, '/firms/kpis', { query })).value;
+    assert.deepEqual([kpis.now.lrs, kpis.now.freightPaise, kpis.before.lrs, kpis.growth.lrs], [2, 360000, 0, null]);
+    const months = (await lrCall(port, '/firms/months', { firmId: firm, year: Number(today.slice(0, 4)), role: 'both' })).value;
+    assert.deepEqual([months.length, months.reduce((n: number, m: { lrs: number }) => n + m.lrs, 0)], [12, 2]);
+
+    // Bad requests are refused before anything is read; an unknown firm is named.
+    for (const [url, body] of [
+      ['/firms/statement', {}], ['/firms/statement', { query: { ...query, role: 'agent' } }], ['/firms/statement', { query: { ...query, from: today, to: '2000-01-01' } }],
+      ['/firms/top', { query: { firmId: 0, from: today, to: today } }], ['/firms/kpis', { query: 'x' }],
+      ['/firms/months', { firmId: firm, year: 1999, role: 'both' }], ['/firms/months', { firmId: firm, year: 2026, role: 'x' }], ['/firms/months', { year: 2026, role: 'both' }],
+    ] as const) assert.equal((await lrCall(port, url, body)).status, 400, `${url} ${JSON.stringify(body)}`);
+    assert.equal((await lrCall(port, '/firms/statement', { query: { ...query, firmId: 99999 }, cursor: null })).code, 'master-missing');
+
+    // The same statement as printed: formatted text, and the audit row of a print that went through. Neither raises an event.
+    const printed = (await lrCall(port, '/print/firm-statement', { query })).value;
+    assert.deepEqual([printed.firm, printed.role, printed.rows.length, printed.rows[0].total, printed.totals.total, printed.totals.hasWasuli], ['Shree Ganesh Traders', 'consignor', 2, '1,932.00', '3,864.00', false]);
+    assert.equal((await lrCall(port, '/print/firm-statement', {})).status, 400);
+    assert.equal((await lrCall(port, '/print/firm-statement', { query: { ...query, firmId: 99999 } })).code, 'master-missing');
+    const done = { kind: 'firm', id: firm, how: 'pdf', from: query.from, to: query.to, role: 'consignor' };
+    assert.equal((await lrCall(port, '/print/done', done)).ok, true);
+    assert.equal((await lrCall(port, '/print/done', { ...done, role: undefined })).status, 400, 'a firm statement names its period and role');
+
+    await sleep(400); // anything wrongly sent would be here by now
+    assert.equal(a.got.length, 3, 'reads raise no event');
+  } finally {
+    a.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  for (const secret of ['Shree Ganesh', 'Kale Brothers', '193200', '386400']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
+}));
