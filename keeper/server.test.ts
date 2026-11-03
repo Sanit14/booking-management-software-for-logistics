@@ -176,6 +176,26 @@ test('keeper: marker + deleted database = safe mode, nothing is created', () => 
 const slow = { timeoutMs: 30000 };
 const post = (port: number, url: string, body: unknown) => callJson(port, 'POST', url, body, slow);
 const logOf = (s: ReturnType<typeof sandbox>) => fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8');
+/**
+ * Whether `secret` is in the log. Text (a name, a remark) counts anywhere in it. A number (a PIN, a phone prefix) counts only as a whole
+ * value (\b4831\b: in a line of text or as a JSON value such as "pin":"4831"), never inside a longer number: a random port, a process id
+ * or a time such as 57295 contains 7295 by chance and is not a leak. The test PINs 4831 and 7295 cannot be a whole value by chance either:
+ * both are odd (a Windows process id is a multiple of 4, a database file size one of 4096), a port always has five digits, 48xx and 72xx are
+ * no time of day (the HHmm of a backup file name), and these tests never count that high.
+ */
+function leaks(log: string, secret: string, ignoreCase = false): boolean {
+  const pattern = /^\d+$/.test(secret) ? `\\b${secret}\\b` : secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(pattern, ignoreCase ? 'i' : '').test(log);
+}
+
+test('leaks: a PIN counts only as a whole value; a port, process id or time that contains its digits by chance is not a leak', () => {
+  for (const line of ['{"pin":"7295"}', '{"systemPin":7295}', 'pin-refused 7295 wrong', 'a\t7295\tb', '/pins/verify?pin=7295', '"7295"']) assert.ok(leaks(line, '7295'), line);
+  for (const line of ['{"port":57295,"pid":172952}', 'port 47295', '2026-11-03T07:29:51.295Z', 'ab7295cd', '72951', '17295']) assert.ok(!leaks(line, '7295'), line);
+  assert.ok(leaks('call 07232 245678', '07232') && !leaks('pid 107232', '07232'), 'a phone prefix is a number too');
+  assert.ok(leaks('saved Kale Brothers', 'Kale Brothers') && !leaks('saved kale brothers', 'Kale Brothers'), 'a name is matched as written');
+  assert.ok(leaks('saved kale brothers', 'Kale Brothers', true), 'or without regard to case');
+  assert.ok(leaks('MH 29 BE 1234', 'MH 29') && leaks('a.b', 'a.b') && !leaks('axb', 'a.b'), 'text is matched literally');
+});
 const backupsIn = (dir: string) => fs.readdirSync(dir).filter((n) => /^booking-\d{8}-\d{4}\.db$/.test(n));
 const beforeRestoreIn = (dir: string) => fs.readdirSync(dir).filter((n) => n.startsWith('booking-before-restore-'));
 type Listing = { ok: true; value: { file: string; damaged: boolean }[] };
@@ -396,7 +416,7 @@ test('keeper: first-run PIN setup is set-once, wrong PINs lock after five, other
   // the PINs and the code are in the database as hashes and in no log
   const log = fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8').split('\n').filter((l) => /pin/i.test(l)).join('\n');
   assert.match(log, /pin-refused/);
-  for (const secret of ['4831', '7295', made.value?.recoveryCode ?? 'x']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', made.value?.recoveryCode ?? 'x']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 // --- masters ---------------------------------------------------------------------------------------------------
@@ -484,7 +504,7 @@ test('keeper: editing a master over the real route needs the System PIN; bad req
   await within(k.exited, 10000);
   const log = logOf(s);
   assert.match(log, /pin-refused/);
-  for (const secret of ['4831', '7295', 'Shree Ganesh']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Shree Ganesh']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 // --- change events and LRs -------------------------------------------------------------------------------------
@@ -650,7 +670,7 @@ test('keeper: two seats edit the same LR - the second is told it changed and not
   const log = logOf(s);
   assert.match(log, /lr-updated/);
   assert.match(log, /pin-refused/);
-  for (const secret of ['4831', '7295', 'Wrong party typed', 'Kale Brothers']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Wrong party typed', 'Kale Brothers']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 test('keeper: a seat\'s stream survives a keeper restart: it reconnects, is told to refetch, and keeps receiving', () => run(async () => {
@@ -716,7 +736,7 @@ test('keeper: LR numbers run 1, 2, 3 with no gap and go on after a restart; 300 
 
   const log = logOf(s);
   assert.match(log, /\tlr-saved\t/);
-  for (const secret of ['4831', '7295', 'Kale Brothers']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Kale Brothers']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
   assert.equal(await shutdown(port), true);
   await within(second.exited, 10000);
 }));
@@ -770,7 +790,7 @@ test('keeper: the Dashboard and the search box answer over the real routes, move
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
   const log = logOf(s);
-  for (const secret of ['shree', 'Kale Brothers', '7295']) assert.ok(!log.toLowerCase().includes(secret.toLowerCase()), `keeper.log holds ${secret}`);
+  for (const secret of ['shree', 'Kale Brothers', '7295']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
 }));
 
 // --- loading memos ---------------------------------------------------------------------------------------------
@@ -869,7 +889,7 @@ test('keeper: two seats make memos with an overlapping LR in the same instant - 
   assert.match(log, /\tmemo-saved\t/);
   assert.match(log, /\tmemo-conflict\t/);
   assert.match(log, /pin-refused/);
-  for (const secret of ['4831', '7295', 'Ramesh', 'MH 29']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Ramesh', 'MH 29']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 // --- saved memos (3.2) -------------------------------------------------------------------------------------------
@@ -957,7 +977,7 @@ test('keeper: one seat takes an LR off a memo while another adds it to a differe
   assert.match(log, /\tmemo-lrs-changed\t/);
   assert.match(log, /\tmemo-edited\t/);
   assert.match(log, /\tmemo-cancelled\t/);
-  for (const secret of ['4831', '7295', 'Wrong truck', 'Ramesh', 'MH 29']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Wrong truck', 'Ramesh', 'MH 29']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 // --- printing ----------------------------------------------------------------------------------------------------
@@ -1022,7 +1042,7 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
   const log = logOf(s);
   assert.match(log, /\tprint-done\t/);
   assert.match(log, /\tcompany-saved\t/);
-  for (const secret of ['4831', '7295', 'Station Road', '07232', 'Kale Brothers']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Station Road', '07232', 'Kale Brothers']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 // --- wasuli (3.4) ------------------------------------------------------------------------------------------------
@@ -1140,5 +1160,5 @@ test('keeper: two seats collect the same LR in the same instant - one wins, the 
   assert.match(log, /\twasuli-changed\t/);
   assert.match(log, /\twasuli-stale\t/);
   assert.match(log, /pin-refused/);
-  for (const secret of ['4831', '7295', 'Ramesh', 'Suresh', 'ref-9981', 'ref-7733']) assert.ok(!log.includes(secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Ramesh', 'Suresh', 'ref-9981', 'ref-7733']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
