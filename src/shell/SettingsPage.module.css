@@ -1,8 +1,18 @@
 .cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* The page itself never scrolls (global.css), so this box does. Rows are their content's height: with a definite height and
+     auto rows, grid would squash the cards (they clip their own overflow) instead of letting this box scroll. */
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 12px;
   align-items: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* A scroll box clips: room for the focus ring (3px + 2px offset) of a control at a card's edge. */
+  padding: 6px;
+  margin: -6px;
 }
 
 .wide {
