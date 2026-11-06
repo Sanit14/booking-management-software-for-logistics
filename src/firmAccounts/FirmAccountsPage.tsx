@@ -11,6 +11,7 @@ import Chip from '../ui/Chip';
 import Field from '../ui/Field';
 import SelectField from '../ui/SelectField';
 import Table, { type Column } from '../ui/Table';
+import { useDebounced } from '../useDebounced';
 import { useKeeperData } from '../useKeeperData';
 import styles from './FirmAccountsPage.module.css';
 import StatementView, { type StatementState } from './StatementView';
@@ -41,15 +42,6 @@ const START: View = {
 };
 // The page is unmounted whenever another page is shown (to open an LR from the account, say): coming back finds the list and the account as they were.
 let last: View = START;
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [shown, setShown] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setShown(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return shown;
-}
 
 const text = (value: string) => (
   <span className={styles.cell} title={value}>
@@ -86,7 +78,9 @@ export default function FirmAccountsPage({ today, jump, onJumpUsed, onPick }: Pr
       if (jump?.to !== 'account') return;
       onJumpUsed();
       const firm = masters.data.firms.find((f) => f.id === jump.id);
-      if (firm) setView((v) => ({ ...v, firm: { id: firm.id, name: firm.name }, statement: START.statement }));
+      // from a Reports row the period comes along, as Custom dates
+      const statement = jump.from && jump.until ? { ...START.statement, preset: 'custom' as const, from: jump.from, to: jump.until } : START.statement;
+      if (firm) setView((v) => ({ ...v, firm: { id: firm.id, name: firm.name }, statement }));
     };
   });
   useEffect(() => {

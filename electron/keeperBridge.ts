@@ -39,6 +39,19 @@ import {
   type PendingTotals,
   type PrintCompany,
   type RecentLr,
+  type ReportAgentRow,
+  type ReportAgentTotals,
+  type ReportDateRow,
+  type ReportFirmRow,
+  type ReportFirmTotals,
+  type ReportLrsPage,
+  type ReportMoney,
+  type ReportPage,
+  type ReportPartyRow,
+  type ReportStationRow,
+  type ReportTruckRow,
+  type ReportTruckTotals,
+  type ReportWithWasuli,
   type RestorePreview,
   type RootRefusal,
   type SearchAnswer,
@@ -308,6 +321,20 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:firms-top', (_e, query: unknown) => call<StatementTop>('POST', '/firms/top', { query }));
   ipcMain.handle('keeper:firms-kpis', (_e, query: unknown) => call<FirmKpis>('POST', '/firms/kpis', { query }));
   ipcMain.handle('keeper:firms-months', (_e, firmId: unknown, year: unknown, role: unknown) => call<FirmMonth[]>('POST', '/firms/months', { firmId, year, role }));
+
+  // Reports (4.1): reads only; the keeper checks the period, the filters and the cursor. Main forwards named arguments.
+  ipcMain.handle('keeper:reports-date-wise', (_e, query: unknown, cursor: unknown) => call<ReportPage<ReportDateRow, ReportMoney>>('POST', '/reports/date-wise', { query, cursor }));
+  ipcMain.handle('keeper:reports-station-wise', (_e, query: unknown, cursor: unknown) => call<ReportPage<ReportStationRow, ReportWithWasuli>>('POST', '/reports/station-wise', { query, cursor }));
+  ipcMain.handle('keeper:reports-party-wise', (_e, side: unknown, query: unknown, cursor: unknown) =>
+    call<ReportPage<ReportPartyRow, ReportWithWasuli>>('POST', '/reports/party-wise', { side, query, cursor }),
+  );
+  ipcMain.handle('keeper:reports-truck-wise', (_e, query: unknown, cursor: unknown) => call<ReportPage<ReportTruckRow, ReportTruckTotals>>('POST', '/reports/truck-wise', { query, cursor }));
+  ipcMain.handle('keeper:reports-firm-wise', (_e, query: unknown, cursor: unknown) => call<ReportPage<ReportFirmRow, ReportFirmTotals>>('POST', '/reports/firm-wise', { query, cursor }));
+  ipcMain.handle('keeper:reports-wasuli', (_e, query: unknown, cursor: unknown) => call<ReportPage<ReportAgentRow, ReportAgentTotals>>('POST', '/reports/wasuli', { query, cursor }));
+  ipcMain.handle('keeper:reports-lrs', (_e, request: unknown, cursor: unknown) => {
+    const r = request !== null && typeof request === 'object' ? (request as Record<string, unknown>) : {};
+    return call<ReportLrsPage>('POST', '/reports/lrs', { of: r.of, query: r.query, cursor });
+  });
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

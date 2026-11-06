@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { PrintDone, StatementQuery } from '../shared';
+import type { PrintDone, ReportKind, ReportQuery, StatementQuery } from '../shared';
 import { strings } from './strings';
 import { useToast } from './ui/Toast';
 
@@ -28,6 +28,8 @@ export function usePrint() {
       memo: (id: number, challanNo: number, how: PrintDone['how']) => run(() => window.bm.print.memo(id, how), strings.print.memoSent(challanNo)),
       lr: (id: number, lrNo: number, how: PrintDone['how']) => run(() => window.bm.print.lr(id, how), strings.print.lrSent(lrNo)),
       firmStatement: (query: StatementQuery, firm: string, how: PrintDone['how']) => run(() => window.bm.print.firmStatement(query, how), strings.print.statementSent(firm)),
+      report: (report: ReportKind, query: ReportQuery, how: PrintDone['how']) =>
+        run(() => window.bm.print.report(report, query, how), strings.print.reportSent(strings.paper.report.kinds[report].name)),
     };
   }, [toast]);
 }

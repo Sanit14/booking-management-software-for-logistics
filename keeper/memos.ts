@@ -14,6 +14,7 @@ import {
 import { writeAudit } from './audit';
 import type { Db } from './db';
 import { cleanReason, isDate, localDate } from './lrRules';
+import { lrSumsSql } from './lrSql';
 import { cleanHeader, cleanIds, cleanMemo, type MemoErrors } from './memoRules';
 import { nextNumber } from './numbering';
 import type { makePins } from './pins';
@@ -89,17 +90,24 @@ export function pendingSql(f: MemoFilters, afterCursor: boolean) {
   };
 }
 
-/** What the LRs of a memo add up to. `stax` is the SQL twin of `taxPaise` per LR (round half up), summed. */
-const SUMS = `COUNT(*) AS lrs, COALESCE(SUM(qty), 0) AS qty,
-    COALESCE(SUM(topay_paise), 0) AS toPayPaise, COALESCE(SUM(paid_paise), 0) AS paidPaise,
-    COALESCE(SUM(godown_bhada_paise + godown_insurance_paise + delivery_charges_paise + hamali_paise + pf_paise), 0) AS chargesPaise,
-    COALESCE(SUM(((topay_paise + paid_paise) * stax_bp + 5000) / 10000), 0) AS staxPaise`;
+/** What the LRs of a memo add up to. `stax` is the SQL twin of `taxPaise` per LR (round half up), summed (`lrSql.ts`). */
+const SUMS = lrSumsSql();
 /** The totals frozen onto a memo, from the LRs now on it. */
 export const FROZEN_SQL = `SELECT ${SUMS} FROM lrs WHERE memo_id = ?`;
 
 const TOTAL_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'chargesPaise', 'staxPaise'] as const;
 /** A saved memo differs when its LRs no longer add up to the totals frozen on it; a cancelled memo never does. The same rule is in `savedSql` (for a page of memos): keep the two together. */
 const differs = (status: string, now: MemoTotals, frozen: MemoTotals): boolean => status === 'saved' && TOTAL_KEYS.some((k) => now[k] !== frozen[k]);
+
+/**
+ * "Differs" in SQL: memo `m` is saved and the sums of its LRs, in the subquery `c` (`SUMS` grouped by memo_id), no longer equal the frozen
+ * columns. The saved-memos list and the Truck-wise report both use this one text; `differs()` above is its twin for one memo.
+ */
+export const DIFFERS_SQL = `m.status = 'saved' AND (COALESCE(c.lrs, 0) != m.frozen_lr_count OR COALESCE(c.qty, 0) != m.frozen_qty OR COALESCE(c.toPayPaise, 0) != m.frozen_topay_paise
+        OR COALESCE(c.paidPaise, 0) != m.frozen_paid_paise OR COALESCE(c.chargesPaise, 0) != m.frozen_charges_paise OR COALESCE(c.staxPaise, 0) != m.frozen_stax_paise)`;
+
+/** The SUMS grouped by memo for these memo ids (a `SELECT id FROM page`-style subquery), as the `c` that `DIFFERS_SQL` reads. Used with `lrs_by_memo`. */
+export const memoSumsSql = (ids: string): string => `SELECT memo_id, ${SUMS} FROM lrs WHERE memo_id IN (${ids}) GROUP BY memo_id`;
 
 /**
  * The saved-memos list's SQL, built from fixed pieces (only values are bound). One page (a row over, to know there is a next
@@ -129,10 +137,9 @@ export function savedSql(f: SavedMemoFilters, afterCursor: boolean) {
   const sql = `WITH page AS (SELECT m.* FROM memos m WHERE ${parts.join(' AND ')} ORDER BY m.memo_date DESC, m.challan_no DESC LIMIT ${PAGE + 1})
     SELECT m.id, m.challan_year AS challanYear, m.challan_no AS challanNo, m.memo_date AS date, t.number AS truck, d.name AS driver, s.name AS toStation,
       m.frozen_lr_count AS lrCount, m.frozen_qty AS qty, m.status,
-      m.status = 'saved' AND (COALESCE(c.lrs, 0) != m.frozen_lr_count OR COALESCE(c.qty, 0) != m.frozen_qty OR COALESCE(c.toPayPaise, 0) != m.frozen_topay_paise
-        OR COALESCE(c.paidPaise, 0) != m.frozen_paid_paise OR COALESCE(c.chargesPaise, 0) != m.frozen_charges_paise OR COALESCE(c.staxPaise, 0) != m.frozen_stax_paise) AS differs
+      ${DIFFERS_SQL} AS differs
     FROM page m JOIN trucks t ON t.id = m.truck_id JOIN drivers d ON d.id = m.driver_id JOIN stations s ON s.id = m.to_station_id
-    LEFT JOIN (SELECT memo_id, ${SUMS} FROM lrs WHERE memo_id IN (SELECT id FROM page) GROUP BY memo_id) c ON c.memo_id = m.id
+    LEFT JOIN (${memoSumsSql('SELECT id FROM page')}) c ON c.memo_id = m.id
     ORDER BY m.memo_date DESC, m.challan_no DESC`;
   return { args, sql };
 }

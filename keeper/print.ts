@@ -3,13 +3,21 @@
 // went through is written to the audit log by `done`, and the company lines are changed with the Admin PIN.
 import {
   MAX_MEMO_LRS,
+  MAX_REPORT_PRINT_ROWS,
   MAX_STATEMENT_PRINT_ROWS,
+  REPORT_FILTERS,
   type KeeperResult,
   type PrintCompany,
   type PrintDone,
   type PrintFirmStatement,
   type PrintLr,
   type PrintMemo,
+  type PrintReport,
+  type ReportCursor,
+  type ReportFilters,
+  type ReportKind,
+  type ReportPage,
+  type ReportQuery,
   type ResultCode,
   type StatementQuery,
 } from '../shared';
@@ -20,6 +28,8 @@ import { asRange, asRole } from './firmRules';
 import type { makeMemos } from './memos';
 import { inr, lrAmounts, percentText, type LrMoney } from './money';
 import type { makePins } from './pins';
+import type { makeReports } from './reports';
+import { asReportKind, asReportQuery } from './reportRules';
 
 type Refusal = Extract<KeeperResult<never>, { ok: false }>;
 const refuse = (code: ResultCode, extra: Omit<Refusal, 'ok' | 'code'> = {}): Refusal => ({ ok: false, code, ...extra });
@@ -51,24 +61,47 @@ interface LrPrintRow extends LrMoney {
 }
 
 /**
- * The body of /print/done: a memo, an LR or a firm statement, its id, and whether it was printed or saved as a PDF; null when it is
- * anything else. A firm statement also names its period and role (it is a different printout for each).
+ * The body of /print/done: a memo, an LR, a firm statement or a report, its id, and whether it was printed or saved as a PDF; null when
+ * it is anything else. A firm statement also names its period and role, a report which report, its period and filters (each is a
+ * different printout for each); a report has no id (0).
  */
 export function asPrintDone(v: unknown): PrintDone | null {
   const o = (v !== null && typeof v === 'object' ? v : {}) as Record<string, unknown>;
-  const kind = o.kind === 'memo' || o.kind === 'lr' || o.kind === 'firm' ? o.kind : null;
+  const kind = o.kind === 'memo' || o.kind === 'lr' || o.kind === 'firm' || o.kind === 'report' ? o.kind : null;
   const how = o.how === 'print' || o.how === 'pdf' ? o.how : null;
   if (!kind || !how || typeof o.id !== 'number' || !Number.isInteger(o.id)) return null;
+  if (kind === 'report') {
+    const report = asReportKind(o.report);
+    const q = asReportQuery({ ...(o.filters !== null && typeof o.filters === 'object' ? o.filters : {}), from: o.from, to: o.to });
+    if (!report || !q) return null;
+    const filters: ReportFilters = { toStationId: q.toStationId, text: q.text, truckId: q.truckId, agentId: q.agentId };
+    return { kind, id: 0, how, report, from: q.from, to: q.to, filters };
+  }
   if (kind !== 'firm') return { kind, id: o.id, how };
   const range = asRange(o);
   const role = asRole(o.role);
   return range && role ? { kind, id: o.id, how, ...range, role } : null;
 }
 
+/** Every page of a report, or a refusal when it has more rows than a printout may carry. */
+function everyRow<R, T>(read: (cursor: ReportCursor | null) => KeeperResult<ReportPage<R, T>>): KeeperResult<{ rows: R[]; totals: T }> {
+  const rows: R[] = [];
+  let cursor: ReportCursor | null = null;
+  for (;;) {
+    const page = read(cursor);
+    if (!page.ok) return page;
+    rows.push(...page.value.rows);
+    if (rows.length > MAX_REPORT_PRINT_ROWS) return refuse('report-too-long');
+    if (!page.value.next) return ok({ rows, totals: page.value.totals });
+    cursor = page.value.next;
+  }
+}
+
 export function makePrint(
   pins: Pick<ReturnType<typeof makePins>, 'verify'>,
   memos: Pick<ReturnType<typeof makeMemos>, 'get'>,
   firms: Pick<ReturnType<typeof makeFirmAccounts>, 'statement'>,
+  reports: ReturnType<typeof makeReports>,
 ) {
   const company = (db: Db): PrintCompany => {
     const get = (key: string) => (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
@@ -198,8 +231,99 @@ export function makePrint(
       });
     },
 
-    /** A print or a saved PDF went through: one audit row (`print.memo` / `print.lr` / `print.firm`). A cancelled Windows dialog never gets here. */
+    /**
+     * A report as printed, whole (not one page): its rows and totals in the order of its columns, every amount formatted (`inr`, '–' for
+     * nothing in a row). Refused above MAX_REPORT_PRINT_ROWS rows. The page (print/report.ts) names the columns.
+     */
+    report(db: Db, kind: ReportKind, q: ReportQuery): KeeperResult<PrintReport> {
+      const used = REPORT_FILTERS[kind];
+      const nameOf = (sql: string, id: number | null, uses: keyof ReportFilters): string | null =>
+        id !== null && used.includes(uses) ? ((db.prepare(sql).get(id) as { name: string } | undefined)?.name ?? null) : null;
+      const n = String;
+      const build = (rows: string[][], totals: string[], anyDiffers = false): KeeperResult<PrintReport> =>
+        ok({
+          company: company(db),
+          report: kind,
+          from: display(q.from),
+          to: display(q.to),
+          filters: {
+            station: nameOf('SELECT name FROM stations WHERE id = ?', q.toStationId, 'toStationId'),
+            text: used.includes('text') ? q.text : '',
+            truck: nameOf('SELECT number AS name FROM trucks WHERE id = ?', q.truckId, 'truckId'),
+            agent: nameOf('SELECT name FROM agents WHERE id = ?', q.agentId, 'agentId'),
+          },
+          rows,
+          totals,
+          anyDiffers,
+        });
+
+      switch (kind) {
+        case 'dateWise': {
+          const all = everyRow((c) => reports.dateWise(db, q, c));
+          if (!all.ok) return all;
+          const t = all.value.totals;
+          return build(
+            all.value.rows.map((r) => [display(r.date), n(r.lrs), n(r.qty), dash(r.toPayPaise), dash(r.paidPaise), dash(r.chargesPaise), dash(r.staxPaise), inr(r.totalPaise)]),
+            [n(t.lrs), n(t.qty), inr(t.toPayPaise), inr(t.paidPaise), inr(t.chargesPaise), inr(t.staxPaise), inr(t.totalPaise)],
+          );
+        }
+        case 'stationWise': {
+          const all = everyRow((c) => reports.stationWise(db, q, c));
+          if (!all.ok) return all;
+          const t = all.value.totals;
+          return build(
+            all.value.rows.map((r) => [r.station, n(r.lrs), n(r.qty), dash(r.toPayPaise), dash(r.paidPaise), dash(r.wasuliPaise)]),
+            [n(t.lrs), n(t.qty), inr(t.toPayPaise), inr(t.paidPaise), inr(t.wasuliPaise)],
+          );
+        }
+        case 'consignorWise':
+        case 'consigneeWise': {
+          const all = everyRow((c) => reports.partyWise(db, kind === 'consignorWise' ? 'consignor' : 'consignee', q, c));
+          if (!all.ok) return all;
+          const t = all.value.totals;
+          return build(
+            all.value.rows.map((r) => [r.name, r.station ?? '', n(r.lrs), n(r.qty), dash(r.toPayPaise), dash(r.paidPaise), dash(r.wasuliPaise)]),
+            [n(t.lrs), n(t.qty), inr(t.toPayPaise), inr(t.paidPaise), inr(t.wasuliPaise)],
+          );
+        }
+        case 'truckWise': {
+          const all = everyRow((c) => reports.truckWise(db, q, c));
+          if (!all.ok) return all;
+          const t = all.value.totals;
+          return build(
+            all.value.rows.map((r) => [display(r.date), `${r.challanNo}${r.differs ? '*' : ''}`, r.truck, r.toStation, n(r.lrs), dash(r.toPayPaise), dash(r.paidPaise), dash(r.truckHirePaise), dash(r.loadingHamaliPaise)]),
+            [n(t.memos), n(t.lrs), inr(t.toPayPaise), inr(t.paidPaise), inr(t.truckHirePaise), inr(t.loadingHamaliPaise)],
+            all.value.rows.some((r) => r.differs),
+          );
+        }
+        case 'firmWise': {
+          const all = everyRow((c) => reports.firmWise(db, q, c));
+          if (!all.ok) return all;
+          const t = all.value.totals;
+          return build(
+            all.value.rows.map((r) => [r.name, n(r.asConsignor), n(r.asConsignee), n(r.qty), dash(r.toPayPaise), dash(r.paidPaise)]),
+            [n(t.firms), n(t.asConsignor), n(t.asConsignee), n(t.walkInConsignor), n(t.walkInConsignee)],
+          );
+        }
+        case 'wasuli': {
+          const all = everyRow((c) => reports.wasuli(db, q, c));
+          if (!all.ok) return all;
+          const t = all.value.totals;
+          return build(
+            all.value.rows.map((r) => [r.agent, n(r.assignedCount), dash(r.assignedPaise), n(r.collectedCount), dash(r.collectedPaise)]),
+            [n(t.assignedCount), inr(t.assignedPaise), n(t.collectedCount), inr(t.collectedPaise), n(t.poolCount), inr(t.poolPaise)],
+          );
+        }
+      }
+    },
+
+    /** A print or a saved PDF went through: one audit row (`print.memo` / `print.lr` / `print.firm` / `print.report`). A cancelled Windows dialog never gets here. */
     done(db: Db, seat: string, d: PrintDone): KeeperResult<true> {
+      if (d.kind === 'report') {
+        const after = { how: d.how, from: d.from, to: d.to, ...d.filters };
+        db.transaction(() => writeAudit(db, { seat, action: 'print.report', entity: 'reports', entityId: d.report as string, after }))();
+        return ok(true);
+      }
       const table = d.kind === 'memo' ? 'memos' : d.kind === 'lr' ? 'lrs' : 'firms';
       if (db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(d.id) === undefined) return refuse(d.kind === 'memo' ? 'memo-missing' : d.kind === 'lr' ? 'lr-missing' : 'master-missing');
       const after = d.kind === 'firm' ? { how: d.how, from: d.from, to: d.to, role: d.role } : { how: d.how };

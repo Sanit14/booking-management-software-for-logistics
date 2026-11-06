@@ -4,14 +4,16 @@ import type { SearchAnswer, SearchFirm, SearchLr, SearchMemo, SearchStation, Sea
 /**
  * Where a pick goes: an LR opens in LR Entry; a master row is selected on its Masters tab; a challan opens read-only on the
  * Loading Memo page. `pending` is not a search pick: the Dashboard's station row opens that page with the To-station filter set.
- * `account` is a firm's Firm Accounts page (a firm row's second action).
+ * `account` is a firm's Firm Accounts page (a firm row's second action); a Reports row adds the period (opened as Custom dates).
+ * `day` is LR Entry showing one day's LRs (a Date-wise row).
  */
 export type Jump =
   | { to: 'lr'; id: number }
   | { to: 'master'; kind: 'firms' | 'trucks' | 'stations'; id: number }
   | { to: 'memo'; id: number }
   | { to: 'pending'; stationId: number }
-  | { to: 'account'; id: number };
+  | { to: 'account'; id: number; from?: string; until?: string }
+  | { to: 'day'; date: string };
 
 interface Base {
   /** Unique within one answer (a firm and a station may share an id). */

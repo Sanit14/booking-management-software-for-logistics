@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PrintFirmStatement, PrintLr, PrintMemo, PrintMemoRow, PrintStatementRow } from '../shared';
+import type { PrintFirmStatement, PrintLr, PrintMemo, PrintMemoRow, PrintReport, PrintStatementRow, ReportKind } from '../shared';
 
 const NAMES = ['Shree Ganesh Traders', 'Patil Hardware', 'Kale Brothers', 'Jain Cloth Stores & Sons', 'Deshmukh Agro Industries Private Limited', 'Rathod <Steel> "House"'];
 
@@ -88,6 +88,58 @@ export function sampleStatement(count: number, over: Partial<PrintFirmStatement>
       lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', charges: '12,345.00', stax: '5,678.90', total: '11,29,134.40',
       wasuliOwed: '0.00', wasuliCollected: '0.00', hasWasuli: false,
     },
+    ...over,
+  };
+}
+
+/** A cell as it comes from the keeper: an amount ('–' = nothing in this row) or a count. */
+const AMOUNTS = ['1,234.50', '12,345.00', '9,99,999.99', '56.00', '4,500.25', '1,23,456.78', '780.00', '2,00,000.00', '99.99'];
+const amt = (i: number, mod: number): string => (i % mod === 0 ? '–' : AMOUNTS[i % AMOUNTS.length]);
+const longName = 'Maharashtra State Cooperative Marketing Federation Limited, Yavatmal';
+/** The cells of row `i` and the totals strip of each report, in the order of its columns (strings.paper.report). */
+const REPORT_SAMPLES: Record<ReportKind, { row: (i: number) => string[]; totals: string[] }> = {
+  dateWise: {
+    row: (i) => [`${String(1 + (i % 28)).padStart(2, '0')}-10-2026`, String(3 + (i % 40)), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2), amt(i, 3), amt(i, 4), '12,345.67'],
+    totals: ['1,234', '5,678', '12,34,567.89', '9,87,654.50', '12,345.00', '5,678.90', '29,13,134.40'],
+  },
+  stationWise: {
+    row: (i) => [i % 10 === 9 ? longName : `Station ${i}`, String(3 + (i % 40)), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2), amt(i, 5)],
+    totals: ['1,234', '5,678', '12,34,567.89', '9,87,654.50', '1,000.00'],
+  },
+  consignorWise: {
+    row: (i) => [i % 10 === 9 ? longName : NAMES[i % NAMES.length], i % 3 === 0 ? 'Nagpur' : '', String(3 + (i % 40)), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2), amt(i, 5)],
+    totals: ['1,234', '5,678', '12,34,567.89', '9,87,654.50', '1,000.00'],
+  },
+  consigneeWise: {
+    row: (i) => [i % 10 === 9 ? longName : NAMES[(i + 1) % NAMES.length], i % 3 === 0 ? 'Amravati' : '', String(3 + (i % 40)), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2), amt(i, 5)],
+    totals: ['1,234', '5,678', '12,34,567.89', '9,87,654.50', '1,000.00'],
+  },
+  truckWise: {
+    row: (i) => [`${String(1 + (i % 28)).padStart(2, '0')}-10-2026`, `${1200 + i}${i % 7 === 6 ? '*' : ''}`, i % 10 === 9 ? longName : 'MH 29 BE 1234', i % 4 === 0 ? 'Nagpur' : 'Amravati', String(20 + (i % 60)), amt(i, 2), amt(i + 1, 2), '5,000.00', amt(i, 3)],
+    totals: ['60', '1,234', '12,34,567.89', '9,87,654.50', '3,00,000.00', '12,000.00'],
+  },
+  firmWise: {
+    row: (i) => [i % 10 === 9 ? longName : NAMES[i % NAMES.length], String(i % 50), String((i * 3) % 50), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2)],
+    totals: ['60', '1,234', '1,200', '34', '28'],
+  },
+  wasuli: {
+    row: (i) => [i % 10 === 9 ? longName : `Agent ${i}`, String(i % 30), amt(i, 4), String(i % 20), amt(i, 3)],
+    totals: ['24', '1,23,456.00', '31', '45,678.00', '12', '60,000.00'],
+  },
+};
+
+/** A report of `count` rows. Every tenth name is too long for its column, so the one-line rule is exercised. */
+export function sampleReport(report: ReportKind, count: number, over: Partial<PrintReport> = {}): PrintReport {
+  const sample = REPORT_SAMPLES[report];
+  return {
+    company: { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5' },
+    report,
+    from: '01-10-2026',
+    to: '31-10-2026',
+    filters: { station: null, text: '', truck: null, agent: null },
+    rows: Array.from({ length: count }, (_, i) => sample.row(i)),
+    totals: sample.totals,
+    anyDiffers: report === 'truckWise' && count > 6,
     ...over,
   };
 }

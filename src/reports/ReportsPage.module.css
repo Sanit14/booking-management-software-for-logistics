@@ -1,0 +1,189 @@
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+/* ---- the row of reports ---- */
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.reportTab {
+  height: 38px;
+  padding: 0 10px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.reportTab[aria-selected='true'] {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+
+/* ---- the report ---- */
+.pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+.title {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--teal-dark);
+  font-size: var(--fs-22);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.controls {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  padding: 6px 12px;
+}
+.pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+.pill {
+  height: 34px;
+  padding: 0 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 17px;
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  cursor: pointer;
+}
+.pill[aria-pressed='true'] {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+.dates {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.dateField {
+  width: 180px;
+}
+.dateNote {
+  padding-bottom: 12px;
+  color: var(--danger);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.filterRow {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 12px 8px;
+}
+.filterRow > * {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+/* ---- the rows ---- */
+.listCard {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.tableBox {
+  --row-h: 46px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.tableBox > div {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+.tableBox table th {
+  height: 34px;
+}
+.cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub {
+  display: block;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memoNo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.totals {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--readonly-bg);
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.totals strong {
+  color: var(--teal-dark);
+}
+.hint {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+/* ---- the LRs behind a row ---- */
+.drill {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}

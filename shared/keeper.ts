@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 15;
+export const KEEPER_VERSION = 16;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -686,18 +686,43 @@ export interface PrintFirmStatement {
     hasWasuli: boolean;
   };
 }
-/** A print or a saved PDF that went through: it is written to the audit log. A firm statement names the period and role it was printed for (`id` is the firm). */
+/** A report prints at most this many rows (the print page is one data: URL, which Chromium refuses above 2 MB); more asks for a shorter period. */
+export const MAX_REPORT_PRINT_ROWS = 1000;
+/**
+ * Exactly what a report prints: text only, every amount already formatted. `rows` hold the report's columns in order and `totals` its
+ * totals strip in order; the page (print/report.ts) names both from `strings.paper.report`, so the counts must match (a test checks).
+ */
+export interface PrintReport {
+  company: PrintCompany;
+  report: ReportKind;
+  /** dd-mm-yyyy */
+  from: string;
+  to: string;
+  /** The filters in force, by name (a station, a truck, an agent) or typed text; null / '' = not used by this report or not set. */
+  filters: { station: string | null; text: string; truck: string | null; agent: string | null };
+  rows: string[][];
+  totals: string[];
+  /** Truck-wise: at least one memo differs (its challan number carries a `*`). */
+  anyDiffers: boolean;
+}
+/**
+ * A print or a saved PDF that went through: it is written to the audit log. A firm statement names the period and role it was printed
+ * for (`id` is the firm); a report names which report, its period and filters (`id` is 0).
+ */
 export interface PrintDone {
-  kind: 'memo' | 'lr' | 'firm';
+  kind: 'memo' | 'lr' | 'firm' | 'report';
   id: number;
   how: 'print' | 'pdf';
   from?: string;
   to?: string;
   role?: FirmRole;
+  report?: ReportKind;
+  filters?: ReportFilters;
 }
 export type PrintRefusal =
   | 'company-invalid' // `detail`: the box to fix (name, address, phone, gstin)
-  | 'print-too-long'; // a statement over MAX_STATEMENT_PRINT_ROWS LRs; `detail`: how many it has
+  | 'print-too-long' // a statement over MAX_STATEMENT_PRINT_ROWS LRs; `detail`: how many it has
+  | 'report-too-long'; // a report with more than MAX_REPORT_PRINT_ROWS rows
 
 export type LrRefusal =
   | 'lr-invalid' // `fields`: what to fix
@@ -930,6 +955,174 @@ export interface FirmMonth {
   growth: number | null;
 }
 
+// ---- Reports (4.1): the LRs, memos and wasuli grouped for a period. Read-only; every figure is added up by the keeper ----
+
+/** The seven reports. Consignor- and consignee-wise are one keeper read (`partyWise`) with the side as an argument. */
+export type ReportKind = 'dateWise' | 'stationWise' | 'consignorWise' | 'consigneeWise' | 'truckWise' | 'firmWise' | 'wasuli';
+/** The LR-based reports whose rows open a list of their LRs (`reports.lrs`). */
+export type ReportLrKind = 'stationWise' | 'consignorWise' | 'consigneeWise';
+/** The filters a report may take; each report uses the ones that make sense for it and ignores the rest. */
+export interface ReportFilters {
+  /** Date-wise, Consignor- and Consignee-wise, Truck-wise: LRs / memos going to this station. */
+  toStationId: number | null;
+  /** Date-wise and Station-wise: any part of either party's name; Consignor- / Consignee-wise: that party's name; Firm-wise: the firm's name. */
+  text: string;
+  /** Truck-wise. */
+  truckId: number | null;
+  /** Wasuli. */
+  agentId: number | null;
+}
+/** Which filters each report uses (the screen shows those boxes, the printout names them); the keeper ignores the others. */
+export const REPORT_FILTERS: Record<ReportKind, readonly (keyof ReportFilters)[]> = {
+  dateWise: ['toStationId', 'text'],
+  stationWise: ['text'],
+  consignorWise: ['toStationId', 'text'],
+  consigneeWise: ['toStationId', 'text'],
+  truckWise: ['truckId', 'toStationId'],
+  firmWise: ['text'],
+  wasuli: ['agentId'],
+};
+/** A period (both days included, by LR date; memo date for Truck-wise; collected date for the collected part of Wasuli) and the filters. */
+export interface ReportQuery extends FirmRange, ReportFilters {}
+/** Reports are paged by their own key (a date, a name key, a memo date); `no` breaks a tie (a firm id, a challan number), 0 when unused. */
+export interface ReportCursor {
+  key: string;
+  no: number;
+}
+/** 100 rows, `next` null at the end, and the totals of the whole filter (not just the rows loaded). */
+export interface ReportPage<Row, Totals> {
+  rows: Row[];
+  next: ReportCursor | null;
+  totals: Totals;
+}
+/** What every LR-based report adds up. Money in paise; the to-pay and paid figures are the LRs' freight, as booked. */
+export interface ReportFigures {
+  lrs: number;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+}
+/** Date-wise totals and rows also carry charges, service tax and the total (freight + charges + tax, the same for a To pay and a Paid LR). */
+export interface ReportMoney extends ReportFigures {
+  chargesPaise: number;
+  staxPaise: number;
+  totalPaise: number;
+}
+export interface ReportDateRow extends ReportMoney {
+  date: string;
+}
+/** Wasuli = the wasuli amounts booked on those LRs (the LR's own `wasuli_paise`). */
+export interface ReportWithWasuli extends ReportFigures {
+  wasuliPaise: number;
+}
+export interface ReportStationRow extends ReportWithWasuli {
+  stationId: number;
+  station: string;
+}
+/** A consignor or consignee: a firm (by its id, shown with its master name and station) or a walk-in (by the name as booked). */
+export interface ReportPartyRow extends ReportWithWasuli {
+  firmId: number | null;
+  name: string;
+  station: string | null;
+}
+/** One saved memo of the period with its FROZEN figures; `differs` = its LRs no longer add up to them (3.2). */
+export interface ReportTruckRow {
+  memoId: number;
+  date: string;
+  challanYear: number;
+  challanNo: number;
+  truck: string;
+  toStation: string;
+  lrs: number;
+  toPayPaise: number;
+  paidPaise: number;
+  truckHirePaise: number;
+  loadingHamaliPaise: number;
+  differs: boolean;
+}
+export interface ReportTruckTotals {
+  memos: number;
+  lrs: number;
+  toPayPaise: number;
+  paidPaise: number;
+  truckHirePaise: number;
+  loadingHamaliPaise: number;
+}
+/** A firm with an LR in the period. Qty, to pay and paid count each of its LRs once, whichever side it is on (= its Firm Accounts "Both" totals). */
+export interface ReportFirmRow {
+  firmId: number;
+  name: string;
+  active: boolean;
+  asConsignor: number;
+  asConsignee: number;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+}
+/**
+ * Not money: summing the rows' qty / to pay / paid would count an LR between two firms twice. `asConsignor` / `asConsignee` are the sums of the
+ * firms listed; `walkInConsignor` / `walkInConsignee` are the period's LRs with no firm on that side, so firms + walk-ins = the LR total of the other reports.
+ */
+export interface ReportFirmTotals {
+  firms: number;
+  asConsignor: number;
+  asConsignee: number;
+  walkInConsignor: number;
+  walkInConsignee: number;
+}
+/** An agent with something assigned now or collected in the period. */
+export interface ReportAgentRow {
+  agentId: number;
+  agent: string;
+  active: boolean;
+  assignedCount: number;
+  assignedPaise: number;
+  collectedCount: number;
+  collectedPaise: number;
+}
+/** The unassigned pool belongs to no agent, so it is here and not a column. */
+export interface ReportAgentTotals {
+  assignedCount: number;
+  assignedPaise: number;
+  collectedCount: number;
+  collectedPaise: number;
+  poolCount: number;
+  poolPaise: number;
+}
+/** Which of a report's rows to list: a To station, or a consignor / consignee (a firm's id, or a walk-in's name as booked when `firmId` is null). */
+export type ReportLrsFor = { kind: 'stationWise'; stationId: number } | { kind: 'consignorWise' | 'consigneeWise'; firmId: number | null; name: string };
+/** The LRs behind one row of an LR-based report, under the same period and filters as the report, so they add up to the row. */
+export interface ReportLrsRequest {
+  of: ReportLrsFor;
+  query: ReportQuery;
+}
+export interface ReportLrRow {
+  lrId: number;
+  lrNo: number;
+  lrYear: number;
+  date: string;
+  consignor: string;
+  consignee: string;
+  toStation: string;
+  qty: number;
+  toPayPaise: number;
+  paidPaise: number;
+  chargesPaise: number;
+  staxPaise: number;
+  totalPaise: number;
+  status: 'booked' | 'loaded';
+}
+/** The next page of LRs starts after this one (date, then number). */
+export interface ReportLrCursor {
+  date: string;
+  no: number;
+}
+export interface ReportLrsPage {
+  rows: ReportLrRow[];
+  next: ReportLrCursor | null;
+  totals: ReportMoney;
+}
+
 export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | WasuliRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**
  * What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts).
@@ -1096,6 +1289,22 @@ export interface KeeperApi {
     kpis(query: StatementQuery): Promise<KeeperResult<FirmKpis>>;
     /** The 12 months of a calendar year. */
     months(firmId: number, year: number, role: FirmRole): Promise<KeeperResult<FirmMonth[]>>;
+  };
+  /**
+   * Reports: the LRs, memos and wasuli grouped for a period, with the totals of the whole filter in the same answer. Reads only (no event,
+   * nothing written), 100 rows a page: pass the previous page's `next` for the following one.
+   */
+  reports: {
+    dateWise(query: ReportQuery, cursor: ReportCursor | null): Promise<KeeperResult<ReportPage<ReportDateRow, ReportMoney>>>;
+    stationWise(query: ReportQuery, cursor: ReportCursor | null): Promise<KeeperResult<ReportPage<ReportStationRow, ReportWithWasuli>>>;
+    partyWise(side: 'consignor' | 'consignee', query: ReportQuery, cursor: ReportCursor | null): Promise<KeeperResult<ReportPage<ReportPartyRow, ReportWithWasuli>>>;
+    /** Saved memos by memo date, with their frozen figures. */
+    truckWise(query: ReportQuery, cursor: ReportCursor | null): Promise<KeeperResult<ReportPage<ReportTruckRow, ReportTruckTotals>>>;
+    firmWise(query: ReportQuery, cursor: ReportCursor | null): Promise<KeeperResult<ReportPage<ReportFirmRow, ReportFirmTotals>>>;
+    /** Per agent: assigned now, collected in the period. */
+    wasuli(query: ReportQuery, cursor: ReportCursor | null): Promise<KeeperResult<ReportPage<ReportAgentRow, ReportAgentTotals>>>;
+    /** The LRs behind one row of Station-, Consignor- or Consignee-wise, by (date, number). */
+    lrs(request: ReportLrsRequest, cursor: ReportLrCursor | null): Promise<KeeperResult<ReportLrsPage>>;
   };
   /** One box for LR number, challan number, firm, truck and station: a few of each, never a generic query. */
   search(text: string): Promise<KeeperResult<SearchAnswer>>;

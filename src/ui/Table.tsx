@@ -31,6 +31,8 @@ interface Props<R> {
   onRowToggle?: (row: R) => void;
   /** Height of the scroll box; the header and totals stay in view. Omit to size to the rows. */
   maxHeight?: number;
+  /** The scroll box takes a Tab stop, so a list whose rows are not clickable can still be scrolled with the arrow keys. */
+  keyboardScroll?: boolean;
 }
 
 // Only the row itself: Enter on a button or field inside it stays theirs.
@@ -49,7 +51,7 @@ function moveBetweenRows(e: KeyboardEvent<HTMLTableRowElement>, activate: () => 
   }
 }
 
-export default function Table<R>({ label, columns, rows, rowKey, ticked, dimmed, totals, empty, onRowActivate, onRowToggle, maxHeight }: Props<R>) {
+export default function Table<R>({ label, columns, rows, rowKey, ticked, dimmed, totals, empty, onRowActivate, onRowToggle, maxHeight, keyboardScroll }: Props<R>) {
   const align = (c: Column<R>) => (c.num ? styles.num : undefined);
   // A long list is one Tab stop, not one per row: the picked row (else the first) takes it, ↑/↓ walk the rest.
   const picked = rows.findIndex((r) => ticked?.has(rowKey(r)));
@@ -59,7 +61,7 @@ export default function Table<R>({ label, columns, rows, rowKey, ticked, dimmed,
     <div
       className={styles.scroll}
       style={maxHeight ? { maxHeight } : undefined}
-      {...(maxHeight ? { tabIndex: 0, role: 'region', 'aria-label': label } : {})}
+      {...(maxHeight || keyboardScroll ? { tabIndex: 0, role: 'region', 'aria-label': label } : {})}
     >
       <table className={styles.table} aria-label={label}>
         <colgroup>

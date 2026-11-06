@@ -43,6 +43,8 @@ import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
 import { makePins } from './pins';
 import { asPrintDone, makePrint } from './print';
+import { makeReports } from './reports';
+import { asLrsRequest, asPartySide, asReportCursor, asReportKind, asReportLrCursor, asReportQuery } from './reportRules';
 import { makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
 import { search } from './search';
 import { makeSeats } from './seats';
@@ -97,7 +99,8 @@ function main(): void {
   const lrs = makeLrs(pins, masters);
   const memos = makeMemos(pins);
   const firmAccounts = makeFirmAccounts();
-  const printing = makePrint(pins, memos, firmAccounts);
+  const reports = makeReports();
+  const printing = makePrint(pins, memos, firmAccounts, reports);
   const wasuli = makeWasuli(pins);
   const dashboard = makeDashboard();
   const events = makeEvents();
@@ -322,9 +325,10 @@ function main(): void {
       '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
       '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/create', '/memos/get', '/memos/by-date',
       '/memos/list', '/memos/edit', '/memos/remove-lrs', '/memos/move-lrs', '/memos/add-lrs', '/memos/recalculate', '/memos/cancel', '/memos/history',
-      '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/set-company', '/print/firm-statement',
+      '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/set-company', '/print/firm-statement', '/print/report',
       '/wasuli/list', '/wasuli/find', '/wasuli/agent-stats', '/wasuli/assign', '/wasuli/reassign', '/wasuli/to-pool', '/wasuli/collect', '/wasuli/uncollect', '/wasuli/remark',
       '/firms/accounts', '/firms/statement', '/firms/top', '/firms/kpis', '/firms/months',
+      '/reports/date-wise', '/reports/station-wise', '/reports/party-wise', '/reports/truck-wise', '/reports/firm-wise', '/reports/wasuli', '/reports/lrs',
     ];
     if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
@@ -607,6 +611,36 @@ function main(): void {
       return sendResult(res, r);
     }
 
+    // Reports (4.1): reads only — no event, and nothing logged (names and amounts are not for the log).
+    if (url.startsWith('/reports/')) {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      let r: KeeperResult<unknown>;
+      try {
+        if (url === '/reports/lrs') {
+          const request = asLrsRequest(body);
+          if (!request) return send(res, 400, { error: 'of (a station, or a firm / walk-in name on one side) and query (two dates) required' });
+          r = reports.lrs(db, request, asReportLrCursor(body.cursor));
+        } else {
+          const query = asReportQuery(body.query);
+          if (!query) return send(res, 400, { error: 'query with two dates required' });
+          const cursor = asReportCursor(body.cursor);
+          const side = asPartySide(body.side);
+          if (url === '/reports/date-wise') r = reports.dateWise(db, query, cursor);
+          else if (url === '/reports/station-wise') r = reports.stationWise(db, query, cursor);
+          else if (url === '/reports/party-wise') {
+            if (!side) return send(res, 400, { error: 'side (consignor or consignee) required' });
+            r = reports.partyWise(db, side, query, cursor);
+          } else if (url === '/reports/truck-wise') r = reports.truckWise(db, query, cursor);
+          else if (url === '/reports/firm-wise') r = reports.firmWise(db, query, cursor);
+          else r = reports.wasuli(db, query, cursor);
+        }
+      } catch (e) {
+        log('reports-failed', { url, seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      return sendResult(res, r);
+    }
+
     // Printing (3.3): what a printout carries (reads, no trace), the audit row of a print that went through, the company lines.
     if (url.startsWith('/print/')) {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
@@ -624,6 +658,11 @@ function main(): void {
           const query = asStatementQuery(body.query);
           if (!query) return send(res, 400, { error: 'query with a firm, two dates and a role required' });
           r = printing.firmStatement(db, query);
+        } else if (url === '/print/report') {
+          const kind = asReportKind(body.report);
+          const query = asReportQuery(body.query);
+          if (!kind || !query) return send(res, 400, { error: 'report (one of the seven) and query with two dates required' });
+          r = printing.report(db, kind, query);
         } else if (typeof body.id !== 'number' || !Number.isInteger(body.id)) return send(res, 400, { error: 'id required' });
         else r = url === '/print/memo' ? printing.memo(db, body.id) : printing.lr(db, body.id);
       } catch (e) {

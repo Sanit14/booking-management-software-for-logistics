@@ -5,10 +5,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, type WebContents } from 'electron';
-import type { KeeperResult, PrintDone, PrintFirmStatement, PrintLr, PrintMemo, StatementQuery } from '../shared';
+import type { KeeperResult, PrintDone, PrintFirmStatement, PrintLr, PrintMemo, PrintReport, ReportKind, ReportQuery, StatementQuery } from '../shared';
 import { asStatementQuery } from '../keeper/firmRules';
+import { asReportKind, asReportQuery } from '../keeper/reportRules';
 import { lrFileName, lrHtml } from '../print/lr';
 import { memoFileName, memoHtml } from '../print/memo';
+import { reportFileName, reportHtml } from '../print/report';
 import { statementFileName, statementHtml } from '../print/statement';
 import { A4, A5_LANDSCAPE, type PageSpec } from '../print/template';
 import { strings } from '../src/strings';
@@ -83,8 +85,8 @@ async function savePdf(page: Page): Promise<Outcome> {
 
 export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
   let busy = false; // a second press (a double click) while a dialog is open would open a second dialog and write a second audit row
-  // A firm statement is a different printout for each period and role: `query` says which (its `firmId` is the id).
-  const run = async (kind: PrintDone['kind'], id: unknown, how: unknown, query?: StatementQuery): Promise<Outcome> => {
+  // A firm statement is a different printout for each period and role: `query` says which (its `firmId` is the id). A report is told by `report` (which one, for which period and filters; its id is 0).
+  const run = async (kind: PrintDone['kind'], id: unknown, how: unknown, query?: StatementQuery, report?: { kind: ReportKind; query: ReportQuery }): Promise<Outcome> => {
     if (typeof id !== 'number' || !Number.isInteger(id) || (how !== 'print' && how !== 'pdf')) return { ok: false, code: 'failed', detail: 'bad request' };
     if (busy) return { ok: false, code: 'cancelled' };
     busy = true;
@@ -98,6 +100,10 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
         const data = await bridge.call<PrintLr>('POST', '/print/lr', { id });
         if (!data.ok) return data;
         page = { html: lrHtml(data.value), spec: A5_LANDSCAPE, fileName: lrFileName(data.value) };
+      } else if (kind === 'report' && report) {
+        const data = await bridge.call<PrintReport>('POST', '/print/report', { report: report.kind, query: report.query });
+        if (!data.ok) return data;
+        page = { html: reportHtml(data.value), spec: A4, fileName: reportFileName(data.value) };
       } else {
         const data = await bridge.call<PrintFirmStatement>('POST', '/print/firm-statement', { query });
         if (!data.ok) return data;
@@ -105,7 +111,11 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
       }
       const outcome = how === 'pdf' ? await savePdf(page) : await sendToPrinter(page);
       // The audit row is for a print that went through; failing to write it does not undo the paper.
-      if (outcome.ok) await bridge.call('POST', '/print/done', query ? { kind, id, how, from: query.from, to: query.to, role: query.role } : { kind, id, how });
+      if (outcome.ok) {
+        const q = report?.query;
+        const done = report && q ? { kind, id, how, report: report.kind, from: q.from, to: q.to, filters: { toStationId: q.toStationId, text: q.text, truckId: q.truckId, agentId: q.agentId } } : query ? { kind, id, how, from: query.from, to: query.to, role: query.role } : { kind, id, how };
+        await bridge.call('POST', '/print/done', done);
+      }
       return outcome;
     } catch (e) {
       // Never the message itself: a failed load quotes the page, names included. A file error says only its code (EBUSY, EACCES).
@@ -121,5 +131,9 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
   ipcMain.handle('print:firm-statement', (_e, query: unknown, how: unknown): Promise<Outcome> => {
     const q = asStatementQuery(query);
     return q ? run('firm', q.firmId, how, q) : Promise.resolve({ ok: false, code: 'failed', detail: 'bad request' });
+  });
+  ipcMain.handle('print:report', (_e, kind: unknown, query: unknown, how: unknown): Promise<Outcome> => {
+    const [k, q] = [asReportKind(kind), asReportQuery(query)];
+    return k && q ? run('report', 0, how, undefined, { kind: k, query: q }) : Promise.resolve({ ok: false, code: 'failed', detail: 'bad request' });
   });
 }

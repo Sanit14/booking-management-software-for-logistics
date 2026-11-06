@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Truck-wise report</title>
+<style>
+@page{size:A4 portrait;margin:0}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#fff;color:#000}
+body{font:9pt/1.25 "Times New Roman",Times,serif}
+.page{position:relative;width:210mm;height:296mm;padding:10mm;break-after:page;page-break-after:always}
+.page:last-child{break-after:auto;page-break-after:auto}
+.co{text-align:center}
+.co .name{font-size:14pt;font-weight:bold;line-height:1.2}
+.co div{line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.foot{position:absolute;right:10mm;bottom:10mm}
+.stamp{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-22deg);border:1mm solid #000;padding:2mm 8mm;font:bold 44pt/1 Arial,Helvetica,sans-serif;letter-spacing:2mm;color:transparent;-webkit-text-stroke:.45mm #000;white-space:nowrap}
+table{border-collapse:collapse;table-layout:fixed;width:100%}
+th,td{border:.2mm solid #000;padding:0 1.2mm;text-align:left;vertical-align:middle}
+th{font-weight:bold}
+.n{text-align:right;font-variant-numeric:tabular-nums}
+.memo .co{margin-bottom:2mm}
+.memo .head{text-align:center;font-size:12pt;font-weight:bold;letter-spacing:.5mm;border-top:.4mm solid #000;border-bottom:.4mm solid #000;padding:1mm 0;margin-bottom:2mm}
+.memo .det{display:grid;grid-template-columns:1fr 1fr;column-gap:6mm;row-gap:.8mm;margin-bottom:3mm;font-size:10pt}
+.memo .det div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo .det b{display:inline-block;min-width:30mm}
+.memo .cont{font-size:10pt;font-weight:bold;height:6mm;margin-bottom:2mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo th{height:6.5mm}
+.memo td{height:5.6mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo td.n{overflow:visible;text-overflow:clip}
+.memo .tot{display:flex;gap:6mm;align-items:center;height:6.5mm;padding:0 1.2mm;border:.2mm solid #000;border-top:0}
+.memo .tot .l{flex:1;font-weight:bold}
+.memo .none{height:8mm;text-align:center;font-style:italic}
+.memo .note{margin-top:2mm;font-style:italic}
+.lr .co{margin-bottom:2mm}
+.lr .head{display:flex;justify-content:space-between;align-items:baseline;border-top:.4mm solid #000;border-bottom:.4mm solid #000;padding:1mm 0;margin-bottom:3mm;font-size:11pt}
+.lr .head .t{font-size:12pt;font-weight:bold;letter-spacing:.5mm}
+.lr .cols{display:flex;gap:6mm;align-items:flex-start}
+.lr .l{width:108mm}
+.lr .r{width:76mm}
+.lr td{height:6.4mm;font-size:10pt}
+.lr .l th{width:24mm;font-size:10pt}
+.lr .amt th{text-align:right;font-size:10pt}
+.lr .tot td{font-weight:bold;font-size:11pt;border-top:.5mm solid #000}
+.lr .sign{position:absolute;right:10mm;bottom:12mm;width:60mm;border-top:.3mm solid #000;text-align:center;padding-top:1mm}
+
+.rep .tot{height:auto;flex-wrap:wrap;gap:.6mm 5mm;padding:.8mm 1.2mm}
+.rep .tot .l{flex:0 0 100%}
+.rep th{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+<section class="page memo rep">
+<div class="co">
+<div class="name">Sundeep Freight Movers</div>
+<div>Station Road, Yavatmal 445001</div>
+<div>Ph 07232 245678</div>
+<div>GSTIN 27ABCDE1234F1Z5</div>
+</div>
+<div class="head">TRUCK-WISE REPORT</div>
+<div class="det">
+<div>
+<b>Period</b> 01-10-2026 to 31-10-2026</div>
+<div>
+<b>To station</b> Nagpur</div>
+</div>
+<table>
+<colgroup>
+<col style="width:20mm">
+<col style="width:14mm">
+<col style="width:28mm">
+<col style="width:26mm">
+<col style="width:10mm">
+<col style="width:24mm">
+<col style="width:24mm">
+<col style="width:22mm">
+<col style="width:22mm">
+</colgroup>
+<thead>
+<tr>
+<th>Memo date</th>
+<th class="n">Challan</th>
+<th>Truck</th>
+<th>To station</th>
+<th class="n">LRs</th>
+<th class="n">To pay (₹)</th>
+<th class="n">Paid (₹)</th>
+<th class="n">Truck hire (₹)</th>
+<th class="n">Hamali (₹)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>01-10-2026</td>
+<td class="n">1200</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">20</td>
+<td class="n">–</td>
+<td class="n">12,345.00</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>02-10-2026</td>
+<td class="n">1201</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">21</td>
+<td class="n">12,345.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">12,345.00</td>
+</tr>
+<tr>
+<td>03-10-2026</td>
+<td class="n">1202</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">22</td>
+<td class="n">–</td>
+<td class="n">56.00</td>
+<td class="n">5,000.00</td>
+<td class="n">9,99,999.99</td>
+</tr>
+<tr>
+<td>04-10-2026</td>
+<td class="n">1203</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">23</td>
+<td class="n">56.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>05-10-2026</td>
+<td class="n">1204</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">24</td>
+<td class="n">–</td>
+<td class="n">1,23,456.78</td>
+<td class="n">5,000.00</td>
+<td class="n">4,500.25</td>
+</tr>
+<tr>
+<td>06-10-2026</td>
+<td class="n">1205</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">25</td>
+<td class="n">1,23,456.78</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">1,23,456.78</td>
+</tr>
+<tr>
+<td>07-10-2026</td>
+<td class="n">1206*</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">26</td>
+<td class="n">–</td>
+<td class="n">2,00,000.00</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>08-10-2026</td>
+<td class="n">1207</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">27</td>
+<td class="n">2,00,000.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">2,00,000.00</td>
+</tr>
+<tr>
+<td>09-10-2026</td>
+<td class="n">1208</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">28</td>
+<td class="n">–</td>
+<td class="n">1,234.50</td>
+<td class="n">5,000.00</td>
+<td class="n">99.99</td>
+</tr>
+<tr>
+<td>10-10-2026</td>
+<td class="n">1209</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Amravati</td>
+<td class="n">29</td>
+<td class="n">1,234.50</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>11-10-2026</td>
+<td class="n">1210</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">30</td>
+<td class="n">–</td>
+<td class="n">9,99,999.99</td>
+<td class="n">5,000.00</td>
+<td class="n">12,345.00</td>
+</tr>
+<tr>
+<td>12-10-2026</td>
+<td class="n">1211</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">31</td>
+<td class="n">9,99,999.99</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">9,99,999.99</td>
+</tr>
+<tr>
+<td>13-10-2026</td>
+<td class="n">1212</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">32</td>
+<td class="n">–</td>
+<td class="n">4,500.25</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>14-10-2026</td>
+<td class="n">1213*</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">33</td>
+<td class="n">4,500.25</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">4,500.25</td>
+</tr>
+<tr>
+<td>15-10-2026</td>
+<td class="n">1214</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">34</td>
+<td class="n">–</td>
+<td class="n">780.00</td>
+<td class="n">5,000.00</td>
+<td class="n">1,23,456.78</td>
+</tr>
+<tr>
+<td>16-10-2026</td>
+<td class="n">1215</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">35</td>
+<td class="n">780.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>17-10-2026</td>
+<td class="n">1216</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">36</td>
+<td class="n">–</td>
+<td class="n">99.99</td>
+<td class="n">5,000.00</td>
+<td class="n">2,00,000.00</td>
+</tr>
+<tr>
+<td>18-10-2026</td>
+<td class="n">1217</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">37</td>
+<td class="n">99.99</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">99.99</td>
+</tr>
+<tr>
+<td>19-10-2026</td>
+<td class="n">1218</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">38</td>
+<td class="n">–</td>
+<td class="n">12,345.00</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>20-10-2026</td>
+<td class="n">1219</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Amravati</td>
+<td class="n">39</td>
+<td class="n">12,345.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">12,345.00</td>
+</tr>
+<tr>
+<td>21-10-2026</td>
+<td class="n">1220*</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">40</td>
+<td class="n">–</td>
+<td class="n">56.00</td>
+<td class="n">5,000.00</td>
+<td class="n">9,99,999.99</td>
+</tr>
+<tr>
+<td>22-10-2026</td>
+<td class="n">1221</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">41</td>
+<td class="n">56.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>23-10-2026</td>
+<td class="n">1222</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">42</td>
+<td class="n">–</td>
+<td class="n">1,23,456.78</td>
+<td class="n">5,000.00</td>
+<td class="n">4,500.25</td>
+</tr>
+<tr>
+<td>24-10-2026</td>
+<td class="n">1223</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">43</td>
+<td class="n">1,23,456.78</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">1,23,456.78</td>
+</tr>
+<tr>
+<td>25-10-2026</td>
+<td class="n">1224</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">44</td>
+<td class="n">–</td>
+<td class="n">2,00,000.00</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>26-10-2026</td>
+<td class="n">1225</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">45</td>
+<td class="n">2,00,000.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">2,00,000.00</td>
+</tr>
+<tr>
+<td>27-10-2026</td>
+<td class="n">1226</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">46</td>
+<td class="n">–</td>
+<td class="n">1,234.50</td>
+<td class="n">5,000.00</td>
+<td class="n">99.99</td>
+</tr>
+<tr>
+<td>28-10-2026</td>
+<td class="n">1227*</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">47</td>
+<td class="n">1,234.50</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>01-10-2026</td>
+<td class="n">1228</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">48</td>
+<td class="n">–</td>
+<td class="n">9,99,999.99</td>
+<td class="n">5,000.00</td>
+<td class="n">12,345.00</td>
+</tr>
+<tr>
+<td>02-10-2026</td>
+<td class="n">1229</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Amravati</td>
+<td class="n">49</td>
+<td class="n">9,99,999.99</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">9,99,999.99</td>
+</tr>
+<tr>
+<td>03-10-2026</td>
+<td class="n">1230</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">50</td>
+<td class="n">–</td>
+<td class="n">4,500.25</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>04-10-2026</td>
+<td class="n">1231</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">51</td>
+<td class="n">4,500.25</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">4,500.25</td>
+</tr>
+<tr>
+<td>05-10-2026</td>
+<td class="n">1232</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">52</td>
+<td class="n">–</td>
+<td class="n">780.00</td>
+<td class="n">5,000.00</td>
+<td class="n">1,23,456.78</td>
+</tr>
+<tr>
+<td>06-10-2026</td>
+<td class="n">1233</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">53</td>
+<td class="n">780.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>07-10-2026</td>
+<td class="n">1234*</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">54</td>
+<td class="n">–</td>
+<td class="n">99.99</td>
+<td class="n">5,000.00</td>
+<td class="n">2,00,000.00</td>
+</tr>
+<tr>
+<td>08-10-2026</td>
+<td class="n">1235</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">55</td>
+<td class="n">99.99</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">99.99</td>
+</tr>
+</tbody>
+</table>
+<div class="foot">Page 1 of 2</div>
+</section>
+<section class="page memo rep">
+<div class="cont">Truck-wise report (continued)</div>
+<table>
+<colgroup>
+<col style="width:20mm">
+<col style="width:14mm">
+<col style="width:28mm">
+<col style="width:26mm">
+<col style="width:10mm">
+<col style="width:24mm">
+<col style="width:24mm">
+<col style="width:22mm">
+<col style="width:22mm">
+</colgroup>
+<thead>
+<tr>
+<th>Memo date</th>
+<th class="n">Challan</th>
+<th>Truck</th>
+<th>To station</th>
+<th class="n">LRs</th>
+<th class="n">To pay (₹)</th>
+<th class="n">Paid (₹)</th>
+<th class="n">Truck hire (₹)</th>
+<th class="n">Hamali (₹)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>09-10-2026</td>
+<td class="n">1236</td>
+<td>MH 29 BE 1234</td>
+<td>Nagpur</td>
+<td class="n">56</td>
+<td class="n">–</td>
+<td class="n">12,345.00</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+<tr>
+<td>10-10-2026</td>
+<td class="n">1237</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">57</td>
+<td class="n">12,345.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">12,345.00</td>
+</tr>
+<tr>
+<td>11-10-2026</td>
+<td class="n">1238</td>
+<td>MH 29 BE 1234</td>
+<td>Amravati</td>
+<td class="n">58</td>
+<td class="n">–</td>
+<td class="n">56.00</td>
+<td class="n">5,000.00</td>
+<td class="n">9,99,999.99</td>
+</tr>
+<tr>
+<td>12-10-2026</td>
+<td class="n">1239</td>
+<td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
+<td>Amravati</td>
+<td class="n">59</td>
+<td class="n">56.00</td>
+<td class="n">–</td>
+<td class="n">5,000.00</td>
+<td class="n">–</td>
+</tr>
+</tbody>
+</table>
+<div class="tot">
+<span class="l">Total</span>
+<span>Memos <b>60</b>
+</span>
+<span>LRs <b>1,234</b>
+</span>
+<span>To pay <b>12,34,567.89</b>
+</span>
+<span>Paid <b>9,87,654.50</b>
+</span>
+<span>Truck hire <b>3,00,000.00</b>
+</span>
+<span>Loading hamali <b>12,000.00</b>
+</span>
+</div>
+<div class="note">* LRs changed after the memo was saved — its figures are the ones frozen then</div>
+<div class="foot">Page 2 of 2</div>
+</section>
+</body>
+</html>

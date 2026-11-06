@@ -49,7 +49,7 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }:
   const { keys } = useKeys();
   const findBox = useRef<HTMLInputElement>(null);
   const [date, setDate] = useState<string | null>(null); // null = today; another date was unlocked with the System PIN
-  const [viewDate, setViewDate] = useState<string | null>(null); // the list shows this day (looking needs no PIN); null = follow `date`
+  const [viewDate, setViewDate] = useState<string | null>(jump?.to === 'day' ? jump.date : null); // the list shows this day (looking needs no PIN; a Reports row opens the page on its day); null = follow `date`
   const [openId, setOpenId] = useState<number | null>(null); // the saved LR in the form; null = a new LR
   const [pushed, setPushed] = useState<LrDetail | null>(null); // the LR as a change or a click just answered, until the refetch catches up
   const [findNo, setFindNo] = useState('');
@@ -112,6 +112,10 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }:
     if (jump?.to !== 'lr') return;
     picked.current.used();
     picked.current.show(jump.id);
+  }, [jump]);
+  // A Reports row: the page was opened for that day (it starts showing it: see viewDate); the pick is used up.
+  useEffect(() => {
+    if (jump?.to === 'day') picked.current.used();
   }, [jump]);
   const openFound = () => {
     const no = Number(findNo);

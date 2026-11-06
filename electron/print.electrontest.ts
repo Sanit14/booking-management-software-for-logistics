@@ -8,12 +8,13 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { BrowserWindow, app } from 'electron';
-import { MAX_STATEMENT_PRINT_ROWS } from '../shared';
+import { MAX_REPORT_PRINT_ROWS, MAX_STATEMENT_PRINT_ROWS, type PrintReport, type ReportKind } from '../shared';
 import { lrHtml } from '../print/lr';
 import { FIRST_ROWS, NEXT_ROWS, TOTALS_ROWS, memoHtml, paginate } from '../print/memo';
+import { REPORT_FIRST_ROWS, REPORT_NEXT_ROWS, REPORT_TOTALS_ROWS, paginateReport, reportHtml } from '../print/report';
 import { STATEMENT_FIRST_ROWS, STATEMENT_NEXT_ROWS, STATEMENT_TOTALS_ROWS, paginateStatement, statementHtml } from '../print/statement';
 import { A4, A5_LANDSCAPE, type PageSpec } from '../print/template';
-import { sampleLr, sampleMemo, sampleStatement } from '../print/testing';
+import { sampleLr, sampleMemo, sampleReport, sampleStatement } from '../print/testing';
 import { renderPdf, withPage } from './print';
 
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'bm-print-test-')));
@@ -77,6 +78,27 @@ async function cutCells(html: string): Promise<string[]> {
       .flatMap((tr) => [...tr.children].map((td, i) => ({ td, i })))
       .filter(({ td, i }) => i !== 2 && i !== 3 && td.scrollWidth > td.clientWidth + 0.5)
       .map(({ td, i }) => i + ':' + td.textContent)`)) as string[];
+  } finally {
+    win.destroy();
+  }
+}
+/**
+ * The cells of a report that were cut. Every heading must show whole; in the rows only the columns that hold a name (`texts`) may end in "…".
+ */
+async function cutReportCells(html: string, texts: number[]): Promise<string[]> {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    return (await win.webContents.executeJavaScript(`(() => {
+      const texts = ${JSON.stringify(texts)};
+      const cut = (td) => td.scrollWidth > td.clientWidth + 0.5;
+      const heads = [...document.querySelectorAll('.rep thead th')].filter(cut).map((th) => 'heading:' + th.textContent);
+      const cells = [...document.querySelectorAll('.rep tbody tr')]
+        .flatMap((tr) => [...tr.children].map((td, i) => ({ td, i })))
+        .filter(({ td, i }) => !texts.includes(i) && !td.classList.contains('none') && cut(td))
+        .map(({ td, i }) => i + ':' + td.textContent);
+      return [...heads, ...cells];
+    })()`)) as string[];
   } finally {
     win.destroy();
   }
@@ -204,6 +226,67 @@ void app.whenReady().then(async () => {
       const html = statementHtml(statementWorst(n));
       assert.equal(sheets(await pdfOf(`statement-${n}`, html, A4)), paginateStatement(n).length);
       await noOverrun(`statement-${n}`, html);
+    });
+  }
+
+  // A report (4.1): the same proof as the statement for all seven — the widest figures whole, every heading whole, the sheet count the template's,
+  // nothing into the footer — with the longest lines, the tallest totals and Truck-wise's footnote, at every edge of every sheet.
+  const TEXT_COLUMNS: Record<ReportKind, number[]> = { dateWise: [], stationWise: [0], consignorWise: [0, 1], consigneeWise: [0, 1], truckWise: [2, 3], firmWise: [0], wasuli: [0] };
+  const MONEY = '12,34,567.89';
+  const WIDEST: Record<ReportKind, string[]> = {
+    dateWise: ['31-12-2026', '99999', '9999999', MONEY, MONEY, MONEY, MONEY, MONEY],
+    stationWise: ['Station', '99999', '9999999', MONEY, MONEY, MONEY],
+    consignorWise: ['Name', 'Station', '99999', '9999999', MONEY, MONEY, MONEY],
+    consigneeWise: ['Name', 'Station', '99999', '9999999', MONEY, MONEY, MONEY],
+    truckWise: ['31-12-2026', '99999*', 'Truck', 'Station', '999', '99,99,999.99', '99,99,999.99', '99,99,999.99', '99,99,999.99'],
+    firmWise: ['Firm', '99999', '99999', '9999999', MONEY, MONEY],
+    wasuli: ['Agent', '99999', MONEY, '99999', MONEY],
+  };
+  const reportWorst = (kind: ReportKind, n: number): PrintReport => {
+    const base = sampleReport(kind, n);
+    return {
+      ...base,
+      company: worst.company,
+      filters: { station: long, text: long, truck: long, agent: long },
+      rows: base.rows.map((cells, i) => (i % 3 === 0 ? cells.map((c, j) => (TEXT_COLUMNS[kind].includes(j) ? long : c)) : cells)),
+      totals: base.totals.map((v) => (/^\d/.test(v) ? '12,34,56,789.00' : v)),
+      anyDiffers: kind === 'truckWise',
+    };
+  };
+  const KINDS = Object.keys(TEXT_COLUMNS) as ReportKind[];
+  for (const kind of KINDS) {
+    await check(`${kind}: the widest figures, a 5-digit LR count and every heading show whole; a 1-row report is one A4 portrait sheet; 60 rows are two`, async () => {
+      const wide = sampleReport(kind, 12);
+      assert.deepEqual(await cutReportCells(reportHtml({ ...wide, rows: wide.rows.map(() => WIDEST[kind]) }), TEXT_COLUMNS[kind]), []);
+      const one = reportHtml(sampleReport(kind, 1));
+      const pdf = await pdfOf(`report-${kind}-1`, one, A4);
+      assert.equal(sheets(pdf), 1);
+      const [w, h] = size(pdf);
+      near(w, 595);
+      near(h, 842);
+      await noOverrun(`report-${kind}-1`, one);
+      assert.equal(paginateReport(60).length, 2);
+      assert.equal(sheets(await pdfOf(`report-${kind}-60`, reportHtml(sampleReport(kind, 60)), A4)), 2);
+    });
+    await check(`${kind}: a full sheet with its totals (the longest lines) stays one sheet, one row more starts the next`, async () => {
+      for (const n of [REPORT_FIRST_ROWS - REPORT_TOTALS_ROWS, REPORT_FIRST_ROWS - REPORT_TOTALS_ROWS + 1]) {
+        const html = reportHtml(reportWorst(kind, n));
+        assert.equal(sheets(await pdfOf(`report-${kind}-${n}`, html, A4)), paginateReport(n).length);
+        await noOverrun(`report-${kind}-${n}`, html);
+      }
+    });
+  }
+  // The #-wide cell check can see a cut: a 12 mm Date column cuts every date.
+  await check('the report cut-cell check sees a cut', async () => {
+    const html = reportHtml(sampleReport('dateWise', 3)).replace('<col style="width:22mm">', '<col style="width:12mm">');
+    assert.ok((await cutReportCells(html, [])).length > 0, 'a 12 mm Date column is cut');
+  });
+  const R = { first: REPORT_FIRST_ROWS, next: REPORT_NEXT_ROWS, totals: REPORT_TOTALS_ROWS };
+  for (const n of [0, R.first - R.totals, R.first - R.totals + 1, R.first, R.first + 1, R.first + R.next - R.totals, R.first + R.next - R.totals + 1, R.first + R.next, R.first + R.next + 1, 150, MAX_REPORT_PRINT_ROWS]) {
+    await check(`a Truck-wise report of ${n} rows (longest lines, footnote): the PDF has the ${paginateReport(n).length} sheet(s) the template made`, async () => {
+      const html = reportHtml(reportWorst('truckWise', n));
+      assert.equal(sheets(await pdfOf(`report-truckWise-${n}`, html, A4)), paginateReport(n).length);
+      await noOverrun(`report-truckWise-${n}`, html);
     });
   }
 

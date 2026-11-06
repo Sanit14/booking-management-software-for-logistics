@@ -8,6 +8,7 @@ import type {
 import type { Db } from './db';
 import { growthPct, monthRows, previousPeriod } from './firmRules';
 import { localDate } from './lrRules';
+import { lrMoneySql, lrSumsSql } from './lrSql';
 import { nameKey } from './names';
 
 type Refusal = Extract<KeeperResult<never>, { ok: false }>;
@@ -35,14 +36,10 @@ function setOf(role: FirmRole): string {
   return `l.id IN (${side('consignor_id')} UNION ${side('consignee_id')}) AND ${LIVE}`;
 }
 
-const CHARGES = 'l.godown_bhada_paise + l.godown_insurance_paise + l.delivery_charges_paise + l.hamali_paise + l.pf_paise';
-const FREIGHT = '(l.topay_paise + l.paid_paise)';
-/** Tax on freight only, per LR, rounded half up: the same arithmetic as `taxPaise`. */
-const STAX = `((${FREIGHT} * l.stax_bp + 5000) / 10000)`;
-const TOTAL = `(${FREIGHT} + ${CHARGES} + ${STAX})`;
+/** Charges, freight, tax (per LR, round half up: the arithmetic of `taxPaise`) and total as SQL: the one definition in `lrSql.ts`. */
+const { charges: CHARGES, freight: FREIGHT, stax: STAX, total: TOTAL } = lrMoneySql('l.');
 
-const SUMS = `COUNT(*) AS lrs, COALESCE(SUM(l.qty), 0) AS qty, COALESCE(SUM(l.topay_paise), 0) AS toPayPaise, COALESCE(SUM(l.paid_paise), 0) AS paidPaise,
-    COALESCE(SUM(${CHARGES}), 0) AS chargesPaise, COALESCE(SUM(${STAX}), 0) AS staxPaise, COALESCE(SUM(${TOTAL}), 0) AS totalPaise,
+const SUMS = `${lrSumsSql('l.')}, COALESCE(SUM(${TOTAL}), 0) AS totalPaise,
     COALESCE(SUM(w.amount_paise), 0) AS wasuliOwedPaise, COALESCE(SUM(w.collected_paise), 0) AS wasuliCollectedPaise`;
 const ROW_COLUMNS = `l.id AS lrId, l.lr_no AS lrNo, l.lr_year AS lrYear, l.lr_date AS date,
     CASE WHEN l.consignor_id = @f AND l.consignee_id = @f THEN 'both' WHEN l.consignor_id = @f THEN 'consignor' ELSE 'consignee' END AS role,

@@ -7,6 +7,7 @@ import { inr, lrAmounts, type LrMoney } from './money';
 import { makeFirmAccounts } from './firmAccounts';
 import { ADMIN, SYSTEM, book, create, now, refused, saved, setUp, type Set } from './memoTesting';
 import { makePrint } from './print';
+import { makeReports } from './reports';
 import { fastest, insertLr } from './testing';
 
 const got = <T>(r: KeeperResult<T>): T => {
@@ -16,7 +17,7 @@ const got = <T>(r: KeeperResult<T>): T => {
 const n = (s: Set, table: string) => (s.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
 const setup = () => {
   const s = setUp();
-  return { s, print: makePrint(s.pins, s.memos, makeFirmAccounts(now)) };
+  return { s, print: makePrint(s.pins, s.memos, makeFirmAccounts(now), makeReports()) };
 };
 const audits = (s: Set, action: string) =>
   s.db.prepare('SELECT seat, entity, entity_id AS entityId, after_json AS after FROM audit_log WHERE action = ? ORDER BY id').all(action) as {

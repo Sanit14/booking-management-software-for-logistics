@@ -102,6 +102,15 @@ const keeper: KeeperApi = {
     kpis: (query) => ipcRenderer.invoke('keeper:firms-kpis', query),
     months: (firmId, year, role) => ipcRenderer.invoke('keeper:firms-months', firmId, year, role),
   },
+  reports: {
+    dateWise: (query, cursor) => ipcRenderer.invoke('keeper:reports-date-wise', query, cursor),
+    stationWise: (query, cursor) => ipcRenderer.invoke('keeper:reports-station-wise', query, cursor),
+    partyWise: (side, query, cursor) => ipcRenderer.invoke('keeper:reports-party-wise', side, query, cursor),
+    truckWise: (query, cursor) => ipcRenderer.invoke('keeper:reports-truck-wise', query, cursor),
+    firmWise: (query, cursor) => ipcRenderer.invoke('keeper:reports-firm-wise', query, cursor),
+    wasuli: (query, cursor) => ipcRenderer.invoke('keeper:reports-wasuli', query, cursor),
+    lrs: (request, cursor) => ipcRenderer.invoke('keeper:reports-lrs', request, cursor),
+  },
   search: (text) => ipcRenderer.invoke('keeper:search', text),
 };
 
@@ -128,6 +137,7 @@ const print: PrintApi = {
   memo: (id, how) => ipcRenderer.invoke('print:memo', id, how),
   lr: (id, how) => ipcRenderer.invoke('print:lr', id, how),
   firmStatement: (query, how) => ipcRenderer.invoke('print:firm-statement', query, how),
+  report: (report, query, how) => ipcRenderer.invoke('print:report', report, query, how),
 };
 
 contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update, keys, print });
