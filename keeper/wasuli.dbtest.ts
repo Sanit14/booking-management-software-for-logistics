@@ -426,6 +426,12 @@ test('find: an LR of this year, else last year; and why there is none', () => {
   assert.ok(old.ok && old.value.lrYear === 2025);
   assert.deepEqual([refused(s.wasuli.find(s.db, none.no)).code, refused(s.wasuli.find(s.db, none.no)).detail], ['wasuli-missing', 'no-wasuli']);
   assert.equal(refused(s.wasuli.find(s.db, 987654)).detail, 'no-lr');
+  // A History row knows the year: exactly that year's LR, never another year's with the same number.
+  const sameNo = insertLr(s.db, { lr_year: 2025, lr_no: w.lrNo, lr_date: '2025-12-30', wasuli_paise: 300, seat: 't' });
+  insert(s.db, 'wasuli', { lr_id: sameNo, amount_paise: 300, seat: 't' });
+  const lastYears = s.wasuli.find(s.db, w.lrNo, 2025);
+  assert.ok(lastYears.ok && lastYears.value.lrYear === 2025 && lastYears.value.id !== w.id, 'LR ' + w.lrNo + '/2025, not this year\'s');
+  assert.equal(refused(s.wasuli.find(s.db, 4000, 2026)).detail, 'no-lr', 'this year has no LR 4000');
 });
 
 test('agent stats: assigned now, collected today and in the period, per agent; an agent with nothing is listed with zeros', () => {

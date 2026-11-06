@@ -20,7 +20,7 @@ import { makeLog } from '../keeper/log';
 import { programDir } from '../keeper/paths';
 import { strings } from '../src/strings';
 import type { KeeperBridge } from './keeperBridge';
-import { listProcesses, otherInstanceRoots } from './processScan';
+import { otherSessions } from './otherSeats';
 import { SignatureError, verifyPayload, type Release, type SignatureDoc, type SignatureProblem } from './releaseSignature';
 import { UPDATE_PUBLIC_KEY } from './updatePublicKey';
 
@@ -204,15 +204,14 @@ export function initUpdater(keeper: KeeperBridge): void {
     if (seats.value.others.length) throw new UpdateError(p.otherSeats(seats.value.others.join(', ')));
     const st = await keeper.status();
     if (st.kind !== 'connected') throw new UpdateError(p.noKeeper);
-    let rows;
+    let sessions: number[];
     try {
-      rows = await listProcesses(path.basename(process.execPath));
+      sessions = await otherSessions(st.health.pid);
     } catch (e) {
       say('process-scan-failed', firstLine(e));
       throw new UpdateError(p.scanFailed);
     }
-    const others = otherInstanceRoots(rows, process.pid, st.health.pid);
-    if (others.length) throw new UpdateError(p.otherSessions([...new Set(others.map((o) => o.session))].join(', ')));
+    if (sessions.length) throw new UpdateError(p.otherSessions(sessions.join(', ')));
     return st.health;
   }
 
@@ -254,6 +253,9 @@ export function initUpdater(keeper: KeeperBridge): void {
       const backup = await keeper.call<{ file: string }>('POST', '/backups/export', { dir: health.backupDir });
       if (!backup.ok) throw new UpdateError(p.backupFailed(strings.result(backup.code, backup.detail)));
       say('backup-ok', backup.value.file);
+      // The book says who started an update, and from which version to which (the keeper checks the PIN again).
+      const noted = await keeper.call('POST', '/settings/update-start', { from: app.getVersion(), to: version, adminPin: pin });
+      if (!noted.ok) throw new UpdateError(strings.result(noted.code, noted.detail));
       mark(2);
       keeper.pauseWatchdog(); // otherwise the 15 s ping would start a new keeper while the installer waits
       keeperStopped = true;

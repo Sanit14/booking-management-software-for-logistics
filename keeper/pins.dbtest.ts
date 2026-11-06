@@ -160,3 +160,28 @@ test('a failed change changes nothing and writes no audit row', () => {
   pins.changeSystem(db, 's', '9999', '5555');
   assert.equal(rows(db, 'SELECT * FROM audit_log').length, before);
 });
+
+test('onLocked is told once by the try that starts a lock: not by the wrong tries before it, not while locked, not by a right PIN; a new lock tells again', () => {
+  const c = clock();
+  const told: string[] = [];
+  const pins = makePins(c.now, (kind) => told.push(kind));
+  const db = freshDb();
+  assert.ok(pins.setup(db, 'seat-1', '1111', '2222').ok);
+  for (let i = 0; i < 4; i++) pins.verify(db, 'admin', '0000');
+  assert.deepEqual(told, [], 'four wrong tries are not a lock');
+  assert.equal(code(pins.verify(db, 'admin', '0000')), 'pin-locked');
+  assert.deepEqual(told, ['admin']);
+  pins.verify(db, 'admin', '0000');
+  pins.verify(db, 'admin', '1111');
+  assert.deepEqual(told, ['admin'], 'tries while it is locked tell nothing');
+  assert.equal(code(pins.verify(db, 'system', '2222')), 'ok');
+  assert.deepEqual(told, ['admin'], 'a right PIN of the other kind tells nothing');
+  for (let i = 0; i < 5; i++) pins.verify(db, 'system', '0000');
+  assert.deepEqual(told, ['admin', 'system']);
+  c.advance(LOCK_MS);
+  assert.equal(code(pins.verify(db, 'admin', '1111')), 'ok');
+  for (let i = 0; i < 5; i++) pins.verify(db, 'admin', '0000');
+  assert.deepEqual(told, ['admin', 'system', 'admin'], 'a second lock tells again');
+  for (let i = 0; i < 5; i++) pins.recover(db, 'seat-1', 'WRONG-CODE-0000', '3333', '4444');
+  assert.deepEqual(told.slice(3), ['recovery'], 'a wrong recovery code locks too');
+});

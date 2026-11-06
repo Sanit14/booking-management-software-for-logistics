@@ -2,8 +2,6 @@
 // the screen's keeper.health(). There is no fallback database: if the keeper cannot be reached the screen
 // gets an error code and nothing else happens.
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import {
@@ -14,6 +12,7 @@ import {
   type FirmAccountPage,
   type FirmKpis,
   type FirmMonth,
+  type HistoryPage,
   type KeeperErrorCode,
   type KeeperPush,
   type KeeperResult,
@@ -67,36 +66,13 @@ import { callJson, probe, shutdown, subscribeEvents } from '../keeper/client';
 import { checkDataRoot, resolveDataRoot } from '../keeper/dataRoot';
 import { makeLog } from '../keeper/log';
 import { logPath, pointerPath, programDir } from '../keeper/paths';
+import { otherSessions } from './otherSeats';
+import { loadSeat, saveSeat } from './seatName';
 import { KEEPER_PING_MS, keeperAction } from './watchdog';
 
 // A big database is checked (and backed up) before the keeper says ready; the loop still gives up at once if the keeper it started dies.
 const START_WAIT_MS = 60000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// The Windows user name by default (each NComputing seat is its own Windows user); kept in this user's
-// userData so a later rename UI has somewhere to write.
-export function loadSeat(userDataDir: string): string {
-  const file = path.join(userDataDir, 'seat.json');
-  try {
-    const name = (JSON.parse(fs.readFileSync(file, 'utf8')) as { name?: unknown }).name;
-    if (typeof name === 'string' && name !== '') return name;
-  } catch {
-    /* no seat file yet */
-  }
-  let name = 'seat';
-  try {
-    name = os.userInfo().username || name;
-  } catch {
-    /* no user name available */
-  }
-  try {
-    fs.mkdirSync(userDataDir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ name }));
-  } catch {
-    /* the default still works without the file */
-  }
-  return name;
-}
 
 class LauncherError extends Error {
   constructor(readonly code: KeeperErrorCode, readonly detail = '', readonly refusal?: RootRefusal) {
@@ -223,10 +199,54 @@ export function initKeeperBridge(userDataDir: string) {
     if (chosen.canceled || chosen.filePaths.length === 0) return { ok: false, code: 'cancelled' };
     return call('POST', '/backups/export', { dir: chosen.filePaths[0] });
   });
+  // A new backup folder (4.2): the Admin PIN is checked first, so a wrong one shakes before any folder is asked for; then the folder; then the keeper
+  // makes a backup there and, only if that worked, switches. A folder the keeper refused as "the data's own drive" is remembered, so the screen's
+  // "use it anyway" sends that same folder again without asking for one.
+  let refusedFolder: string | null = null;
+  ipcMain.handle('keeper:backups-set-folder', async (_e, pin: unknown, confirmSameDrive: unknown): Promise<KeeperResult<{ dir: string; file: string }>> => {
+    const adminPin = text(pin);
+    const gate = await call<true>('POST', '/pins/verify', { kind: 'admin', pin: adminPin });
+    if (!gate.ok) return gate;
+    let dir = confirmSameDrive === true ? refusedFolder : null;
+    refusedFolder = null;
+    if (!dir) {
+      const options = { title: strings.settings.backupFolderPick, properties: ['openDirectory' as const, 'createDirectory' as const] };
+      const win = BrowserWindow.getFocusedWindow();
+      const chosen = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+      if (chosen.canceled || chosen.filePaths.length === 0) return { ok: false, code: 'cancelled' };
+      dir = chosen.filePaths[0];
+    }
+    const r = await call<{ dir: string; file: string }>('POST', '/settings/set-backup-dir', { dir, adminPin, confirmSameDrive: confirmSameDrive === true });
+    if (!r.ok && r.code === 'backup-dir-same-drive') refusedFolder = dir;
+    return r;
+  });
+  // This seat's name (4.2): the keeper checks the Admin PIN and the name and writes the book; the name is kept here for the next start.
+  ipcMain.handle('keeper:seat-rename', async (_e, name: unknown, pin: unknown): Promise<KeeperResult<{ name: string }>> => {
+    const r = await call<{ name: string }>('POST', '/seats/rename', { name: text(name), adminPin: text(pin) });
+    if (!r.ok) return r;
+    try {
+      saveSeat(userDataDir, r.value.name);
+    } catch (e) {
+      log('seat-save-failed', { seat, error: String((e as Error)?.message ?? e) });
+      return { ok: false, code: 'failed', detail: strings.settings.seatNotSaved };
+    }
+    return r;
+  });
   ipcMain.handle('keeper:restore-preview', (_e, file: unknown) => call<RestorePreview>('POST', '/restore/preview', { file: text(file) }));
-  ipcMain.handle('keeper:restore-apply', (_e, file: unknown, token: unknown) =>
-    call<{ schemaVersion: number }>('POST', '/restore/apply', { file: text(file), confirmToken: text(token) }),
-  );
+  ipcMain.handle('keeper:restore-apply', async (_e, file: unknown, token: unknown, pin: unknown): Promise<KeeperResult<{ schemaVersion: number }>> => {
+    // While the app runs nobody else may have it open: the keeper knows the seats that are pinging, Windows knows every session (a hung app,
+    // two seats under one Windows user). In safe mode no one else can be working, and there is no PIN.
+    const st = await status();
+    if (st.kind === 'connected') {
+      try {
+        const sessions = await otherSessions(st.health.pid);
+        if (sessions.length > 0) return { ok: false, code: 'restore-others-online', detail: strings.settings.restoreSessions(sessions) };
+      } catch {
+        return { ok: false, code: 'failed', detail: strings.update.problem.scanFailed };
+      }
+    }
+    return call<{ schemaVersion: number }>('POST', '/restore/apply', { file: text(file), confirmToken: text(token), adminPin: text(pin) });
+  });
   ipcMain.handle('keeper:pins-setup', (_e, admin: unknown, system: unknown) =>
     call<{ recoveryCode: string }>('POST', '/pins/setup', { adminPin: text(admin), systemPin: text(system) }),
   );
@@ -305,7 +325,7 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:print-set-company', (_e, input: unknown, pin: unknown) => call<PrintCompany>('POST', '/print/set-company', { input, adminPin: text(pin) }));
   // Wasuli (3.4): the keeper cleans every value and compares the rows with what the screen saw; main forwards named arguments.
   ipcMain.handle('keeper:wasuli-list', (_e, filters: unknown, cursor: unknown) => call<WasuliPage>('POST', '/wasuli/list', { filters, cursor }));
-  ipcMain.handle('keeper:wasuli-find', (_e, no: unknown) => call<WasuliRow>('POST', '/wasuli/find', { no }));
+  ipcMain.handle('keeper:wasuli-find', (_e, no: unknown, year: unknown) => call<WasuliRow>('POST', '/wasuli/find', { no, year }));
   ipcMain.handle('keeper:wasuli-agent-stats', (_e, period: unknown) => call<AgentStat[]>('POST', '/wasuli/agent-stats', { period }));
   ipcMain.handle('keeper:wasuli-assign', (_e, rows: unknown, agentId: unknown) => call<WasuliChanged>('POST', '/wasuli/assign', { rows, agentId }));
   ipcMain.handle('keeper:wasuli-reassign', (_e, row: unknown, agentId: unknown) => call<WasuliChanged>('POST', '/wasuli/reassign', { row, agentId }));
@@ -335,6 +355,8 @@ export function initKeeperBridge(userDataDir: string) {
     const r = request !== null && typeof request === 'object' ? (request as Record<string, unknown>) : {};
     return call<ReportLrsPage>('POST', '/reports/lrs', { of: r.of, query: r.query, cursor });
   });
+  // History (4.2): reads only; the keeper checks the period, the filters and the cursor. Main forwards named arguments.
+  ipcMain.handle('keeper:history-list', (_e, filters: unknown, cursor: unknown) => call<HistoryPage>('POST', '/history/list', { filters, cursor }));
   void status(); // warm up before the screen asks
 
   // One event stream per seat, handed on to every window of this seat. It reconnects by itself (after a keeper

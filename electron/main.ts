@@ -25,7 +25,7 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      additionalArguments: [`--app-version=${app.getVersion()}`],
+      additionalArguments: [`--app-version=${app.getVersion()}`, ...(app.isPackaged ? ['--packaged'] : [])],
     },
   });
 

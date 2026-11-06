@@ -15,6 +15,22 @@
   margin: -6px;
 }
 
+/* The backup picker inside the Restore dialog: its cards stack and scroll here, not the page. */
+.restoreBox {
+  display: flex;
+  max-height: 560px;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.note {
+  margin: 0;
+  padding: 0 16px 14px;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+}
+
 .wide {
   grid-column: 1 / -1;
 }

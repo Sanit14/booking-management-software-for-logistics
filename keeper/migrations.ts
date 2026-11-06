@@ -200,9 +200,16 @@ function schemaV2(db: Db): void {
   `);
 }
 
+// v3 (session 4.2): the History page lists the audit log by time, newest first; until now the log was only looked up by (entity, entity_id).
+// An index only: no data changes (the log stays append-only; an index is not a row).
+function schemaV3(db: Db): void {
+  db.exec('CREATE INDEX audit_by_at ON audit_log (at)');
+}
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, up: schemaV1 },
   { version: 2, up: schemaV2 },
+  { version: 3, up: schemaV3 },
 ];
 
 /** The highest applied version; 0 for a file with no schema_version rows (e.g. a 1.2 database). */

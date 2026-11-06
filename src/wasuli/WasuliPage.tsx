@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Pencil, RotateCcw, Undo2, UserCog } from 'lucide-react';
 import {
   MAX_WASULI_BATCH,
@@ -13,6 +13,7 @@ import {
   type WasuliStatus,
 } from '../../shared';
 import { isoToDisplay } from '../logic/lrOpen';
+import type { Jump } from '../logic/searchResults';
 import { tickAll, toggle, untick, type Box, type Ticks } from '../logic/memoPick';
 import { agentChoice, quickOutcome, seenOf } from '../logic/wasuliFlow';
 import { rupees } from '../loadingMemo/columns';
@@ -53,7 +54,7 @@ const waiting = (days: number) => <span className={days >= 7 ? styles.late : day
  * (System PIN). The keeper decides everything and compares each row with what this screen saw, so a row another seat moved
  * first is refused and named; this only draws, asks and says what came back. No polling: the keeper pushes changes.
  */
-export default function WasuliPage() {
+export default function WasuliPage({ jump, onJumpUsed }: { jump: Jump | null; onJumpUsed: () => void }) {
   const toast = useToast();
   const masters = useKeeperData(() => window.bm.keeper.masters.all(), ['agents'], NONE);
   const [box, setBox] = useState<Box | null>(null); // null = the first active agent, until the clerk touches the box
@@ -68,6 +69,27 @@ export default function WasuliPage() {
   const [remarking, setRemarking] = useState<{ row: WasuliRow; text: string; step: 'text' | 'pin' } | null>(null);
   const [remarkError, setRemarkError] = useState<string | undefined>();
   const busy = useRef(new Set<string>());
+  const [found, setFound] = useState<{ id: number; tab: WasuliStatus } | null>(null); // the row a History row led to
+
+  // A History row: the list that LR's collection is in (its tab, its agent) with the row marked, and a line saying where it is.
+  const take = useRef(() => {});
+  useEffect(() => {
+    take.current = () => {
+      if (jump?.to !== 'wasuli') return;
+      onJumpUsed();
+      void window.bm.keeper.wasuli.find(jump.no, jump.year).then((r) => {
+        if (!r.ok) return void toast.error(strings.result(r.code, r.detail));
+        setTab(r.value.status);
+        if (r.value.agentId !== null && r.value.agent) setBox({ text: r.value.agent, id: r.value.agentId });
+        setTicks(new Set());
+        setFound({ id: r.value.id, tab: r.value.status });
+        toast.info(t.found(r.value.lrNo, t.tabs[r.value.status], r.value.agent));
+      });
+    };
+  });
+  useEffect(() => {
+    if (jump?.to === 'wasuli') take.current();
+  }, [jump]);
 
   const agents = useMemo(() => masters.data.agents.filter((a) => a.active), [masters.data.agents]);
   const agent = agentChoice(box, agents);
@@ -325,6 +347,10 @@ export default function WasuliPage() {
             actions(96),
           ];
   const tickedKeys = useMemo(() => new Set([...ticks].map(String)), [ticks]);
+  const marked = useMemo(
+    () => new Set([...(tab === 'unassigned' ? tickedKeys : []), ...(found && found.tab === tab ? [String(found.id)] : [])]),
+    [tab, tickedKeys, found],
+  );
   const tickRow = (r: WasuliRow) => setTicks((now) => toggle(now, r.id));
   const emptyText = tab === 'unassigned' ? t.empty.unassigned : !agent ? t.noAgent : tab === 'assigned' ? t.empty.assigned(agent.name) : t.empty.collected(agent.name);
 
@@ -411,7 +437,7 @@ export default function WasuliPage() {
               columns={columns}
               rows={rows}
               rowKey={(r) => String(r.id)}
-              ticked={tab === 'unassigned' ? tickedKeys : undefined}
+              ticked={marked}
               empty={emptyText}
               onRowActivate={tab === 'unassigned' ? tickRow : undefined}
               onRowToggle={tab === 'unassigned' ? tickRow : undefined}

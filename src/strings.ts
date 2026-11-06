@@ -5,6 +5,8 @@ import {
   type ChargeOption,
   type DbSummary,
   type GuardReason,
+  type HistoryChange,
+  type HistoryFacts,
   type KeeperStatus,
   type LrEditField,
   type LrFieldError,
@@ -37,6 +39,13 @@ const resultText: Record<ResultCode, string> = {
   'backup-empty': 'That backup has no records, but the current database has. Restoring it would wipe the business, so it was refused.',
   'backup-newer-schema': 'That backup was made by a newer version of Booking Manager than this one.',
   'bad-token': 'The preview is out of date. Choose the backup again and check it before restoring.',
+  'backup-dir-same-drive': 'That folder is on the same drive as the data, so a backup there is lost with the drive',
+  'backup-dir-unusable': 'A backup could not be written to that folder',
+  'seat-name-invalid': 'A seat name is 2 to 20 letters, digits, spaces or dashes.',
+  'seat-name-taken': 'Another seat already has that name',
+  'seat-name-same': 'That is already the name of this seat.',
+  'restore-others-online': 'Another seat has Booking Manager open. Close it there first',
+  'restore-backup-failed': 'A backup of the database as it is now could not be made, so nothing was restored',
   'wrong-pin': 'Wrong PIN.',
   'wrong-recovery-code': 'That recovery code is not right.',
   'pin-locked': 'Too many wrong tries. Wait a minute and try again',
@@ -88,6 +97,23 @@ const dateTime = (iso: string) => {
   const d = new Date(iso);
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${time(iso)}`;
 };
+
+/** What a History sentence is made from (src/logic/historySentence.ts builds it): the row's words and a few formatters. */
+export interface SayCtx {
+  lr: string;
+  challan: string;
+  wasuli: string;
+  name: string;
+  noun: string;
+  how: string;
+  pinName: string;
+  reportName: string;
+  f: HistoryFacts;
+  changes: HistoryChange[];
+  rupees: (paise: number) => string;
+  nos: (list: number[] | undefined) => string;
+  date: (iso: string) => string;
+}
 
 export const strings = {
   appTitle: 'Booking Manager',
@@ -397,6 +423,128 @@ export const strings = {
     savePdfLabel: 'Save this statement as a PDF',
     months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
   },
+  // History (4.2): the audit log in words. The sentences are built from the row's data in src/logic/historySentence.ts; an action this build
+  // has no sentence for shows its raw code.
+  history: {
+    listLabel: 'History',
+    presets: { week: 'Last 7 days', today: 'Today', month: 'This month', lastMonth: 'Last month', custom: 'Custom' },
+    periodLabel: 'Period',
+    from: 'From',
+    to: 'To',
+    customNeeds: 'Pick both days; From cannot be after To.',
+    filtersLabel: 'Filters',
+    seat: 'Seat',
+    seatPlaceholder: 'Any part',
+    kind: 'What',
+    allKinds: 'Everything',
+    kinds: {
+      lr: 'LRs', memo: 'Loading memos', wasuli: 'Wasuli', firm: 'Firms', station: 'Stations', truck: 'Trucks', driver: 'Drivers', agent: 'Agents',
+      settings: 'PINs, settings', backup: 'Backup', print: 'Prints',
+    },
+    verb: 'Action',
+    allVerbs: 'Any action',
+    verbs: {
+      created: 'Created', edited: 'Edited', cancelled: 'Cancelled', restored: 'Restored', removed: 'Removed', collected: 'Collected', undone: 'Undone',
+      assigned: 'Assigned', memoChange: 'Memo changes', activated: 'Reactivated', deactivated: 'Deactivated', lockedOut: 'Locked out', printed: 'Printed',
+    },
+    lrNo: 'LR no.',
+    challanNo: 'Challan no.',
+    numberPlaceholder: 'e.g. 12',
+    numberTitle: '12 means this year; 12/2025 means that year',
+    numberBad: 'A number, or number/year',
+    showPrints: 'Show prints',
+    tableLabel: 'History of changes',
+    columns: { when: 'When', seat: 'Seat', what: 'What happened' },
+    empty: 'Nothing was written in this period.',
+    emptyFiltered: 'Nothing matches these filters in this period.',
+    loadMore: 'Load more',
+    hint: 'Enter or a click shows what changed. Ctrl+Enter opens the record.',
+    when: (iso: string): string => {
+      const d = dateTime(iso);
+      return `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)} ${d.slice(11)}`;
+    },
+    details: {
+      title: 'What changed',
+      by: (seat: string, when: string) => `${when} · ${seat}`,
+      none: '—',
+      noChanges: 'No fields changed in this entry.',
+      change: (label: string, from: string, to: string) => `${label}: ${from} → ${to}`,
+      close: 'Hide details',
+    },
+    fields: {
+      date: 'Date', fromStation: 'From', toStation: 'To', consignor: 'Consignor', consignee: 'Consignee', particular: 'Particular', qty: 'Quantity',
+      chargeOption: 'Charge option', toPay: 'To pay', paid: 'Paid', godownBhada: 'Godown bhada', godownInsurance: 'Godown insurance',
+      deliveryCharges: 'Delivery charges', hamali: 'Hamali', wasuli: 'Wasuli', staxPercent: 'Service tax', truck: 'Truck', driver: 'Driver',
+      truckHire: 'Truck hire', loadingHamali: 'Loading hamali', lrs: 'LRs', charges: 'Charges', stax: 'Service tax', amount: 'Amount', remark: 'Remark',
+      name: 'Name', number: 'Number', phone: 'Phone', station: 'Station', bookingStation: 'Booking station', address: 'Address', gstin: 'GSTIN',
+      backupDir: 'Backup folder', seatName: 'Seat name', version: 'Version',
+    } as Record<string, string>,
+    chargeOptions: { blank: 'Blank', option1: 'Option 1', option2: 'Option 2' } as Record<string, string>,
+    nouns: { lr: 'LR', memo: 'Challan', wasuli: 'Wasuli', firm: 'Firm', station: 'Station', truck: 'Truck', driver: 'Driver', agent: 'Agent' } as Record<string, string>,
+    modes: { cash: 'cash', upi: 'UPI', card: 'card' } as Record<string, string>,
+    pinNames: { admin: 'Admin PIN', system: 'System PIN', recovery: 'Recovery code' } as Record<string, string>,
+    reportName: (key: string): string => (strings.paper.report.kinds as Record<string, { name: string }>)[key]?.name ?? key,
+    anLr: 'An LR',
+    aChallan: 'A challan',
+    /** One sentence per audit action; `masters.*` serves all five kinds of master. A wasuli row is "Wasuli LR n". */
+    say: {
+      'lrs.create': (c: SayCtx) => `${c.lr} booked: ${c.f.consignor ?? '?'} → ${c.f.consignee ?? '?'}${c.f.station ? `, to ${c.f.station}` : ''}`,
+      'lrs.update': (c: SayCtx) => `${c.lr} edited`,
+      'lrs.cancel': (c: SayCtx) => `${c.lr} cancelled${c.f.reason ? ` — ${c.f.reason}` : ''}`,
+      'lrs.restore': (c: SayCtx) => `${c.lr} restored`,
+      'lrs.memo-remove': (c: SayCtx) => `${c.lr} taken off ${c.f.challanNo ? `challan ${c.f.challanNo}` : 'its challan'}`,
+      'lrs.memo-move': (c: SayCtx) => `${c.lr} moved from challan ${c.f.challanNo ?? '?'} to challan ${c.f.otherChallanNo ?? '?'}`,
+      'lrs.memo-add': (c: SayCtx) => `${c.lr} added to ${c.f.challanNo ? `challan ${c.f.challanNo}` : 'a challan'}`,
+      'lrs.memo-cancel': (c: SayCtx) => `${c.lr} back to booked: ${c.f.challanNo ? `challan ${c.f.challanNo}` : 'its challan'} was cancelled`,
+      'memos.create': (c: SayCtx) =>
+        `${c.challan} made: ${c.f.lrCount ?? '?'} LRs${c.f.truck ? `, truck ${c.f.truck}` : ''}${c.f.fromStation && c.f.toStation ? `, ${c.f.fromStation} → ${c.f.toStation}` : ''}`,
+      'memos.edit': (c: SayCtx) => `${c.challan} edited`,
+      'memos.remove-lrs': (c: SayCtx) => `${c.challan}: ${c.nos(c.f.lrNos)} taken off`,
+      'memos.add-lrs': (c: SayCtx) => `${c.challan}: ${c.nos(c.f.lrNos)} added`,
+      'memos.move-out': (c: SayCtx) => `${c.challan}: ${c.nos(c.f.lrNos)} moved to challan ${c.f.otherChallanNo ?? '?'}`,
+      'memos.move-in': (c: SayCtx) => `${c.challan}: ${c.nos(c.f.lrNos)} moved in from challan ${c.f.otherChallanNo ?? '?'}`,
+      'memos.recalculate': (c: SayCtx) => `${c.challan} totals recalculated`,
+      'memos.cancel': (c: SayCtx) => `${c.challan} cancelled${c.f.reason ? ` — ${c.f.reason}` : ''}`,
+      'wasuli.create': (c: SayCtx) => `${c.wasuli}: ${c.f.amountPaise === undefined ? 'an amount' : c.rupees(c.f.amountPaise)} to collect`,
+      'wasuli.update': (c: SayCtx) => `${c.wasuli}: amount changed`,
+      'wasuli.remove': (c: SayCtx) => `${c.wasuli} removed${c.f.amountPaise === undefined ? '' : ` (${c.rupees(c.f.amountPaise)})`}`,
+      'wasuli.assign': (c: SayCtx) => `${c.wasuli} assigned to ${c.f.agent ?? '?'}`,
+      'wasuli.reassign': (c: SayCtx) => `${c.wasuli} moved from ${c.f.fromAgent ?? '?'} to ${c.f.agent ?? '?'}`,
+      'wasuli.to-pool': (c: SayCtx) => `${c.wasuli} taken back from ${c.f.fromAgent ?? '?'}`,
+      'wasuli.collect': (c: SayCtx) =>
+        `${c.wasuli} collected ${c.f.amountPaise === undefined ? '' : c.rupees(c.f.amountPaise)}${c.f.mode ? ` ${c.f.mode}` : ''}${c.f.agent ? ` by ${c.f.agent}` : ''}` +
+        `${c.f.owedPaise !== undefined && c.f.amountPaise !== undefined && c.f.amountPaise < c.f.owedPaise ? ` (part of ${c.rupees(c.f.owedPaise)})` : ''}`,
+      'wasuli.uncollect': (c: SayCtx) => `${c.wasuli} collection undone${c.f.amountPaise === undefined ? '' : ` (${c.rupees(c.f.amountPaise)}${c.f.agent ? `, ${c.f.agent}` : ''})`}`,
+      'wasuli.remark': (c: SayCtx) => `${c.wasuli} remark edited`,
+      'masters.create': (c: SayCtx) => `${c.noun} ${c.name} added`,
+      'masters.update': (c: SayCtx) => `${c.noun} ${c.name} edited`,
+      'masters.activate': (c: SayCtx) => `${c.noun} ${c.name} reactivated`,
+      'masters.deactivate': (c: SayCtx) => `${c.noun} ${c.name} deactivated`,
+      'pins.setup': () => 'Admin and System PIN set up',
+      'pins.change-system': () => 'System PIN changed',
+      'pins.change-admin': () => 'Admin PIN changed',
+      'pins.recover': () => 'PINs reset with the recovery code',
+      'pins.locked': (c: SayCtx) => `${c.pinName} locked after 5 wrong tries`,
+      'settings.lr-defaults': () => 'LR defaults changed',
+      'settings.company': () => 'Company lines on printouts changed',
+      'settings.backup-dir': (c: SayCtx) => `Backup folder changed to ${c.changes[0]?.to ?? '?'}`,
+      'seat.rename': (c: SayCtx) => `Seat ${c.changes[0]?.from ?? '?'} renamed ${c.changes[0]?.to ?? '?'}`,
+      'app.update': (c: SayCtx) => `Software update to ${c.changes[0]?.to ?? '?'} started (from ${c.changes[0]?.from ?? '?'})`,
+      'backup.restore': (c: SayCtx) => `Database restored from backup ${c.f.file ?? '?'}`,
+      'print.lr': (c: SayCtx) => `${c.lr} ${c.how}`,
+      'print.memo': (c: SayCtx) => `${c.challan} ${c.how}`,
+      'print.firm': (c: SayCtx) => `Statement of ${c.name} ${c.how}${c.f.from && c.f.to ? ` (${c.date(c.f.from)} to ${c.date(c.f.to)})` : ''}`,
+      'print.report': (c: SayCtx) => `${c.reportName} report ${c.how}${c.f.from && c.f.to ? ` (${c.date(c.f.from)} to ${c.date(c.f.to)})` : ''}`,
+    } as Record<string, (c: SayCtx) => string>,
+    howPrinted: { print: 'printed', pdf: 'saved as PDF' } as Record<string, string>,
+    open: {
+      lr: (no: string) => `Open LR ${no}`,
+      memo: (no: string) => `Open challan ${no}`,
+      wasuli: (no: string) => `Open the collection of LR ${no}`,
+      firm: (name: string) => `Open ${name}'s account`,
+      master: (noun: string, name: string) => `Open ${noun.toLowerCase()} ${name}`,
+    },
+  },
   reports: {
     listLabel: 'Reports',
     presets: { today: 'Today', month: 'This month', lastMonth: 'Last month', year: 'This year', custom: 'Custom' },
@@ -447,6 +595,7 @@ export const strings = {
     agentHint: (pending: number) => `${pending} pending`,
     noAgent: 'Pick an agent to see their collections.',
     noAgentsAtAll: 'Add an agent in Masters first.',
+    found: (lrNo: number, tab: string, agent: string | null) => `LR ${lrNo} is in ${tab}${agent ? ` · ${agent}` : ''}`,
     agentLine: (assigned: number, assignedAmount: string, today: number, todayAmount: string) =>
       `${assigned} assigned · ${assignedAmount} to collect · today ${today} collected · ${todayAmount}`,
     quickLabel: 'LR no. to collect',
@@ -556,6 +705,7 @@ export const strings = {
     firmAccounts: 'Firm Accounts',
     wasuli: 'Wasuli',
     reports: 'Reports',
+    history: 'History',
     masters: 'Masters',
     settings: 'Settings',
   },
@@ -583,6 +733,39 @@ export const strings = {
     componentsTitle: 'Components',
     componentsText: 'Every building block of the screens, in every state.',
     openComponents: 'Open Components page',
+    dataFolderNote: 'The data folder is chosen when Booking Manager is installed. To move it, run the installer again.',
+    // The Admin settings (4.2): each needs the Admin PIN and each is written to History.
+    backupFolderTitle: 'Backup folder',
+    backupFolderText: 'Backups are made here every hour and when the program stops. Moving the folder makes a backup in the new place at once; the backups already made stay where they are.',
+    backupFolderChange: 'Change backup folder…',
+    backupFolderPick: 'Choose the new backup folder',
+    backupFolderPinTitle: 'Change the backup folder',
+    adminPrompt: 'Enter the Admin PIN',
+    backupFolderSameDriveTitle: 'Same drive as the data',
+    backupFolderSameDriveText: (dir: string) => `${dir} is on the same drive as the data. If that drive fails, the data and its backups are lost together. Use it anyway?`,
+    backupFolderUse: 'Use it anyway',
+    backupFolderKeep: 'Choose another',
+    backupFolderDone: (dir: string) => `The backup folder is now ${dir}`,
+    backupFolderMade: (file: string) => (file === '' ? '' : `A backup was made there: ${file}`),
+    seatTitle: 'This seat',
+    seatText: (name: string) => `This seat is called ${name}. History shows the name a row was written under, so older rows keep the old name.`,
+    seatAfterRestart: (name: string) => `Will be called ${name} the next time Booking Manager is opened.`,
+    seatRename: 'Rename this seat…',
+    seatDialogTitle: 'Rename this seat',
+    seatNameLabel: 'New name',
+    seatNameHint: '2 to 20 letters, digits, spaces or dashes',
+    seatNext: 'Next',
+    seatPinTitle: 'Rename this seat',
+    seatDone: (name: string) => `Renamed to ${name}. The new name is used when Booking Manager is opened again.`,
+    seatNotSaved: 'The name was accepted but this seat could not keep it. Ask the administrator.',
+    restoreTitle: 'Restore a backup',
+    restoreText: 'Replaces the database with an earlier backup, only while no other seat has Booking Manager open. A backup of the database as it is now is made first, and the database as it was is kept in the backup folder.',
+    restoreOpen: 'Restore a backup…',
+    restoreDialogTitle: 'Restore a backup',
+    restorePinTitle: 'Restore this backup',
+    restoreDone: 'Backup restored',
+    restoreDoneText: 'Entries made after that backup are not in the database now; they are in the copy kept in the backup folder.',
+    restoreSessions: (list: number[]) => `Windows session ${list.join(', ')}`,
   },
   // The Components page (a developer showcase; its sample data is made up).
   components: {

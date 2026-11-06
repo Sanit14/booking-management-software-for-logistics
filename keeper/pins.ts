@@ -44,8 +44,9 @@ const write = (db: Db, kind: LockKind, secret: string): void => {
   db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(KEY[kind], hash(secret));
 };
 
-export function makePins(now: () => number = Date.now) {
-  const lock = makeLockout(now);
+/** `onLocked` hears of the try that starts a lock (the fifth wrong one): the keeper writes it to the book, with the seat, once the route has answered. */
+export function makePins(now: () => number = Date.now, onLocked?: (kind: LockKind) => void, lockMs?: number) {
+  const lock = makeLockout(now, lockMs);
 
   // Locked → refuse without looking at the secret. Wrong → count it; the fifth wrong try already says "locked".
   function check(db: Db, kind: LockKind, secret: string): KeeperResult<true> {
@@ -59,6 +60,7 @@ export function makePins(now: () => number = Date.now) {
     }
     lock.fail(kind);
     const after = lock.lockedFor(kind);
+    if (after > 0) onLocked?.(kind); // not locked before this try (checked above), locked now
     return after > 0 ? refuse('pin-locked', String(after)) : refuse(kind === 'recovery' ? 'wrong-recovery-code' : 'wrong-pin');
   }
 

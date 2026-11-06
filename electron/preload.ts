@@ -19,10 +19,14 @@ const keeper: KeeperApi = {
   backups: {
     list: () => ipcRenderer.invoke('keeper:backups-list'),
     exportTo: () => ipcRenderer.invoke('keeper:backups-export'),
+    setFolder: (adminPin, confirmSameDrive) => ipcRenderer.invoke('keeper:backups-set-folder', adminPin, confirmSameDrive),
+  },
+  seat: {
+    rename: (name, adminPin) => ipcRenderer.invoke('keeper:seat-rename', name, adminPin),
   },
   restore: {
     preview: (file) => ipcRenderer.invoke('keeper:restore-preview', file),
-    apply: (file, token) => ipcRenderer.invoke('keeper:restore-apply', file, token),
+    apply: (file, token, adminPin) => ipcRenderer.invoke('keeper:restore-apply', file, token, adminPin),
   },
   pins: {
     setup: (admin, system) => ipcRenderer.invoke('keeper:pins-setup', admin, system),
@@ -86,7 +90,7 @@ const keeper: KeeperApi = {
   },
   wasuli: {
     list: (filters, cursor) => ipcRenderer.invoke('keeper:wasuli-list', filters, cursor),
-    find: (no) => ipcRenderer.invoke('keeper:wasuli-find', no),
+    find: (no, year) => ipcRenderer.invoke('keeper:wasuli-find', no, year),
     agentStats: (period) => ipcRenderer.invoke('keeper:wasuli-agent-stats', period),
     assign: (rows, agentId) => ipcRenderer.invoke('keeper:wasuli-assign', rows, agentId),
     reassign: (row, agentId) => ipcRenderer.invoke('keeper:wasuli-reassign', row, agentId),
@@ -110,6 +114,9 @@ const keeper: KeeperApi = {
     firmWise: (query, cursor) => ipcRenderer.invoke('keeper:reports-firm-wise', query, cursor),
     wasuli: (query, cursor) => ipcRenderer.invoke('keeper:reports-wasuli', query, cursor),
     lrs: (request, cursor) => ipcRenderer.invoke('keeper:reports-lrs', request, cursor),
+  },
+  history: {
+    list: (filters, cursor) => ipcRenderer.invoke('keeper:history-list', filters, cursor),
   },
   search: (text) => ipcRenderer.invoke('keeper:search', text),
 };
@@ -140,4 +147,5 @@ const print: PrintApi = {
   report: (report, query, how) => ipcRenderer.invoke('print:report', report, query, how),
 };
 
-contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update, keys, print });
+// `packaged`: the installed app (main passes --packaged); the developer-only screens are not shown in it.
+contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', packaged: process.argv.includes('--packaged'), keeper, update, keys, print });

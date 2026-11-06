@@ -217,10 +217,10 @@ export function makeWasuli(pins: Pick<ReturnType<typeof makePins>, 'verify'>, no
       });
     },
 
-    /** The collection of an LR by its number: this year's LR first, then last year's (as the search box does). */
-    find(db: Db, no: number): KeeperResult<WasuliRow> {
+    /** The collection of an LR by its number: this year's LR first, then last year's (as the search box does), or exactly `only`'s year (a History row knows it). */
+    find(db: Db, no: number, only?: number): KeeperResult<WasuliRow> {
       const year = Number(today().slice(0, 4));
-      for (const y of [year, year - 1]) {
+      for (const y of only === undefined ? [year, year - 1] : [only]) {
         const lr = db.prepare('SELECT id FROM lrs WHERE lr_year = ? AND lr_no = ?').get(y, no) as { id: number } | undefined;
         if (!lr) continue;
         const row = db.prepare('SELECT id FROM wasuli WHERE lr_id = ?').get(lr.id) as { id: number } | undefined;

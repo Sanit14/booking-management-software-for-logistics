@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 16;
+export const KEEPER_VERSION = 17;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -1123,7 +1123,184 @@ export interface ReportLrsPage {
   totals: ReportMoney;
 }
 
-export type ResultCode = RestoreRefusal | PinRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | WasuliRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
+// ---- History (4.2): the audit log, read ----
+
+/** What a row of the audit log is about. `other` = an action code this build does not know (listed, never filtered on). */
+export type HistoryKind = 'lr' | 'memo' | 'wasuli' | 'firm' | 'station' | 'truck' | 'driver' | 'agent' | 'settings' | 'backup' | 'print' | 'other';
+/** What was done, in a word a filter can offer. */
+export type HistoryVerb =
+  | 'created' | 'edited' | 'cancelled' | 'restored' | 'removed' | 'collected' | 'undone' | 'assigned'
+  | 'memoChange' | 'activated' | 'deactivated' | 'lockedOut' | 'printed' | 'other';
+export const HISTORY_KINDS: readonly Exclude<HistoryKind, 'other'>[] = ['lr', 'memo', 'wasuli', 'firm', 'station', 'truck', 'driver', 'agent', 'settings', 'backup', 'print'];
+export const HISTORY_VERBS: readonly Exclude<HistoryVerb, 'other'>[] = [
+  'created', 'edited', 'cancelled', 'restored', 'removed', 'collected', 'undone', 'assigned', 'memoChange', 'activated', 'deactivated', 'lockedOut', 'printed',
+];
+
+/**
+ * Every action the keeper writes to the audit log, with its kind and verb: the filters are SQL on these, the screen words each one. A master
+ * change is `masters.<what>:<table>` here, because its action code says what was done and its entity says to which kind of master.
+ * A new action must be added here (a test fails until it is).
+ */
+export const HISTORY_ACTIONS: Readonly<Record<string, { kind: Exclude<HistoryKind, 'other'>; verb: Exclude<HistoryVerb, 'other'> }>> = {
+  'lrs.create': { kind: 'lr', verb: 'created' },
+  'lrs.update': { kind: 'lr', verb: 'edited' },
+  'lrs.cancel': { kind: 'lr', verb: 'cancelled' },
+  'lrs.restore': { kind: 'lr', verb: 'restored' },
+  'lrs.memo-remove': { kind: 'lr', verb: 'memoChange' },
+  'lrs.memo-move': { kind: 'lr', verb: 'memoChange' },
+  'lrs.memo-add': { kind: 'lr', verb: 'memoChange' },
+  'lrs.memo-cancel': { kind: 'lr', verb: 'memoChange' },
+  'memos.create': { kind: 'memo', verb: 'created' },
+  'memos.edit': { kind: 'memo', verb: 'edited' },
+  'memos.remove-lrs': { kind: 'memo', verb: 'memoChange' },
+  'memos.move-out': { kind: 'memo', verb: 'memoChange' },
+  'memos.move-in': { kind: 'memo', verb: 'memoChange' },
+  'memos.add-lrs': { kind: 'memo', verb: 'memoChange' },
+  'memos.recalculate': { kind: 'memo', verb: 'memoChange' },
+  'memos.cancel': { kind: 'memo', verb: 'cancelled' },
+  'wasuli.create': { kind: 'wasuli', verb: 'created' },
+  'wasuli.update': { kind: 'wasuli', verb: 'edited' },
+  'wasuli.remove': { kind: 'wasuli', verb: 'removed' },
+  'wasuli.assign': { kind: 'wasuli', verb: 'assigned' },
+  'wasuli.reassign': { kind: 'wasuli', verb: 'assigned' },
+  'wasuli.to-pool': { kind: 'wasuli', verb: 'assigned' },
+  'wasuli.collect': { kind: 'wasuli', verb: 'collected' },
+  'wasuli.uncollect': { kind: 'wasuli', verb: 'undone' },
+  'wasuli.remark': { kind: 'wasuli', verb: 'edited' },
+  'pins.setup': { kind: 'settings', verb: 'created' },
+  'pins.change-system': { kind: 'settings', verb: 'edited' },
+  'pins.change-admin': { kind: 'settings', verb: 'edited' },
+  'pins.recover': { kind: 'settings', verb: 'edited' },
+  'pins.locked': { kind: 'settings', verb: 'lockedOut' },
+  'settings.lr-defaults': { kind: 'settings', verb: 'edited' },
+  'settings.company': { kind: 'settings', verb: 'edited' },
+  'settings.backup-dir': { kind: 'backup', verb: 'edited' },
+  'seat.rename': { kind: 'settings', verb: 'edited' },
+  'app.update': { kind: 'settings', verb: 'edited' },
+  'backup.restore': { kind: 'backup', verb: 'restored' },
+  'print.memo': { kind: 'print', verb: 'printed' },
+  'print.lr': { kind: 'print', verb: 'printed' },
+  'print.firm': { kind: 'print', verb: 'printed' },
+  'print.report': { kind: 'print', verb: 'printed' },
+  'masters.create:stations': { kind: 'station', verb: 'created' },
+  'masters.update:stations': { kind: 'station', verb: 'edited' },
+  'masters.activate:stations': { kind: 'station', verb: 'activated' },
+  'masters.deactivate:stations': { kind: 'station', verb: 'deactivated' },
+  'masters.create:firms': { kind: 'firm', verb: 'created' },
+  'masters.update:firms': { kind: 'firm', verb: 'edited' },
+  'masters.activate:firms': { kind: 'firm', verb: 'activated' },
+  'masters.deactivate:firms': { kind: 'firm', verb: 'deactivated' },
+  'masters.create:trucks': { kind: 'truck', verb: 'created' },
+  'masters.update:trucks': { kind: 'truck', verb: 'edited' },
+  'masters.activate:trucks': { kind: 'truck', verb: 'activated' },
+  'masters.deactivate:trucks': { kind: 'truck', verb: 'deactivated' },
+  'masters.create:drivers': { kind: 'driver', verb: 'created' },
+  'masters.update:drivers': { kind: 'driver', verb: 'edited' },
+  'masters.activate:drivers': { kind: 'driver', verb: 'activated' },
+  'masters.deactivate:drivers': { kind: 'driver', verb: 'deactivated' },
+  'masters.create:agents': { kind: 'agent', verb: 'created' },
+  'masters.update:agents': { kind: 'agent', verb: 'edited' },
+  'masters.activate:agents': { kind: 'agent', verb: 'activated' },
+  'masters.deactivate:agents': { kind: 'agent', verb: 'deactivated' },
+};
+
+/** What the History list is asked: a period (local dates, both included) and who / what / which number. */
+export interface HistoryFilters {
+  from: string;
+  to: string;
+  /** Any part of the seat's name, ASCII case ignored; '' = every seat. */
+  seat: string;
+  kind: Exclude<HistoryKind, 'other'> | null;
+  verb: Exclude<HistoryVerb, 'other'> | null;
+  /** An LR number of `lrYear` (null = the keeper PC's current year). */
+  lrNo: number | null;
+  lrYear: number | null;
+  challanNo: number | null;
+  challanYear: number | null;
+  /** Prints are left out unless this is on (or the kind is `print`). */
+  showPrints: boolean;
+}
+/** Where the next page starts: the last row shown (newest first, so the next rows are older). */
+export interface HistoryCursor {
+  at: string;
+  id: number;
+}
+/** How a changed value is written: rupees, a date, a percentage, a charge option's name, or as it is. */
+export type HistoryUnit = 'paise' | 'date' | 'percent' | 'option';
+/** One changed field: names (not ids) for stations, trucks, drivers, agents and firms; paise for money. */
+export interface HistoryChange {
+  field: string;
+  from: string | number | null;
+  to: string | number | null;
+  unit?: HistoryUnit;
+}
+/** The words around a row, named by what they are; only those the action has are set. */
+export interface HistoryFacts {
+  reason?: string;
+  remark?: string;
+  consignor?: string;
+  consignee?: string;
+  station?: string;
+  qty?: number;
+  truck?: string;
+  driver?: string;
+  fromStation?: string;
+  toStation?: string;
+  lrCount?: number;
+  lrNos?: number[];
+  challanNo?: number;
+  otherChallanNo?: number;
+  agent?: string;
+  fromAgent?: string;
+  amountPaise?: number;
+  owedPaise?: number;
+  mode?: string;
+  pin?: string;
+  how?: string;
+  report?: string;
+  from?: string;
+  to?: string;
+  role?: string;
+  file?: string;
+  savedAs?: string;
+}
+/** What a row can lead to. */
+export type HistoryRecord = 'lr' | 'memo' | 'wasuli' | 'firm' | 'station' | 'truck' | 'driver' | 'agent';
+export interface HistoryRow {
+  id: number;
+  at: string; // ISO (UTC)
+  seat: string;
+  action: string;
+  kind: HistoryKind;
+  verb: HistoryVerb;
+  /** The record the row opens (the current one, even if it was renamed since), or null. `openId` is its id; a wasuli row opens by `lrNo`. */
+  record: HistoryRecord | null;
+  openId: number | null;
+  lrNo: number | null;
+  lrYear: number | null;
+  challanNo: number | null;
+  challanYear: number | null;
+  /** A master's name (a truck's number) or a report's key, as it was in the row. */
+  name: string | null;
+  changes: HistoryChange[];
+  facts: HistoryFacts;
+}
+export interface HistoryPage {
+  rows: HistoryRow[];
+  next: HistoryCursor | null;
+}
+
+/** The Admin settings of Settings (4.2): the backup folder, this seat's name, restoring a backup while the app is running. */
+export type AdminRefusal =
+  | 'backup-dir-same-drive' // the folder is on the drive the data is on; detail: the folder. Resend with the confirm to use it anyway
+  | 'backup-dir-unusable' // a backup could not be written there; detail: why
+  | 'seat-name-invalid' // 2 to 20 letters, digits, spaces or dashes
+  | 'seat-name-taken' // another seat has it (seen in the last 30 days); detail: the name
+  | 'seat-name-same' // already this seat's name
+  | 'restore-others-online' // detail: who has the app open
+  | 'restore-backup-failed'; // the backup taken first could not be written, so nothing was restored; detail: why
+
+export type ResultCode = RestoreRefusal | PinRefusal | AdminRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | WasuliRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**
  * What the screen gets back from a keeper call: data, or a code (wording lives in src/strings.ts).
  * `detail` on master-exists / master-similar from an LR save names the party: consignor or consignee.
@@ -1170,10 +1347,21 @@ export interface KeeperApi {
     list(): Promise<KeeperResult<BackupInfo[]>>;
     /** Asks for a folder, then writes a fresh verified backup there. */
     exportTo(): Promise<KeeperResult<{ file: string }>>;
+    /**
+     * Admin PIN, then asks for a folder, then makes a backup there; only if that works the folder becomes the backup folder. On the drive of
+     * the data it is refused with `backup-dir-same-drive`: ask, and send again with `confirmSameDrive` to use the folder just picked.
+     */
+    setFolder(adminPin: string, confirmSameDrive: boolean): Promise<KeeperResult<{ dir: string; file: string }>>;
+  };
+  /** This seat's name (Admin PIN). It is used from the next start. */
+  seat: {
+    rename(name: string, adminPin: string): Promise<KeeperResult<{ name: string }>>;
   };
   restore: {
+    /** In safe mode, or with no other seat open. */
     preview(file: string): Promise<KeeperResult<RestorePreview>>;
-    apply(file: string, token: string): Promise<KeeperResult<{ schemaVersion: number }>>;
+    /** In safe mode no PIN is needed; while the app is running the Admin PIN is, and nobody else may have it open. */
+    apply(file: string, token: string, adminPin?: string): Promise<KeeperResult<{ schemaVersion: number }>>;
   };
   /** The keeper checks every PIN; the screen only collects digits and passes them on. */
   pins: {
@@ -1267,7 +1455,8 @@ export interface KeeperApi {
     /** One tab, 100 a page: pass the previous page's `next` for the following one. */
     list(filters: WasuliFilters, cursor: WasuliCursor | null): Promise<KeeperResult<WasuliPage>>;
     /** The collection of an LR by its number (this year's, else last year's). */
-    find(no: number): Promise<KeeperResult<WasuliRow>>;
+    /** `year` = exactly that year's LR (a History row knows it); without it this year's first, then last year's. */
+    find(no: number, year?: number): Promise<KeeperResult<WasuliRow>>;
     agentStats(period: WasuliPeriod): Promise<KeeperResult<AgentStat[]>>;
     assign(rows: WasuliSeen[], agentId: number): Promise<KeeperResult<WasuliChanged>>;
     reassign(row: WasuliSeen, agentId: number): Promise<KeeperResult<WasuliChanged>>;
@@ -1305,6 +1494,10 @@ export interface KeeperApi {
     wasuli(query: ReportQuery, cursor: ReportCursor | null): Promise<KeeperResult<ReportPage<ReportAgentRow, ReportAgentTotals>>>;
     /** The LRs behind one row of Station-, Consignor- or Consignee-wise, by (date, number). */
     lrs(request: ReportLrsRequest, cursor: ReportLrCursor | null): Promise<KeeperResult<ReportLrsPage>>;
+  };
+  /** What changed in the books: the audit log, newest first, 100 a page (pass the previous page's `next` for the following one). Reads only. */
+  history: {
+    list(filters: HistoryFilters, cursor: HistoryCursor | null): Promise<KeeperResult<HistoryPage>>;
   };
   /** One box for LR number, challan number, firm, truck and station: a few of each, never a generic query. */
   search(text: string): Promise<KeeperResult<SearchAnswer>>;

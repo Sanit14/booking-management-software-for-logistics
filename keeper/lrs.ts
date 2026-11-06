@@ -1,7 +1,7 @@
 // LRs: the number, the validation and the money all happen here, inside ONE transaction per save. The screen sends
 // what was typed (money as text) and gets back the saved LR with its amounts; it never adds anything up.
 import type { ChargeOption, KeeperResult, LrDay, LrDefaults, LrDefaultsInput, LrDetail, LrHistoryEntry, LrInput, LrListRow, LrPreview, LrSaved, LrStatus, LrUpdated, ResultCode } from '../shared';
-import { writeAudit } from './audit';
+import { parseJson, writeAudit, type AuditRow } from './audit';
 import type { Db } from './db';
 import { changesOf, cleanLr, cleanReason, diffLr, isChargeOption, isDate, localDate, parseNumbers, type CleanLr, type LrErrors } from './lrRules';
 import type { makeMasters } from './masters';
@@ -125,6 +125,18 @@ function flip(db: Db, seat: string, row: LrRow, status: LrStatus, action: string
   if (done.changes !== 1) return refuse('lr-stale', { lr: detailOf(rowOf(db, row.id) as LrRow) });
   writeAudit(db, { seat, action, entity: 'lrs', entityId: row.id, before, after });
   return ok(detailOf(rowOf(db, row.id) as LrRow));
+}
+
+const LR_ACTION: Record<string, LrHistoryEntry['action']> = { 'lrs.create': 'created', 'lrs.update': 'edited', 'lrs.cancel': 'cancelled', 'lrs.restore': 'restored' };
+
+/** One audit row of an LR as a history line (stations by name, money in paise); null for any other row (a print, a memo move). The LR's history and the History page both read through this. */
+export function lrEntry(db: Db, r: AuditRow): LrHistoryEntry | null {
+  const action = Object.prototype.hasOwnProperty.call(LR_ACTION, r.action) ? LR_ACTION[r.action] : undefined;
+  if (!action) return null;
+  const stationName = (sid: unknown) => (db.prepare('SELECT name FROM stations WHERE id = ?').get(sid) as { name: string } | undefined)?.name;
+  const entry: LrHistoryEntry = { at: r.at, seat: r.seat, action, changes: action === 'edited' ? changesOf(parseJson(r.before), parseJson(r.after), stationName) : [] };
+  if (action === 'cancelled') entry.reason = String(parseJson(r.after).reason ?? '');
+  return entry;
 }
 
 export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, masters: Pick<ReturnType<typeof makeMasters>, 'create'>, now: () => Date = () => new Date()) {
@@ -314,19 +326,8 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
           `SELECT at, seat, action, before_json AS before, after_json AS after FROM audit_log
            WHERE entity = 'lrs' AND entity_id = ? AND action NOT LIKE 'print.%' ORDER BY at DESC, id DESC LIMIT ${HISTORY_LIMIT}`,
         )
-        .all(String(id)) as { at: string; seat: string; action: string; before: string | null; after: string | null }[];
-      const stationName = (sid: unknown) => (db.prepare('SELECT name FROM stations WHERE id = ?').get(sid) as { name: string } | undefined)?.name;
-      const json = (text: string | null) => (text === null ? {} : (JSON.parse(text) as Record<string, unknown>));
-      const kind: Record<string, LrHistoryEntry['action']> = { 'lrs.create': 'created', 'lrs.update': 'edited', 'lrs.cancel': 'cancelled', 'lrs.restore': 'restored' };
-      return ok(
-        rows.flatMap((r) => {
-          const action = kind[r.action];
-          if (!action) return [];
-          const entry: LrHistoryEntry = { at: r.at, seat: r.seat, action, changes: action === 'edited' ? changesOf(json(r.before), json(r.after), stationName) : [] };
-          if (action === 'cancelled') entry.reason = String(json(r.after).reason ?? '');
-          return [entry];
-        }),
-      );
+        .all(String(id)) as AuditRow[];
+      return ok(rows.flatMap((r) => lrEntry(db, r) ?? []));
     },
 
     /** One day's LRs, newest first, and the day's totals from SQL (cancelled LRs left out). */

@@ -3,6 +3,7 @@
 // Listens on 127.0.0.1 only. Taking the port is the single-instance rule: it happens BEFORE the database is
 // touched, so a second keeper started at the same moment exits without doing anything.
 // The data root is checked by main before it spawns this (keeper/dataRoot.ts); the keeper trusts its argument.
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {
@@ -26,6 +27,10 @@ import {
   type ResultCode,
   type WasuliChanged,
 } from '../shared';
+import { makeAdmin } from './admin';
+import { writeAudit } from './audit';
+import { backupName } from './backupNames';
+import { isAbsoluteWindows, sameDrive, sameFolder } from './backupRules';
 import { backupFiles, listBackups, makeBackup, migrateSafely, pruneBackups } from './backup';
 import { makeDashboard } from './dashboard';
 import { businessRows, closeDatabase, hasTable, openChecked, raiseMarker, type Db } from './db';
@@ -33,6 +38,8 @@ import { makeEvents } from './events';
 import { makeFirmAccounts } from './firmAccounts';
 import { asAccountCursor, asAccountFilters, asRole, asStatementCursor, asStatementQuery, asYear } from './firmRules';
 import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './guard';
+import { makeHistory } from './history';
+import { asHistoryCursor, asHistoryFilters } from './historyRules';
 import { asDefaultsInput, asLrInput } from './lrRules';
 import { makeLog } from './log';
 import { makeLrs } from './lrs';
@@ -41,6 +48,8 @@ import { makeMasters } from './masters';
 import { makeMemos } from './memos';
 import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
+import { ROUTES } from './routes';
+import type { LockKind } from './lockout';
 import { makePins } from './pins';
 import { asPrintDone, makePrint } from './print';
 import { makeReports } from './reports';
@@ -94,12 +103,16 @@ function main(): void {
   const backup: BackupStatus = {};
   let backingUp: Promise<void> | null = null;
   const tokens = makeTokens();
-  const pins = makePins();
+  // BM_PIN_LOCK_MS: tests only (how long a locked PIN stays locked), like BM_MARKER_REFRESH_MS.
+  const lockouts: LockKind[] = [];
+  const pins = makePins(Date.now, (kind) => lockouts.push(kind), Math.max(100, Number(process.env.BM_PIN_LOCK_MS)) || undefined);
   const masters = makeMasters(pins);
   const lrs = makeLrs(pins, masters);
   const memos = makeMemos(pins);
   const firmAccounts = makeFirmAccounts();
   const reports = makeReports();
+  const history = makeHistory();
+  const admin = makeAdmin(pins);
   const printing = makePrint(pins, memos, firmAccounts, reports);
   const wasuli = makeWasuli(pins);
   const dashboard = makeDashboard();
@@ -255,6 +268,24 @@ function main(): void {
     void stopping.then(finish);
   }
 
+  // A PIN was refused. Never the PIN: the route, the seat and the code go to keeper.log. A try that started a lock (the fifth wrong one) also goes
+  // into the book, with its kind and seat — here, after the route has answered, in a transaction of its own, because several PIN checks run inside
+  // a transaction that a refusal can roll back. Single wrong tries are not in the book (noise).
+  function pinRefused(url: string, seat: string, code: ResultCode, wait?: string): void {
+    log('pin-refused', { url, seat, code, wait });
+    const kinds = lockouts.splice(0);
+    const open = db;
+    if (!open || kinds.length === 0) return;
+    try {
+      open.transaction(() => {
+        for (const kind of kinds) writeAudit(open, { seat, action: 'pins.locked', entity: 'settings', entityId: 'pins', after: { kind } });
+      })();
+      events.publish(['settings']);
+    } catch (e) {
+      log('audit-failed', { url, seat, error: msg(e) });
+    }
+  }
+
   function send(res: http.ServerResponse, status: number, body: unknown, after?: () => void): void {
     const json = JSON.stringify(body);
     res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(json) });
@@ -278,8 +309,108 @@ function main(): void {
     });
   }
 
-  // The restore routes exist only in safe mode: restoring from normal mode comes with Settings behind the admin PIN.
-  const safeModeOnly = (): KeeperResult<never> | null => (state === 'safe-mode' ? null : refuse('not-in-safe-mode'));
+  // Restoring a backup over booking.db (1.4 in safe mode, 4.2 also while the app runs). The file swap is synchronous from the first file
+  // operation to the end: no request is answered between the old file going and the new one being open. The caller has closed its own
+  // handle (a keeper in safe mode has none). Opening the restored file, migrating it and starting the services is the same in both.
+  function swapIn(file: string, seat: string, whileRunning: boolean): KeeperResult<{ schemaVersion: number }> {
+    try {
+      const savedAs = restoreFiles(dbPath, backupDir, file);
+      try {
+        const opened = openChecked(dbPath);
+        if ('damaged' in opened) throw new Error(`the restored file is damaged: ${opened.damaged}`);
+        db = opened.db;
+        schemaVersion = migrate(db);
+        adoptBackupFolder(db);
+        if (whileRunning) {
+          // The book of the restored database says that it was restored, by whom, from which file and where the database as it was is kept.
+          const restored = db;
+          restored.transaction(() => writeAudit(restored, { seat, action: 'backup.restore', entity: 'backup', entityId: file, after: { file, savedAs: savedAs ? path.basename(savedAs) : null } }))();
+        }
+        becomeReady();
+        void runBackup('restore'); // the first backup of the restored database, not an hour from now
+      } catch (e) {
+        if (db) closeDatabase(db);
+        db = null;
+        state = 'safe-mode';
+        reason = 'damaged';
+        throw e;
+      }
+      log('restore-applied', { file, savedAs: savedAs ?? null, schemaVersion, seat });
+      events.publish([...CHANGE_TABLES]); // the whole database was replaced
+      return ok({ schemaVersion: schemaVersion ?? 0 });
+    } catch (e) {
+      log('restore-failed', { file, error: msg(e) });
+      // Failing before the last rename leaves the live file as it was: it was only closed, so open it again.
+      if (!db && state !== 'safe-mode') {
+        const again = openChecked(dbPath);
+        if ('db' in again) db = again.db;
+        else {
+          state = 'safe-mode';
+          reason = 'damaged';
+        }
+      }
+      return refuse('failed', msg(e));
+    }
+  }
+
+  // Restore while the app runs: the Admin PIN, nobody else has the app open, a fresh verified backup of the database as it is now (under a name
+  // no backup in the folder has, the one asked for included), and only then the swap. A backup that cannot be made means no restore.
+  async function restoreLive(file: string, token: string, adminPin: string, seat: string): Promise<KeeperResult<{ schemaVersion: number }>> {
+    const open = db;
+    if (!open || stopping) return refuse('no-database');
+    const gate = pins.verify(open, 'admin', adminPin);
+    if (!gate.ok) return gate;
+    const others = seats.othersOnline(seat);
+    if (others.length > 0) return refuse('restore-others-online', others.join(', '));
+    const verdict = verifyApply(dbPath, backupDir, file, token, tokens, LATEST_SCHEMA);
+    if (!verdict.ok) return refuse(verdict.code);
+    await backingUp;
+    // A seat may have opened while the checks above ran: look again before anything is closed.
+    const nowOthers = seats.othersOnline(seat);
+    if (nowOthers.length > 0) return refuse('restore-others-online', nowOthers.join(', '));
+    let at = new Date();
+    while (fs.existsSync(path.join(backupDir, backupName(at)))) at = new Date(at.getTime() + 60 * 1000);
+    try {
+      const made = await makeBackup(open, backupDir, at);
+      log('backup-ok', { why: 'before-restore', file: made.file, rows: made.rows, bytes: made.bytes });
+    } catch (e) {
+      log('backup-failed', { why: 'before-restore', dir: backupDir, error: msg(e) });
+      return refuse('restore-backup-failed', msg(e));
+    }
+    if (db !== open || stopping) return refuse('no-database');
+    closeDatabase(open); // checkpointed: the file on disk is whole
+    db = null;
+    return swapIn(file, seat, true);
+  }
+
+  // A new backup folder (Admin PIN): a verified backup is made there first - that is both "can it be written" and "a backup at once" - and only
+  // when it worked the setting and its audit row are written and the keeper switches. Old backups stay where they were.
+  async function setBackupDir(open: Db, seat: string, dir: string, adminPin: string, confirmSameDrive: boolean): Promise<KeeperResult<{ dir: string; file: string }>> {
+    const gate = pins.verify(open, 'admin', adminPin);
+    if (!gate.ok) return gate;
+    if (sameFolder(dir, backupDir)) return ok({ dir: backupDir, file: '' });
+    if (sameDrive(dir, dataRoot) && !confirmSameDrive) return refuse('backup-dir-same-drive', dir);
+    await backingUp;
+    let made;
+    try {
+      made = await makeBackup(open, dir);
+    } catch (e) {
+      log('backup-failed', { why: 'new-folder', dir, error: msg(e) });
+      return refuse('backup-dir-unusable', msg(e));
+    }
+    if (db !== open || stopping) return refuse('no-database');
+    const was = backupDir;
+    open.transaction(() => {
+      open.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run('backupDir', dir);
+      writeAudit(open, { seat, action: 'settings.backup-dir', entity: 'settings', entityId: 'backup-dir', before: { dir: was }, after: { dir } });
+    })();
+    backupDir = dir;
+    delete backup.failing;
+    backup.lastAt = new Date().toISOString();
+    log('backup-ok', { why: 'new-folder', file: made.file, rows: made.rows, bytes: made.bytes });
+    events.publish(['settings']);
+    return ok({ dir, file: made.file });
+  }
 
   async function route(req: http.IncomingMessage, res: http.ServerResponse, raw: string | null): Promise<void> {
     // A web page in a browser on this PC must not be able to drive the keeper (DNS rebinding included).
@@ -293,6 +424,7 @@ function main(): void {
       /* a malformed name is no name */
     }
     if (seat) seats.saw(seat);
+    lockouts.length = 0; // a lock-out belongs to the request that caused it: none left over from one that never reached pinRefused
     const url = (req.url ?? '').split('?')[0];
     const method = req.method;
     if (url === '/health' && method === 'GET') {
@@ -316,21 +448,7 @@ function main(): void {
     // Everything else is a POST from our own client: JSON content type, so a cross-origin browser POST (which
     // would need a preflight we never answer) cannot reach it. Listing is a POST too: it opens every backup,
     // which a plain cross-origin GET from a web page on this PC must not be able to trigger.
-    const known = [
-      '/shutdown', '/backups/list', '/restore/preview', '/restore/apply', '/backups/export',
-      '/seats', '/pins/setup', '/pins/verify', '/pins/change-system', '/pins/change-admin', '/pins/recover',
-      '/masters/all', '/masters/create', '/masters/update', '/masters/set-active',
-      '/lrs/defaults', '/lrs/preview', '/lrs/create', '/lrs/by-date', '/settings/set-lr-defaults',
-      '/lrs/get', '/lrs/find', '/lrs/update', '/lrs/cancel', '/lrs/restore', '/lrs/history',
-      '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
-      '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/create', '/memos/get', '/memos/by-date',
-      '/memos/list', '/memos/edit', '/memos/remove-lrs', '/memos/move-lrs', '/memos/add-lrs', '/memos/recalculate', '/memos/cancel', '/memos/history',
-      '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/set-company', '/print/firm-statement', '/print/report',
-      '/wasuli/list', '/wasuli/find', '/wasuli/agent-stats', '/wasuli/assign', '/wasuli/reassign', '/wasuli/to-pool', '/wasuli/collect', '/wasuli/uncollect', '/wasuli/remark',
-      '/firms/accounts', '/firms/statement', '/firms/top', '/firms/kpis', '/firms/months',
-      '/reports/date-wise', '/reports/station-wise', '/reports/party-wise', '/reports/truck-wise', '/reports/firm-wise', '/reports/wasuli', '/reports/lrs',
-    ];
-    if (!known.includes(url)) return send(res, 404, { error: 'unknown route' });
+    if (!ROUTES.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
     if (method !== 'POST' || !json) return send(res, 405, { error: 'method not allowed' });
 
@@ -362,49 +480,65 @@ function main(): void {
       }
     }
 
+    // Restore (1.4 in safe mode; 4.2 also while the app runs): preview is a read, apply swaps the database file.
     if (url === '/restore/preview') {
-      const gate = safeModeOnly();
       const file = str('file');
-      if (gate || !file) return gate ? sendResult(res, gate) : send(res, 400, { error: 'file required' });
+      if (!file) return send(res, 400, { error: 'file required' });
+      if (state === 'ready' && db && !stopping) {
+        const others = seats.othersOnline(seat);
+        if (others.length > 0) return sendResult(res, refuse('restore-others-online', others.join(', ')));
+      } else if (state !== 'safe-mode') return sendResult(res, refuse('no-database'));
       const r = previewRestore(dbPath, backupDir, file, tokens, LATEST_SCHEMA);
       return sendResult(res, r.ok ? ok(r.value) : refuse(r.code));
     }
 
     if (url === '/restore/apply') {
-      const gate = safeModeOnly();
       const file = str('file');
       const token = str('confirmToken');
-      if (gate || !file || !token) return gate ? sendResult(res, gate) : send(res, 400, { error: 'file and confirmToken required' });
+      if (!file || !token) return send(res, 400, { error: 'file and confirmToken required' });
+      const running = state === 'ready' && db && !stopping;
+      if (!running && state !== 'safe-mode') return sendResult(res, refuse('no-database'));
+      let r: KeeperResult<{ schemaVersion: number }>;
+      if (running) {
+        try {
+          r = await restoreLive(file, token, typeof body.adminPin === 'string' ? body.adminPin : '', seat);
+        } catch (e) {
+          log('restore-failed', { file, error: msg(e) });
+          r = refuse('failed', msg(e));
+        }
+        if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) pinRefused(url, seat, r.code, r.detail);
+        return sendResult(res, r);
+      }
       const verdict = verifyApply(dbPath, backupDir, file, token, tokens, LATEST_SCHEMA);
       if (!verdict.ok) return sendResult(res, refuse(verdict.code));
-      // Synchronous from here to the end: no other request is answered between the old file going and the new
-      // one being open. In safe mode this keeper holds no handle on the live file.
       // ponytail: a restored older schema is migrated without a fresh backup; the restored backup itself and
       // the set-aside copy are both still in the backup folder.
+      return sendResult(res, swapIn(file, seat, false));
+    }
+
+    // The Admin settings (4.2): a new backup folder, this seat's name.
+    if (url === '/settings/set-backup-dir' || url === '/seats/rename') {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      const adminPin = typeof body.adminPin === 'string' ? body.adminPin : '';
+      let r: KeeperResult<unknown>;
       try {
-        const savedAs = restoreFiles(dbPath, backupDir, file);
-        try {
-          const opened = openChecked(dbPath);
-          if ('damaged' in opened) throw new Error(`the restored file is damaged: ${opened.damaged}`);
-          db = opened.db;
-          schemaVersion = migrate(db);
-          adoptBackupFolder(db);
-          becomeReady();
-          void runBackup('restore'); // the first backup of the restored database, not an hour from now
-        } catch (e) {
-          if (db) closeDatabase(db);
-          db = null;
-          state = 'safe-mode';
-          reason = 'damaged';
-          throw e;
+        if (url === '/seats/rename') {
+          r = admin.renameSeat(db, seat, typeof body.name === 'string' ? body.name : '', adminPin, seats.othersOnline(seat));
+          if (r.ok) {
+            log('seat-renamed', { seat });
+            events.publish(['settings']);
+          }
+        } else {
+          const dir = str('dir');
+          if (!dir || !isAbsoluteWindows(dir)) return send(res, 400, { error: 'absolute dir required' });
+          r = await setBackupDir(db, seat, dir, adminPin, body.confirmSameDrive === true);
         }
-        log('restore-applied', { file, savedAs: savedAs ?? null, schemaVersion });
-        events.publish([...CHANGE_TABLES]); // the whole database was replaced
-        return sendResult(res, ok({ schemaVersion }));
       } catch (e) {
-        log('restore-failed', { file, error: msg(e) });
+        log('admin-failed', { url, seat, error: msg(e) });
         return sendResult(res, refuse('failed', msg(e)));
       }
+      if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) pinRefused(url, seat, r.code, r.detail);
+      return sendResult(res, r);
     }
 
     if (url === '/seats') return sendResult(res, ok({ others: seats.othersOnline(seat) }));
@@ -432,7 +566,7 @@ function main(): void {
           events.publish(['settings']);
         }
       } else if (r.code === 'wrong-pin' || r.code === 'wrong-recovery-code' || r.code === 'pin-locked') {
-        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+        pinRefused(url, seat, r.code, r.detail);
       }
       return sendResult(res, r);
     }
@@ -465,7 +599,7 @@ function main(): void {
         const rowId = (r.value as { id: number }).id;
         log('master-saved', { url, seat, kind, id: rowId });
         events.publish([kind], [rowId]);
-      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) pinRefused(url, seat, r.code, r.detail);
       return sendResult(res, r);
     }
 
@@ -537,7 +671,7 @@ function main(): void {
         log(url === '/memos/cancel' ? 'memo-cancelled' : 'memo-lrs-changed', { seat, id: done.id, no: done.challanNo, what: url.slice(7) });
         events.publish(['memos', 'lrs'], url === '/memos/move-lrs' ? [done.id, Number(body.targetId)] : [done.id]);
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
-        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+        pinRefused(url, seat, r.code, r.detail);
       } else if (!r.ok && r.code === 'memo-conflict') {
         log('memo-conflict', { seat, taken: r.taken?.length ?? 0 });
       }
@@ -556,7 +690,7 @@ function main(): void {
         else if (url === '/wasuli/agent-stats') r = wasuli.agentStats(db, asPeriod(body.period));
         else if (url === '/wasuli/find') {
           if (!whole(body.no)) return send(res, 400, { error: 'no required' });
-          r = wasuli.find(db, body.no);
+          r = wasuli.find(db, body.no, whole(body.year) ? body.year : undefined);
         } else if (url === '/wasuli/assign') {
           const rows = asSeenList(body.rows);
           if (!rows || !whole(body.agentId)) return send(res, 400, { error: 'rows and agentId required' });
@@ -583,7 +717,7 @@ function main(): void {
       } else if (!r.ok && r.code === 'wasuli-stale') {
         log('wasuli-stale', { seat, what: url.slice(8), rows: r.wasuli?.length ?? 0 });
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
-        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+        pinRefused(url, seat, r.code, r.detail);
       }
       return sendResult(res, r);
     }
@@ -641,6 +775,40 @@ function main(): void {
       return sendResult(res, r);
     }
 
+    // An update is about to be installed (4.2): the Admin PIN, and one audit row.
+    if (url === '/settings/update-start') {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      const version = (k: string): string | null => (typeof body[k] === 'string' && /^[0-9A-Za-z.+-]{1,20}$/.test(body[k] as string) ? (body[k] as string) : null);
+      const from = version('from');
+      const to = version('to');
+      if (!from || !to) return send(res, 400, { error: 'from and to (version numbers) required' });
+      let r: KeeperResult<unknown>;
+      try {
+        r = admin.updateStart(db, seat, from, to, typeof body.adminPin === 'string' ? body.adminPin : '');
+      } catch (e) {
+        log('update-start-failed', { seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+      if (r.ok) {
+        log('update-start', { seat, from, to });
+        events.publish(['settings']);
+      } else if (r.code === 'wrong-pin' || r.code === 'pin-locked') pinRefused(url, seat, r.code, r.detail);
+      return sendResult(res, r);
+    }
+
+    // History (4.2): the audit log, read — no event, and nothing logged (names and amounts are not for the log).
+    if (url === '/history/list') {
+      if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
+      const filters = asHistoryFilters(body.filters);
+      if (!filters) return send(res, 400, { error: 'filters with two dates required' });
+      try {
+        return sendResult(res, history.list(db, filters, asHistoryCursor(body.cursor)));
+      } catch (e) {
+        log('history-failed', { seat, error: msg(e) });
+        return sendResult(res, refuse('failed', msg(e)));
+      }
+    }
+
     // Printing (3.3): what a printout carries (reads, no trace), the audit row of a print that went through, the company lines.
     if (url.startsWith('/print/')) {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
@@ -674,7 +842,7 @@ function main(): void {
       else if (r.ok && url === '/print/set-company') {
         log('company-saved', { seat });
         events.publish(['settings']);
-      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) pinRefused(url, seat, r.code, r.detail);
       return sendResult(res, r);
     }
 
@@ -734,7 +902,7 @@ function main(): void {
       } else if (r.ok && url === '/settings/set-lr-defaults') {
         events.publish(['settings']);
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
-        log('pin-refused', { url, seat, code: r.code, wait: r.detail });
+        pinRefused(url, seat, r.code, r.detail);
       }
       return sendResult(res, r);
     }

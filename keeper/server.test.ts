@@ -11,12 +11,16 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { callJson, probe, shutdown, subscribeEvents } from './client';
+import { backupName } from './backupNames';
 import { markerPath } from './guard';
+import { MIGRATIONS } from './migrations';
+import { ROUTES } from './routes';
 import { CHANGE_TABLES, type KeeperChange, type KeeperHealth } from '../shared';
 
 const electronExe: string = createRequire(__filename)('electron') as unknown as string;
 const serverJs = path.join(__dirname, 'server.js');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const LATEST = MIGRATIONS.length;
 
 function freePort(): Promise<number> {
   return new Promise((resolve) => {
@@ -91,7 +95,7 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
   const health = await waitUp(port);
   assert.equal(health.app, 'booking-manager');
   assert.equal(health.state, 'ready');
-  assert.equal(health.schemaVersion, 2);
+  assert.equal(health.schemaVersion, LATEST);
   assert.equal(health.dataRoot, s.root);
   assert.equal(health.dbPath, s.dbPath);
   assert.equal(health.backupDir, s.backupDir);
@@ -266,7 +270,7 @@ test('keeper: deleted database = safe mode -> list, preview, restore -> ready ag
   const preview = (await post(port, '/restore/preview', { file })).json as { ok: true; value: { token: string; live: string; backup: { schemaVersion: number } } };
   assert.equal(preview.ok, true);
   assert.equal(preview.value.live, 'missing');
-  assert.equal(preview.value.backup.schemaVersion, 2);
+  assert.equal(preview.value.backup.schemaVersion, LATEST);
 
   const bad = await post(port, '/restore/apply', { file, confirmToken: 'not-the-token' });
   assert.equal(bad.status, 409);
@@ -275,10 +279,10 @@ test('keeper: deleted database = safe mode -> list, preview, restore -> ready ag
   assert.equal((await waitUp(port)).state, 'safe-mode');
 
   const applied = await post(port, '/restore/apply', { file, confirmToken: preview.value.token });
-  assert.deepEqual(applied.json, { ok: true, value: { schemaVersion: 2 } });
+  assert.deepEqual(applied.json, { ok: true, value: { schemaVersion: LATEST } });
   const after = await waitUp(port);
   assert.equal(after.state, 'ready');
-  assert.equal(after.schemaVersion, 2);
+  assert.equal(after.schemaVersion, LATEST);
   assert.equal(after.reason, undefined);
   assert.ok(after.backup?.lastAt, 'the status line knows the backup it was restored from');
   assert.match(logOf(s), /\trestore-applied\t/);
@@ -321,18 +325,20 @@ test('keeper: a database overwritten with random bytes = safe mode "damaged", le
   await within(k.exited, 10000);
 }));
 
-test('keeper: restore is not available outside safe mode, and only to our own client', () => run(async () => {
+test('keeper: restore while the app runs needs the Admin PIN (and a preview), and only to our own client', () => run(async () => {
   const s = sandbox();
   const port = await freePort();
   const k = startKeeper(s.root, port, s.programData, s.backupDir);
   assert.equal((await waitUp(port)).state, 'ready');
   const file = ((await post(port, '/backups/list', {})).json as Listing).value[0].file;
 
-  for (const url of ['/restore/preview', '/restore/apply']) {
-    const r = await post(port, url, { file, confirmToken: 'x' });
-    assert.equal(r.status, 409, url);
-    assert.deepEqual(r.json, { ok: false, code: 'not-in-safe-mode' });
-  }
+  // A preview is a read and works while the app runs (nobody else is here). Apply without the PINs set up, with a made-up token, is refused.
+  const preview = (await post(port, '/restore/preview', { file })).json as { ok: boolean; value: { token: string; live: { lrs: number } } };
+  assert.equal(preview.ok, true);
+  const noPin = await post(port, '/restore/apply', { file, confirmToken: preview.value.token });
+  assert.deepEqual([noPin.status, noPin.json], [409, { ok: false, code: 'pins-not-set' }]);
+  assert.equal((await post(port, '/restore/apply', { file })).status, 400, 'a token is needed');
+  assert.equal((await post(port, '/restore/preview', {})).status, 400, 'a file is needed');
   // JSON content type and POST are required on every named write route, as on /shutdown.
   const status = await new Promise<number>((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path: '/restore/apply', method: 'POST', headers: { 'Content-Type': 'text/plain' }, agent: false }, (res) => {
@@ -348,6 +354,171 @@ test('keeper: restore is not available outside safe mode, and only to our own cl
 
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
+}));
+
+/** A call as the seat that seeded the data: a call with no seat name would see that seat as "another" one. */
+const asSeat1 = (port: number, url: string, body: unknown) => callJson(port, 'POST', url, body, { seat: 'counter-1', timeoutMs: 60000 });
+const lrCount = async (port: number) => (await lrCall(port, '/history/list', { filters: { ...everyday(), kind: 'lr', verb: 'created' }, cursor: null })).value.rows.length as number;
+/** The whole year, every kind: what History is asked in these tests. */
+function everyday() {
+  const y = new Date().getFullYear();
+  return { from: `${y}-01-01`, to: `${y}-12-31`, seat: '', kind: null, verb: null, lrNo: null, lrYear: null, challanNo: null, challanYear: null, showPrints: true };
+}
+
+test('keeper: restore while the app runs is refused for a wrong PIN, for the System PIN, with another seat open, and when the backup taken first cannot be written - and then nothing has changed', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  await lrCall(port, '/lrs/create', { input: input() });
+  assert.equal((await post(port, '/backups/export', { dir: s.backupDir })).status, 200);
+  await lrCall(port, '/lrs/create', { input: input() });
+  await lrCall(port, '/lrs/create', { input: input() });
+  assert.equal(await lrCount(port), 3);
+  const list = (await post(port, '/backups/list', {})).json as Listing;
+  const file = list.value.find((b) => b.file.startsWith('booking-2'))?.file ?? '';
+  const withOneLr = list.value.map((b) => b.file).sort().pop() as string; // the export just made is the newest
+  const preview = async (name = withOneLr) => ((await asSeat1(port, '/restore/preview', { file: name })).json as { ok: boolean; value: { token: string } }).value.token;
+  assert.ok(file !== '' && withOneLr !== '');
+
+  const apply = (pin: string, token: string, seat = 'counter-1') => callJson(port, 'POST', '/restore/apply', { file: withOneLr, confirmToken: token, adminPin: pin }, { seat, timeoutMs: 30000 });
+  const token = await preview();
+  assert.equal(((await apply('0000', token)).json as { code: string }).code, 'wrong-pin');
+  assert.equal(((await apply('7295', token)).json as { code: string }).code, 'wrong-pin', 'the System PIN is not enough');
+
+  // Another seat has the app open (it has talked to the keeper just now): refused, naming it.
+  await callJson(port, 'POST', '/seats', {}, { seat: 'counter-2' });
+  const busy = (await apply('4831', token)).json as { ok: boolean; code: string; detail: string };
+  assert.deepEqual([busy.ok, busy.code, busy.detail], [false, 'restore-others-online', 'counter-2']);
+  const previewBusy = (await callJson(port, 'POST', '/restore/preview', { file: withOneLr }, { seat: 'counter-1' })).json as { code: string };
+  assert.equal(previewBusy.code, 'restore-others-online', 'the preview says so too, before anyone compares anything');
+
+  // The three LRs are still there, the keeper is ready, no copy was set aside.
+  assert.equal(await lrCount(port), 3);
+  assert.equal((await waitUp(port)).state, 'ready');
+  assert.deepEqual(beforeRestoreIn(s.backupDir), []);
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+
+  // A keeper alone again (a fresh start): the backup taken first cannot be written - a directory sits where its temp file goes - so nothing is restored.
+  const again = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const token2 = await preview();
+  for (let i = 0; i <= 5; i++) {
+    const name = path.join(s.backupDir, `${backupName(new Date(Date.now() + i * 60000))}.tmp`);
+    fs.mkdirSync(name, { recursive: true });
+  }
+  const failed = (await apply('4831', token2)).json as { ok: boolean; code: string };
+  assert.deepEqual([failed.ok, failed.code], [false, 'restore-backup-failed']);
+  assert.equal(await lrCount(port), 3, 'nothing was restored');
+  assert.deepEqual(beforeRestoreIn(s.backupDir), []);
+  assert.equal((await waitUp(port)).state, 'ready');
+  assert.match(logOf(s), /"why":"before-restore"/);
+  assert.equal(await shutdown(port), true);
+  await within(again.exited, 10000);
+  assert.ok(!leaks(logOf(s), '4831') && !leaks(logOf(s), '7295'), 'no PIN in the log');
+}));
+
+test('keeper: restore while the app runs, alone: a fresh backup first, the old database kept, the backup in place, every seat told to refetch, and the book says so', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  const a = listen(port, 'counter-1');
+  try {
+    await lrCall(port, '/lrs/create', { input: input() });
+    const made = (await post(port, '/backups/export', { dir: s.backupDir })).json as { value: { file: string } };
+    const file = path.basename(made.value.file);
+    await lrCall(port, '/lrs/create', { input: input() });
+    await lrCall(port, '/lrs/create', { input: input() });
+    assert.equal(await lrCount(port), 3);
+    await until('the LR events', () => a.got.length >= 4);
+    const seenBefore = a.got.length;
+
+    const preview = (await asSeat1(port, '/restore/preview', { file })).json as { value: { token: string; backup: { lrs: number }; live: { lrs: number } } };
+    assert.deepEqual([preview.value.backup.lrs, preview.value.live.lrs], [1, 3], 'the preview sets the backup next to the database now');
+    const applied = (await callJson(port, 'POST', '/restore/apply', { file, confirmToken: preview.value.token, adminPin: '4831' }, { seat: 'counter-1', timeoutMs: 60000 })).json;
+    assert.deepEqual(applied, { ok: true, value: { schemaVersion: LATEST } });
+
+    assert.equal((await waitUp(port)).state, 'ready');
+    assert.equal(await lrCount(port), 1, 'the database is the backup');
+    const all = (await lrCall(port, '/history/list', { filters: everyday(), cursor: null })).value.rows as { action: string; seat: string; facts: { file?: string; savedAs?: string } }[];
+    const row = all.find((r) => r.action === 'backup.restore');
+    assert.deepEqual([row?.seat, row?.facts.file], ['counter-1', file], 'the restored book says it was restored, from which file and by whom');
+    const kept = beforeRestoreIn(s.backupDir);
+    assert.equal(kept.length, 1, 'the database as it was is kept');
+    assert.equal(row?.facts.savedAs, kept[0]);
+    const listing = ((await post(port, '/backups/list', {})).json as { value: { file: string; summary?: { lrs: number } }[] }).value;
+    assert.ok(listing.some((b) => b.file !== file && b.summary?.lrs === 3), 'a verified backup of the three-LR database was made first');
+    assert.ok(listing.some((b) => b.file === file && b.summary?.lrs === 1), 'the backup it was restored from is untouched');
+    await until('the restore event', () => a.got.length > seenBefore);
+    assert.deepEqual([...(a.got[a.got.length - 1]?.tables ?? [])].sort(), [...ALL].sort(), 'every view refetches');
+
+    // The keeper goes on: a new LR is saved and numbered after the restored ones.
+    assert.equal((await lrCall(port, '/lrs/create', { input: input() })).value.row.lrNo, 2);
+  } finally {
+    a.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  assert.match(logOf(s), /\trestore-applied\t/);
+}));
+
+test('keeper: a new backup folder - the Admin PIN, a verified backup made there first, then the setting; a folder on the data\'s drive asks twice; an unusable folder changes nothing', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  await seed(port);
+  const fresh = path.join(s.dir, 'other-backups');
+  const set = async (body: object) => (await lrCall(port, '/settings/set-backup-dir', body)) as Answer;
+  const health = async () => (await waitUp(port)).backupDir;
+  const book = async () => (await lrCall(port, '/history/list', { filters: everyday(), cursor: null })).value.rows as { action: string; changes: { from: string; to: string }[] }[];
+
+  assert.equal((await set({ dir: fresh, adminPin: '0000', confirmSameDrive: true })).code, 'wrong-pin');
+  assert.equal((await set({ dir: fresh, adminPin: '7295', confirmSameDrive: true })).code, 'wrong-pin', 'the System PIN is not enough');
+  assert.equal((await set({ adminPin: '4831' })).status, 400);
+  assert.equal((await set({ dir: 'relative\\folder', adminPin: '4831' })).status, 400, 'an absolute folder is needed');
+  assert.equal((await health()), s.backupDir);
+
+  // This PC has the data and the temp folder on one drive: the folder asks to be confirmed, and nothing is created before the answer.
+  const asked = await set({ dir: fresh, adminPin: '4831' });
+  assert.deepEqual([asked.code, asked.detail], ['backup-dir-same-drive', fresh]);
+  assert.equal(fs.existsSync(fresh), false);
+  assert.equal(await health(), s.backupDir);
+
+  // A folder a backup cannot be written to (under a file): refused, the old folder is still the backup folder.
+  const file = path.join(s.dir, 'a-file');
+  fs.writeFileSync(file, 'x');
+  const unusable = await set({ dir: path.join(file, 'sub'), adminPin: '4831', confirmSameDrive: true });
+  assert.equal(unusable.code, 'backup-dir-unusable');
+  assert.equal(await health(), s.backupDir);
+  assert.equal((await book()).filter((r) => r.action === 'settings.backup-dir').length, 0, 'a refusal writes nothing');
+
+  // Confirmed: a backup is in the new folder at once, the setting and the book follow, the old backups stay where they were.
+  const oldFiles = fs.readdirSync(s.backupDir).filter((n) => n.endsWith('.db'));
+  const changed = await set({ dir: fresh, adminPin: '4831', confirmSameDrive: true });
+  assert.equal(changed.ok, true, JSON.stringify(changed));
+  assert.deepEqual(fs.readdirSync(fresh).filter((n) => n.endsWith('.db')), [changed.value.file.split('\\').pop()]);
+  assert.equal(await health(), fresh);
+  assert.deepEqual(fs.readdirSync(s.backupDir).filter((n) => n.endsWith('.db')), oldFiles);
+  const row = (await book()).find((r) => r.action === 'settings.backup-dir');
+  assert.deepEqual(row?.changes, [{ field: 'backupDir', from: s.backupDir, to: fresh }]);
+  const listed = ((await post(port, '/backups/list', {})).json as Listing).value;
+  assert.equal(listed.length, 1, 'the list is the new folder\'s');
+  // The same folder again changes nothing.
+  assert.equal((await set({ dir: fresh.toUpperCase() + '\\', adminPin: '4831', confirmSameDrive: true })).ok, true);
+  assert.equal((await book()).filter((r) => r.action === 'settings.backup-dir').length, 1);
+
+  // It is kept: a keeper started later without a folder of its own reads the setting.
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const later = startKeeper(s.root, port, s.programData, s.backupDir, { BM_BACKUP_DIR: '' });
+  assert.equal((await waitUp(port)).backupDir, fresh);
+  assert.equal(await shutdown(port), true);
+  await within(later.exited, 10000);
 }));
 
 test('keeper: export writes a verified backup to the folder asked for, and refuses without a database', () => run(async () => {
@@ -516,7 +687,7 @@ const lrCall = async (port: number, url: string, body: unknown, seat = 'counter-
 let uidSerial = 0;
 /** PINs, two stations and a firm, through the real routes. */
 async function seed(port: number) {
-  await lrCall(port, '/pins/setup', { adminPin: '4831', systemPin: '7295' });
+  const setup = await lrCall(port, '/pins/setup', { adminPin: '4831', systemPin: '7295' });
   const station = async (name: string) => (await masters(port, 'create', { kind: 'stations', fields: { name } })).value.id as number;
   const from = await station('Yavatmal');
   const to = await station('Nagpur');
@@ -527,7 +698,7 @@ async function seed(port: number) {
     particular: 'Cloth bales', qty: '3', toPay: '1,800', paid: '', chargeOption: 'option1',
     godownBhada: '5', godownInsurance: '5', deliveryCharges: '2', hamali: '30', wasuli: '', staxPercent: '5', ...over,
   });
-  return { from, to, firm, input };
+  return { from, to, firm, input, recoveryCode: setup.value.recoveryCode as string };
 }
 async function until(what: string, ok: () => boolean, ms = 20000): Promise<void> {
   for (let i = 0; i < ms / 50 && !ok(); i++) await sleep(50);
@@ -1225,6 +1396,237 @@ test('keeper: Reports over the real routes - every report, the LRs behind a row,
   await within(k.exited, 10000);
   const log = logOf(s);
   for (const secret of ['Shree Ganesh', 'Kale Brothers', '193200', '386400', 'kale']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
+}));
+
+// --- History -----------------------------------------------------------------------------------------------------
+
+test('keeper: History over the real route - what the saves wrote comes back as data with names; bad requests are refused; a read raises no event and leaves no name or amount in the log', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  const a = listen(port, 'counter-1');
+  try {
+    await until('the stream to connect', () => a.got.length >= 1);
+    const saved = await lrCall(port, '/lrs/create', { input: input() }, 'counter-1');
+    const id = saved.value.row.id as number;
+    const lrNo = saved.value.row.lrNo as number;
+    const edit = await lrCall(port, '/lrs/update', { id, version: 1, input: input({ qty: '5', toPay: '2,000' }), systemPin: '7295' }, 'counter-2');
+    assert.equal(edit.ok, true);
+    await until('the LR events', () => a.got.length >= 3);
+    const today = (await lrCall(port, '/lrs/defaults', { date: null })).value.today as string;
+    const filters = { from: `${today.slice(0, 4)}-01-01`, to: today, seat: '', kind: null, verb: null, lrNo: null, lrYear: null, challanNo: null, challanYear: null, showPrints: false };
+    const list = async (over: object = {}, cursor: unknown = null) => (await lrCall(port, '/history/list', { filters: { ...filters, ...over }, cursor })).value;
+
+    const all = await list();
+    assert.equal(all.next, null);
+    const [update, create] = all.rows.filter((r: { action: string }) => r.action === 'lrs.update' || r.action === 'lrs.create');
+    assert.deepEqual([update.seat, update.kind, update.verb, update.record, update.openId, update.lrNo], ['counter-2', 'lr', 'edited', 'lr', id, lrNo]);
+    assert.deepEqual(update.changes, [{ field: 'qty', from: 3, to: 5 }, { field: 'toPay', from: 180000, to: 200000, unit: 'paise' }]);
+    assert.deepEqual([create.seat, create.facts], ['counter-1', { consignor: 'Shree Ganesh Traders', consignee: 'Kale Brothers', station: 'Nagpur', qty: 3 }]);
+    assert.ok(all.rows.some((r: { action: string; seat: string }) => r.action === 'pins.setup' && r.seat === 'counter-1'), 'the PIN setup is in the book too');
+    assert.deepEqual((await list({ seat: 'COUNTER-2' })).rows.map((r: { action: string }) => r.action), ['lrs.update']);
+    assert.deepEqual((await list({ lrNo, verb: 'edited' })).rows.map((r: { action: string }) => r.action), ['lrs.update']);
+    assert.deepEqual((await list({ lrNo: lrNo + 100 })).rows, []);
+    assert.deepEqual((await list({ kind: 'station' })).rows.map((r: { name: string }) => r.name), ['Nagpur', 'Yavatmal'], 'newest first');
+    const after = await list({}, { at: create.at, id: create.id });
+    assert.ok(after.rows.every((r: { id: number }) => r.id < create.id), 'a page after a cursor holds only older rows');
+    assert.equal((await list({}, { at: 'nonsense', id: 1 })).rows.length, all.rows.length, 'a cursor that is not one means the first page');
+
+    // Bad requests are refused before anything is read.
+    for (const body of [{}, { filters: 'x' }, { filters: { from: filters.from } }, { filters: { from: today, to: '2000-01-01' } }, { filters: { from: 'x', to: today } }]) {
+      assert.equal((await lrCall(port, '/history/list', body)).status, 400, JSON.stringify(body));
+    }
+    assert.equal((await lrCall(port, '/history/list', { filters: { ...filters, kind: 'planets', verb: 5, lrNo: 'x' } })).ok, true, 'a filter that is not one means no filter');
+
+    await sleep(400); // anything wrongly sent would be here by now
+    assert.equal(a.got.length, 3, 'reads raise no event');
+  } finally {
+    a.stop();
+  }
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  for (const secret of ['Shree Ganesh', 'Kale Brothers', '180000', '200000', 'Yavatmal']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
+}));
+
+// --- PIN coverage ------------------------------------------------------------------------------------------------
+
+// The routes that answer without asking for a PIN. A route in neither this list nor the table below fails the test, so whoever adds a route
+// has to decide which it is (a PIN route writes its audit row and its lock-out row, and proves it here).
+const NO_PIN_ROUTES = [
+  '/shutdown', '/backups/list', '/backups/export', '/seats', '/pins/setup',
+  '/restore/preview', // a read; the apply is the PIN route
+  '/masters/all', '/masters/create',
+  '/lrs/defaults', '/lrs/preview', '/lrs/by-date', '/lrs/get', '/lrs/find', '/lrs/history',
+  '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
+  '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/get', '/memos/by-date', '/memos/list', '/memos/history',
+  '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/firm-statement', '/print/report',
+  '/wasuli/list', '/wasuli/find', '/wasuli/agent-stats', '/wasuli/assign', '/wasuli/reassign', '/wasuli/to-pool', '/wasuli/collect',
+  '/firms/accounts', '/firms/statement', '/firms/top', '/firms/kpis', '/firms/months',
+  '/reports/date-wise', '/reports/station-wise', '/reports/party-wise', '/reports/truck-wise', '/reports/firm-wise', '/reports/wasuli', '/reports/lrs',
+  '/history/list',
+];
+
+interface PinRoute {
+  url: string;
+  kind: 'admin' | 'system' | 'recovery';
+  /** The audit action a success writes; null = a check that writes nothing. */
+  audit: string | null;
+  wrong: () => object | Promise<object>;
+  right: () => object | Promise<object>;
+  after?: () => void;
+}
+
+test('keeper: PIN coverage - every route that checks a PIN writes its audit row on success and a pins.locked row (kind and seat) when five wrong tries lock it; a route in neither list fails here', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir, { BM_PIN_LOCK_MS: '250' });
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input, from, to, recoveryCode } = await seed(port);
+  const SEAT = 'counter-1'; // the seat that seeds the data: a second seat that talked to the keeper would stop a restore
+  const call = (url: string, body: unknown) => lrCall(port, url, body, SEAT);
+  const good = async (url: string, body: unknown) => {
+    const r = await call(url, body);
+    assert.equal(r.ok, true, `${url}: ${r.code ?? r.status} ${JSON.stringify((r as { fields?: unknown }).fields ?? r.memoFields ?? r.wasuliFields ?? r.detail ?? '')}`);
+    return r.value;
+  };
+  const pin = { admin: '4831', system: '7295', admin2: '', system2: '' };
+  const today = (await good('/lrs/defaults', { date: null })).today as string;
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+
+  // Everything the routes below work on, made through the real routes (no PIN is needed for any of it except the last edit).
+  const create = async (kind: string, fields: object) => (await good(`/masters/create`, { kind, fields })).id as number;
+  const truck = await create('trucks', { number: 'MH 29 AB 1' });
+  const truck2 = await create('trucks', { number: 'MH 29 AB 2' });
+  const driver = await create('drivers', { name: 'Ramesh Pawar' });
+  const agent = await create('agents', { name: 'Suresh' });
+  const book = async (over: Record<string, unknown> = {}) => (await good('/lrs/create', { input: input(over) })).row as { id: number; lrNo: number };
+  const [l1, l2, l3, l4, l5, l6, l7, lw] = [await book(), await book(), await book(), await book(), await book(), await book(), await book(), await book({ wasuli: '500' })];
+  const header = (over: object = {}) => ({ uid: `memo-${++uidSerial}`, date: null, truckId: truck, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', ...over });
+  const m1 = (await good('/memos/create', { input: header({ lrIds: [l3.id, l4.id] }) })).id as number;
+  const m2 = (await good('/memos/create', { input: header({ lrIds: [l6.id] }) })).id as number;
+  const m3 = (await good('/memos/create', { input: header({ lrIds: [l7.id] }) })).id as number;
+  const memo = async (id: number) => (await good('/memos/get', { id })) as { version: number; date: string; truckId: number; driverId: number; fromStationId: number; toStationId: number };
+  const lr = async (id: number) => (await good('/lrs/get', { id })) as { version: number };
+  await good('/lrs/update', { id: l7.id, version: (await lr(l7.id)).version, input: input({ qty: '8' }), systemPin: pin.system }); // m3 now differs: there is something to recalculate
+  const collection = async () => (await good('/wasuli/find', { no: lw.lrNo })) as { id: number; status: string; agentId: number | null; version: number };
+  const seen = (r: { id: number; status: string; agentId: number | null; version: number }) => ({ id: r.id, status: r.status, agentId: r.agentId, version: r.version });
+  await good('/wasuli/assign', { rows: [seen(await collection())], agentId: agent });
+  const collect = async () => good('/wasuli/collect', { row: seen(await collection()), input: { amount: '500', mode: 'cash', remark: '' } });
+  await collect();
+
+  const WRONG = '0000';
+  // The newest backup in the folder now (the one made when the folder was changed), previewed: what a restore asks for.
+  const restoreBody = async (adminPin: string) => {
+    const files = ((await good('/backups/list', {})) as { file: string }[]).map((b) => b.file).sort();
+    const file = files[files.length - 1];
+    return { file, confirmToken: (await good('/restore/preview', { file })).token as string, adminPin };
+  };
+  const table: PinRoute[] = [
+    { url: '/masters/update', kind: 'system', audit: 'masters.update', wrong: () => ({ kind: 'stations', id: to, version: 1, fields: { name: 'Nagpur City' }, systemPin: WRONG }),
+      right: () => ({ kind: 'stations', id: to, version: 1, fields: { name: 'Nagpur City' }, systemPin: pin.system }) },
+    { url: '/masters/set-active', kind: 'system', audit: 'masters.deactivate', wrong: () => ({ kind: 'trucks', id: truck2, version: 1, active: false, systemPin: WRONG }),
+      right: () => ({ kind: 'trucks', id: truck2, version: 1, active: false, systemPin: pin.system }) },
+    { url: '/lrs/create', kind: 'system', audit: 'lrs.create', wrong: () => ({ input: { ...input({ date: yesterday }), systemPin: WRONG } }),
+      right: () => ({ input: { ...input({ date: yesterday }), systemPin: pin.system } }) },
+    { url: '/lrs/update', kind: 'system', audit: 'lrs.update', wrong: () => ({ id: l1.id, version: 1, input: input({ qty: '9' }), systemPin: WRONG }),
+      right: async () => ({ id: l1.id, version: (await lr(l1.id)).version, input: input({ qty: '9' }), systemPin: pin.system }) },
+    { url: '/lrs/cancel', kind: 'system', audit: 'lrs.cancel', wrong: () => ({ id: l2.id, version: 1, reason: 'duplicate', systemPin: WRONG }),
+      right: async () => ({ id: l2.id, version: (await lr(l2.id)).version, reason: 'duplicate', systemPin: pin.system }) },
+    { url: '/lrs/restore', kind: 'system', audit: 'lrs.restore', wrong: () => ({ id: l2.id, version: 2, systemPin: WRONG }),
+      right: async () => ({ id: l2.id, version: (await lr(l2.id)).version, systemPin: pin.system }) },
+    { url: '/memos/create', kind: 'system', audit: 'memos.create', wrong: () => ({ input: header({ lrIds: [l5.id], date: yesterday, systemPin: WRONG }) }),
+      right: () => ({ input: header({ lrIds: [l5.id], date: yesterday, systemPin: pin.system }) }) },
+    { url: '/memos/edit', kind: 'system', audit: 'memos.edit',
+      wrong: () => ({ id: m1, version: 1, input: { ...header(), truckHire: '100' }, systemPin: WRONG }),
+      right: async () => {
+        const m = await memo(m1);
+        return { id: m1, version: m.version, input: { date: m.date, truckId: m.truckId, driverId: m.driverId, fromStationId: m.fromStationId, toStationId: m.toStationId, truckHire: '100', loadingHamali: '0' }, systemPin: pin.system };
+      } },
+    { url: '/memos/remove-lrs', kind: 'system', audit: 'memos.remove-lrs', wrong: () => ({ id: m1, lrIds: [l4.id], systemPin: WRONG }), right: () => ({ id: m1, lrIds: [l4.id], systemPin: pin.system }) },
+    { url: '/memos/add-lrs', kind: 'system', audit: 'memos.add-lrs', wrong: () => ({ id: m1, lrIds: [l4.id], systemPin: WRONG }), right: () => ({ id: m1, lrIds: [l4.id], systemPin: pin.system }) },
+    { url: '/memos/move-lrs', kind: 'system', audit: 'memos.move-out', wrong: () => ({ id: m1, lrIds: [l4.id], targetId: m2, systemPin: WRONG }),
+      right: () => ({ id: m1, lrIds: [l4.id], targetId: m2, systemPin: pin.system }) },
+    { url: '/wasuli/uncollect', kind: 'system', audit: 'wasuli.uncollect', wrong: async () => ({ row: seen(await collection()), systemPin: WRONG }),
+      right: async () => ({ row: seen(await collection()), systemPin: pin.system }) },
+    { url: '/wasuli/remark', kind: 'system', audit: 'wasuli.remark', wrong: async () => ({ row: seen(await collection()), remark: 'paid by cheque', systemPin: WRONG }),
+      right: async () => {
+        await collect(); // the last route put the collection back to Assigned: a remark belongs to a collected one
+        return { row: seen(await collection()), remark: 'paid by cheque', systemPin: pin.system };
+      } },
+    { url: '/settings/set-lr-defaults', kind: 'admin', audit: 'settings.lr-defaults', wrong: () => ({ input: { bookingStationId: from, chargeOption: 'option2', staxPercent: '2.5' }, adminPin: WRONG }),
+      right: () => ({ input: { bookingStationId: from, chargeOption: 'option2', staxPercent: '2.5' }, adminPin: pin.admin }) },
+    { url: '/print/set-company', kind: 'admin', audit: 'settings.company', wrong: () => ({ input: { name: 'Test Co', address: '', phone: '', gstin: '' }, adminPin: WRONG }),
+      right: () => ({ input: { name: 'Test Co', address: '', phone: '', gstin: '' }, adminPin: pin.admin }) },
+    { url: '/memos/recalculate', kind: 'admin', audit: 'memos.recalculate', wrong: () => ({ id: m3, version: 1, adminPin: WRONG }),
+      right: async () => ({ id: m3, version: (await memo(m3)).version, adminPin: pin.admin }) },
+    { url: '/memos/cancel', kind: 'admin', audit: 'memos.cancel', wrong: () => ({ id: m2, version: 1, reason: 'wrong truck', adminPin: WRONG }),
+      right: async () => ({ id: m2, version: (await memo(m2)).version, reason: 'wrong truck', adminPin: pin.admin }) },
+    { url: '/settings/update-start', kind: 'admin', audit: 'app.update', wrong: () => ({ from: '0.2.1', to: '0.3.0', adminPin: WRONG }), right: () => ({ from: '0.2.1', to: '0.3.0', adminPin: pin.admin }) },
+    { url: '/pins/verify', kind: 'admin', audit: null, wrong: () => ({ kind: 'admin', pin: WRONG }), right: () => ({ kind: 'admin', pin: pin.admin }) },
+    { url: '/settings/set-backup-dir', kind: 'admin', audit: 'settings.backup-dir',
+      wrong: () => ({ dir: path.join(s.dir, 'moved-backups'), adminPin: WRONG, confirmSameDrive: true }),
+      right: () => ({ dir: path.join(s.dir, 'moved-backups'), adminPin: pin.admin, confirmSameDrive: true }) },
+    { url: '/seats/rename', kind: 'admin', audit: 'seat.rename', wrong: () => ({ name: 'Counter 9', adminPin: WRONG }), right: () => ({ name: 'Counter 9', adminPin: pin.admin }) },
+    // Restoring replaces the whole book with the backup's: it comes before the routes that change the PINs, which a backup from before would undo.
+    { url: '/restore/apply', kind: 'admin', audit: 'backup.restore', wrong: () => restoreBody(WRONG), right: () => restoreBody(pin.admin) },
+    { url: '/pins/change-system', kind: 'admin', audit: 'pins.change-system', wrong: () => ({ adminPin: WRONG, newPin: '5555' }), right: () => ({ adminPin: pin.admin, newPin: '5555' }),
+      after: () => { pin.system2 = '5555'; } },
+    { url: '/pins/change-admin', kind: 'admin', audit: 'pins.change-admin', wrong: () => ({ adminPin: WRONG, newPin: '6666' }), right: () => ({ adminPin: pin.admin, newPin: '6666' }),
+      after: () => { pin.admin2 = '6666'; } },
+    { url: '/pins/recover', kind: 'recovery', audit: 'pins.recover', wrong: () => ({ recoveryCode: 'AAAA-BBBB-CCCC', newAdminPin: '1212', newSystemPin: '3434' }),
+      right: () => ({ recoveryCode, newAdminPin: '1212', newSystemPin: '3434' }) },
+  ];
+
+  // The two lists together are every route there is, each once.
+  const everything = [...table.map((r) => r.url), ...NO_PIN_ROUTES];
+  assert.deepEqual([...everything].sort(), [...ROUTES].sort(), 'a route that is in neither list (or in both) - decide whether it checks a PIN');
+
+  const book_ = async (): Promise<{ action: string; seat: string; facts: { pin?: string } }[]> => {
+    const filters = { from: `${today.slice(0, 4)}-01-01`, to: today, seat: '', kind: null, verb: null, lrNo: null, lrYear: null, challanNo: null, challanYear: null, showPrints: true };
+    const rows: { action: string; seat: string; facts: { pin?: string } }[] = [];
+    let cursor: unknown = null;
+    do {
+      const page = (await call('/history/list', { filters, cursor })).value;
+      rows.push(...page.rows);
+      cursor = page.next;
+    } while (cursor);
+    return rows;
+  };
+  for (const route of table) {
+    const was = await book_();
+    const count = (rows: typeof was, action: string) => rows.filter((r) => r.action === action).length;
+
+    // Five wrong tries: four refusals, then the lock - and the lock is in the book, with the kind of PIN and the seat that tried.
+    const wrong = await route.wrong();
+    const codes: unknown[] = [];
+    for (let i = 0; i < 5; i++) codes.push((await call(route.url, wrong)).code);
+    assert.deepEqual(codes, [...Array(4).fill(route.kind === 'recovery' ? 'wrong-recovery-code' : 'wrong-pin'), 'pin-locked'], `${route.url}: five wrong tries`);
+    const locked = await book_();
+    assert.equal(count(locked, 'pins.locked'), count(was, 'pins.locked') + 1, `${route.url}: one lock-out row`);
+    const row = locked.find((r) => r.action === 'pins.locked');
+    assert.deepEqual([row?.seat, row?.facts.pin], [SEAT, route.kind], `${route.url}: the lock-out names the seat and the kind of PIN`);
+    assert.equal(locked.length, was.length + 1, `${route.url}: the wrong tries wrote nothing else`);
+
+    // The right PIN, once the lock has run out: the route's own audit row.
+    await sleep(320);
+    const answer = await call(route.url, await route.right());
+    assert.equal(answer.ok, true, `${route.url}: ${answer.code ?? answer.status} ${JSON.stringify((answer as { fields?: unknown }).fields ?? answer.memoFields ?? answer.wasuliFields ?? answer.detail ?? '')}`);
+    const done = await book_();
+    if (route.url === '/restore/apply') assert.equal(count(done, 'backup.restore'), 1, 'the restored book says it was restored');
+    else if (route.audit) assert.ok(count(done, route.audit) >= count(was, route.audit) + 1, `${route.url} writes ${route.audit}`);
+    else assert.equal(done.length, locked.length, `${route.url} writes nothing`);
+    route.after?.();
+    if (route.url === '/pins/change-system') pin.system = pin.system2;
+    if (route.url === '/pins/change-admin') pin.admin = pin.admin2;
+  }
+
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
+  const log = logOf(s);
+  for (const secret of ['4831', '7295', '5555', '6666', '1212', '3434', recoveryCode]) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 // --- Firm Accounts -----------------------------------------------------------------------------------------------

@@ -9,6 +9,25 @@ export interface AuditEntry {
   after?: unknown;
 }
 
+/** One audit row as a history reads it back: the JSON columns still text. */
+export interface AuditRow {
+  at: string;
+  seat: string;
+  action: string;
+  before: string | null;
+  after: string | null;
+}
+
+/** A row's before / after as an object. An unreadable column is "nothing": a history page must never break on one old row. */
+export function parseJson(text: string | null): Record<string, unknown> {
+  try {
+    const v: unknown = text === null ? {} : JSON.parse(text);
+    return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Append one row to audit_log. Must run inside the transaction of the change it describes, so the two succeed
  * or fail together. This is the only code that touches audit_log, and it only ever inserts (the table also

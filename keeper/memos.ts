@@ -11,7 +11,7 @@ import {
   type MemoInput, type MemoListRow, type MemoLrRow, type MemoSaved, type MemoTaken, type MemoTotals, type PendingPage, type PendingTotals, type ResultCode,
   type SavedMemoCursor, type SavedMemoFilters, type SavedMemoPage, type SavedMemoRow,
 } from '../shared';
-import { writeAudit } from './audit';
+import { parseJson, writeAudit, type AuditRow } from './audit';
 import type { Db } from './db';
 import { cleanReason, isDate, localDate } from './lrRules';
 import { lrSumsSql } from './lrSql';
@@ -172,6 +172,37 @@ const TOTAL_FIELD = { lrs: 'lrs', qty: 'qty', toPayPaise: 'toPay', paidPaise: 'p
 
 const TOTALS_SQL = `SELECT COUNT(*) AS lrs, COALESCE(SUM(qty), 0) AS qty, COALESCE(SUM(topay_paise), 0) AS toPayPaise, COALESCE(SUM(paid_paise), 0) AS paidPaise
   FROM lrs WHERE status = 'booked' AND id IN`;
+
+const MEMO_ACTION: Record<string, MemoHistoryEntry['action']> = {
+  'memos.create': 'created', 'memos.edit': 'edited', 'memos.remove-lrs': 'removed', 'memos.add-lrs': 'added',
+  'memos.move-out': 'moved-out', 'memos.move-in': 'moved-in', 'memos.recalculate': 'recalculated', 'memos.cancel': 'cancelled',
+};
+
+/**
+ * One audit row of a memo as a history line (truck, driver and stations by name, money in paise); null for any other row (a print). A name
+ * that is gone shows as its id. The memo's history and the History page both read through this.
+ */
+export function memoEntry(db: Db, r: AuditRow): MemoHistoryEntry | null {
+  const action = Object.prototype.hasOwnProperty.call(MEMO_ACTION, r.action) ? MEMO_ACTION[r.action] : undefined;
+  if (!action) return null;
+  const nameOf = (table: 'trucks' | 'drivers' | 'stations', value: unknown): string | null => {
+    const col = table === 'trucks' ? 'number' : 'name';
+    return (db.prepare(`SELECT ${col} AS name FROM ${table} WHERE id = ?`).get(value) as { name: string } | undefined)?.name ?? String(value);
+  };
+  const before = parseJson(r.before);
+  const after = parseJson(r.after);
+  const entry: MemoHistoryEntry = { at: r.at, seat: r.seat, action, changes: [], lrNos: Array.isArray(after.lrNos) ? (after.lrNos as number[]) : [] };
+  if (action === 'edited') {
+    const show = (key: HeaderKey, v: unknown): MemoChange['from'] =>
+      v === null || v === undefined ? null : key === 'truckId' ? nameOf('trucks', v) : key === 'driverId' ? nameOf('drivers', v) : key === 'fromStationId' || key === 'toStationId' ? nameOf('stations', v) : (v as string | number);
+    for (const [key] of HEADER_COLUMNS) if (key in after) entry.changes.push({ field: HEADER_FIELD[key], from: show(key, before[key]), to: show(key, after[key]) });
+  } else if (action === 'recalculated') {
+    for (const k of TOTAL_KEYS) if (before[k] !== after[k]) entry.changes.push({ field: TOTAL_FIELD[k], from: before[k] as number, to: after[k] as number });
+  } else if (action === 'cancelled') entry.reason = String(after.reason ?? '');
+  else if (action === 'moved-out') entry.otherNo = Number(after.toChallanNo);
+  else if (action === 'moved-in') entry.otherNo = Number(after.fromChallanNo);
+  return entry;
+}
 
 export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now: () => Date = () => new Date()) {
   const rowOf = (db: Db, id: number): MemoListRow => db.prepare(`${MEMO_ROW} WHERE m.id = ?`).get(id) as MemoListRow;
@@ -542,35 +573,8 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
           `SELECT at, seat, action, before_json AS before, after_json AS after FROM audit_log
            WHERE entity = 'memos' AND entity_id = ? AND action NOT LIKE 'print.%' ORDER BY at DESC, id DESC LIMIT ${HISTORY_LIMIT}`,
         )
-        .all(String(id)) as { at: string; seat: string; action: string; before: string | null; after: string | null }[];
-      const nameOf = (table: 'trucks' | 'drivers' | 'stations', value: unknown): string | null => {
-        const col = table === 'trucks' ? 'number' : 'name';
-        return (db.prepare(`SELECT ${col} AS name FROM ${table} WHERE id = ?`).get(value) as { name: string } | undefined)?.name ?? String(value);
-      };
-      const json = (text: string | null) => (text === null ? {} : (JSON.parse(text) as Record<string, unknown>));
-      const names: Record<string, MemoHistoryEntry['action']> = {
-        'memos.create': 'created', 'memos.edit': 'edited', 'memos.remove-lrs': 'removed', 'memos.add-lrs': 'added',
-        'memos.move-out': 'moved-out', 'memos.move-in': 'moved-in', 'memos.recalculate': 'recalculated', 'memos.cancel': 'cancelled',
-      };
-      return ok(
-        rows.flatMap((r) => {
-          const action = names[r.action];
-          if (!action) return [];
-          const before = json(r.before);
-          const after = json(r.after);
-          const entry: MemoHistoryEntry = { at: r.at, seat: r.seat, action, changes: [], lrNos: Array.isArray(after.lrNos) ? (after.lrNos as number[]) : [] };
-          if (action === 'edited') {
-            const show = (key: HeaderKey, v: unknown): MemoChange['from'] =>
-              v === null || v === undefined ? null : key === 'truckId' ? nameOf('trucks', v) : key === 'driverId' ? nameOf('drivers', v) : key === 'fromStationId' || key === 'toStationId' ? nameOf('stations', v) : (v as string | number);
-            for (const [key] of HEADER_COLUMNS) if (key in after) entry.changes.push({ field: HEADER_FIELD[key], from: show(key, before[key]), to: show(key, after[key]) });
-          } else if (action === 'recalculated') {
-            for (const k of TOTAL_KEYS) if (before[k] !== after[k]) entry.changes.push({ field: TOTAL_FIELD[k], from: before[k] as number, to: after[k] as number });
-          } else if (action === 'cancelled') entry.reason = String(after.reason ?? '');
-          else if (action === 'moved-out') entry.otherNo = Number(after.toChallanNo);
-          else if (action === 'moved-in') entry.otherNo = Number(after.fromChallanNo);
-          return [entry];
-        }),
-      );
+        .all(String(id)) as AuditRow[];
+      return ok(rows.flatMap((r) => memoEntry(db, r) ?? []));
     },
   };
 }

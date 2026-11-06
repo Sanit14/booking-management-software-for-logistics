@@ -5,7 +5,8 @@ export type LockKind = 'admin' | 'system' | 'recovery';
 export const MAX_TRIES = 5;
 export const LOCK_MS = 60_000;
 
-export function makeLockout(now: () => number = Date.now) {
+/** `lockMs` is for tests (BM_PIN_LOCK_MS), so a test that locks a PIN many times does not wait a minute each time. */
+export function makeLockout(now: () => number = Date.now, lockMs = LOCK_MS) {
   const state = new Map<LockKind, { wrong: number; until: number }>();
   const of = (kind: LockKind) => {
     let s = state.get(kind);
@@ -25,7 +26,7 @@ export function makeLockout(now: () => number = Date.now) {
     },
     fail(kind: LockKind): void {
       const s = of(kind);
-      if (++s.wrong >= MAX_TRIES) s.until = now() + LOCK_MS;
+      if (++s.wrong >= MAX_TRIES) s.until = now() + lockMs;
     },
     ok(kind: LockKind): void {
       state.delete(kind);

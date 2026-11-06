@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeAudit } from './audit';
 import { migrateSafely, readSummary } from './backup';
 import { openDatabase, type Db } from './db';
 import { currentVersion, migrate, MIGRATIONS } from './migrations';
@@ -23,6 +24,7 @@ test('an empty file reaches the latest version with every table and index', () =
   assert.equal(currentVersion(db), LATEST);
   assert.deepEqual(names(db, 'table'), ['agents', 'audit_log', 'counters', 'drivers', 'firms', 'lrs', 'memos', 'schema_version', 'settings', 'stations', 'trucks', 'wasuli']);
   assert.deepEqual(names(db, 'index').filter((n) => !n.startsWith('sqlite_')).filter((n) => /^(lrs|memos|audit|wasuli)_/.test(n)), [
+    'audit_by_at',
     'audit_by_entity',
     'lrs_by_consignee',
     'lrs_by_consignor',
@@ -39,6 +41,7 @@ test('an empty file reaches the latest version with every table and index', () =
   assert.deepEqual(cols('lrs_by_consignor'), ['consignor_id', 'lr_date']);
   assert.deepEqual(cols('memos_by_truck'), ['truck_id', 'memo_date']);
   assert.deepEqual(cols('wasuli_by_status'), ['status', 'agent_id', 'collected_date']);
+  assert.deepEqual(cols('audit_by_at'), ['at']);
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1);
 });
 
@@ -130,21 +133,41 @@ const wasuliRows = (db: Db) => db.prepare('SELECT lr_id AS lrId, amount_paise AS
 test('v2 makes an unassigned wasuli row for every LR that is not cancelled and has an amount, and loses nothing', () => {
   const { db, ids } = v1WithLrs();
   const before = JSON.stringify([db.prepare('SELECT * FROM lrs ORDER BY id').all(), db.prepare('SELECT * FROM memos ORDER BY id').all(), db.prepare('SELECT * FROM stations ORDER BY id').all()]);
-  assert.equal(migrate(db), 2);
+  assert.equal(migrate(db), LATEST);
   assert.deepEqual(wasuliRows(db), [
     { lrId: ids.booked, amount: 5000, status: 'unassigned', agent: null, assigned: null, collected: null, seat: 'PC01' },
     { lrId: ids.loaded, amount: 1200, status: 'unassigned', agent: null, assigned: null, collected: null, seat: 'PC02' },
   ]);
   const after = JSON.stringify([db.prepare('SELECT * FROM lrs ORDER BY id').all(), db.prepare('SELECT * FROM memos ORDER BY id').all(), db.prepare('SELECT * FROM stations ORDER BY id').all()]);
   assert.equal(after, before, 'LRs, memos and masters are exactly as they were');
-  assert.equal(migrate(db), 2);
+  assert.equal(migrate(db), LATEST);
   assert.equal(wasuliRows(db).length, 2, 'running it again makes no second row');
+});
+
+test('v3 adds only an index: the audit log of a v2 file is exactly as it was, a backup of the v2 file comes first, and a second run changes nothing', async () => {
+  const db = openDatabase(path.join(tempDir(), 'booking.db'));
+  assert.equal(migrate(db, MIGRATIONS.slice(0, 2)), 2);
+  assert.ok(!names(db, 'index').includes('audit_by_at'));
+  db.transaction(() => {
+    for (let i = 0; i < 5; i++) writeAudit(db, { seat: `PC0${i}`, action: 'settings.company', entity: 'settings', entityId: 'company', before: { i }, after: { i: i + 1 } });
+  })();
+  const before = JSON.stringify(db.prepare('SELECT * FROM audit_log ORDER BY id').all());
+  const dir = path.join(tempDir(), 'backups');
+  const r = await migrateSafely(db, dir, new Date(2026, 10, 6, 9, 0));
+  assert.equal(r.version, LATEST);
+  assert.equal(r.backupError, undefined);
+  assert.equal(readSummary(path.join(dir, 'booking-20261106-0900.db'))?.schemaVersion, 2, 'the backup is the v2 file');
+  assert.equal(JSON.stringify(db.prepare('SELECT * FROM audit_log ORDER BY id').all()), before, 'not a row of the log changed');
+  assert.ok(names(db, 'index').includes('audit_by_at'));
+  assert.equal(migrate(db), LATEST);
+  assert.equal(names(db, 'index').filter((n) => n === 'audit_by_at').length, 1);
+  assert.throws(() => db.prepare("UPDATE audit_log SET seat = 'x'").run(), /append-only/, 'the log is still append-only');
 });
 
 test('v2 from an empty v1 database makes empty tables', () => {
   const db = openDatabase(path.join(tempDir(), 'booking.db'));
   migrate(db, MIGRATIONS.slice(0, 1));
-  assert.equal(migrate(db), 2);
+  assert.equal(migrate(db), LATEST);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM wasuli').get() as { n: number }).n, 0);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM agents').get() as { n: number }).n, 0);
 });
@@ -153,7 +176,7 @@ test('the keeper backs up a v1 database before v2 runs, and the backup is the v1
   const { db } = v1WithLrs();
   const dir = path.join(tempDir(), 'backups');
   const r = await migrateSafely(db, dir, new Date(2026, 9, 24, 9, 30));
-  assert.equal(r.version, 2);
+  assert.equal(r.version, LATEST);
   assert.equal(r.backupError, undefined);
   const backup = readSummary(path.join(dir, 'booking-20261024-0930.db'));
   assert.equal(backup?.schemaVersion, 1);

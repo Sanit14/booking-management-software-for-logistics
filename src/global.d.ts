@@ -4,6 +4,7 @@
 interface Window {
   bm: {
     version: string;
+    packaged: boolean;
     keeper: import('../shared').KeeperApi;
     update: import('../shared').UpdateApi;
     keys: import('../shared').KeysApi;

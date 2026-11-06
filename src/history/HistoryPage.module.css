@@ -1,0 +1,180 @@
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+/* ---- the period and the filters ---- */
+.controls {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  padding: 6px 12px;
+}
+.pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+.pill {
+  height: 34px;
+  padding: 0 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 17px;
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  cursor: pointer;
+}
+.pill[aria-pressed='true'] {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+.dates {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.dateField {
+  width: 180px;
+}
+.dateNote {
+  padding-bottom: 12px;
+  color: var(--danger);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin: 0 0 6px auto;
+  color: var(--text);
+  font-size: var(--fs-14);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--teal);
+}
+.filterRow {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 0 12px 8px;
+}
+.filterRow > * {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+/* ---- the rows ---- */
+.listCard {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.tableBox {
+  --row-h: 46px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.tableBox > div {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+.tableBox table th {
+  height: 34px;
+}
+.cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.when {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A long sentence takes two lines of the row and is whole in the details. */
+.what {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 20px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.foot {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--readonly-bg);
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.hint {
+  margin-left: auto;
+}
+
+/* ---- the details of one row ---- */
+.details {
+  flex-shrink: 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.detailHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px 4px;
+}
+.detailTitle {
+  min-width: 0;
+  flex: 1;
+  color: var(--teal-dark);
+  font-size: var(--fs-16);
+  overflow-wrap: anywhere;
+}
+.detailBy {
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.changes {
+  margin: 0;
+  padding: 0 12px 8px 30px;
+  font-size: var(--fs-15);
+  font-variant-numeric: tabular-nums;
+  line-height: 24px;
+}
+.none {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+}
