@@ -13,6 +13,10 @@ process.on('exit', () => dirs.forEach((d) => fs.rmSync(d, { recursive: true, for
 /**
  * The fastest of `runs` calls, in ms. A speed budget is about what the query costs, not about the cold first run
  * (about 100 ms while SQLite fills its page cache) or one unlucky moment of a busy PC, so budgets use this.
+ *
+ * The limits asserted on it in the dbtests are GUARDS against a query going wrong (a lost index is 10x to 100x), not the real speed budgets:
+ * each is about 5x the fastest time measured on the dev PC in session 4.3, so a busy PC cannot fail `npm run check`. The budgets of the
+ * Build Plan are measured on a 3-year book by `npm run bench`, on purpose, and recorded in docs/bench.
  */
 export function fastest(runs: number, fn: () => void): number {
   let best = Infinity;

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { listBackups, makeBackup, migrateSafely, pruneBackups, readSummary } from './backup';
+import { listBackups, makeBackup, migrateSafely, pruneBackups, readSummary, verifyBackup } from './backup';
 import { backupName } from './backupNames';
 import { currentVersion, MIGRATIONS, type Migration } from './migrations';
 import { nextNumber } from './numbering';
@@ -181,4 +181,28 @@ test('migrateSafely still migrates when the backup cannot be written, and says w
   const r = await migrateSafely(db, path.join(blocker, 'b'), at(2026, 10, 24, 9, 30), [...MIGRATIONS, next]);
   assert.equal(r.version, next.version);
   assert.ok(r.backupError, 'the failure is reported, not swallowed');
+});
+
+test('the check of a finished backup runs in another process: the keeper keeps answering meanwhile, and a damaged copy is still refused', async () => {
+  const db = freshDb();
+  db.transaction(() => {
+    for (let i = 0; i < 20000; i++) insertStation(db, `Prefill ${i}`);
+  })();
+  const dir = path.join(tempDir(), 'backups');
+  const made = await makeBackup(db, dir, at(2026, 10, 24, 9, 30));
+  assert.equal(made.rows, 20000);
+
+  let ticks = 0;
+  const timer = setInterval(() => ticks++, 5);
+  const rows = await verifyBackup(made.file);
+  clearInterval(timer);
+  assert.equal(rows, 20000);
+  assert.ok(ticks >= 3, `the event loop ran ${ticks} times while the copy was checked`);
+
+  const damaged = path.join(dir, 'damaged.db');
+  const bytes = fs.readFileSync(made.file);
+  bytes.fill(0x7f, 4096 * 3, 4096 * 12); // the middle of the file overwritten
+  fs.writeFileSync(damaged, bytes);
+  await assert.rejects(verifyBackup(damaged), /integrity check/);
+  await assert.rejects(verifyBackup(path.join(dir, 'missing.db')), /integrity check/);
 });

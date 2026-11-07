@@ -9,20 +9,21 @@ const RECENT_LIMIT = 8;
 
 export const DASHBOARD_SQL = {
   // One statement of subqueries. "LRs today" is booked + loaded; cancelled is counted apart and left out of the quantity.
-  // Pending is every booked LR whatever its date. The memo counts are 0 until memos exist (3.1) and are ready for them.
+  // Pending is every booked LR whatever its date; the two statements that add up its quantity name the partial index of booked LRs (migration v4), because
+  // without statistics SQLite would pick lrs_pending and read every booked LR's row for its quantity. The memo counts are 0 until memos exist (3.1) and are ready for them.
   summary: `SELECT
       (SELECT COUNT(*) FROM lrs WHERE lr_date = @d AND status = 'booked') AS booked,
       (SELECT COUNT(*) FROM lrs WHERE lr_date = @d AND status = 'loaded') AS loaded,
       (SELECT COUNT(*) FROM lrs WHERE lr_date = @d AND status = 'cancelled') AS cancelled,
       (SELECT COALESCE(SUM(qty), 0) FROM lrs WHERE lr_date = @d AND status != 'cancelled') AS qty,
       (SELECT COUNT(*) FROM lrs WHERE status = 'booked') AS pending,
-      (SELECT COALESCE(SUM(qty), 0) FROM lrs WHERE status = 'booked') AS pendingQty,
+      (SELECT COALESCE(SUM(qty), 0) FROM lrs INDEXED BY lrs_booked WHERE status = 'booked') AS pendingQty,
       (SELECT MIN(lr_date) FROM lrs WHERE status = 'booked') AS oldestPending,
       (SELECT COUNT(DISTINCT to_station_id) FROM lrs WHERE status = 'booked') AS pendingStations,
       (SELECT COUNT(*) FROM memos WHERE memo_date = @d AND status = 'saved') AS memos,
       (SELECT COUNT(DISTINCT truck_id) FROM memos WHERE memo_date = @d AND status = 'saved') AS trucksOut`,
   pending: `SELECT l.to_station_id AS stationId, s.name AS station, COUNT(*) AS lrs, SUM(l.qty) AS qty
-      FROM lrs l JOIN stations s ON s.id = l.to_station_id
+      FROM lrs l INDEXED BY lrs_booked JOIN stations s ON s.id = l.to_station_id
       WHERE l.status = 'booked'
       GROUP BY l.to_station_id ORDER BY lrs DESC, s.name_key LIMIT ${PENDING_LIMIT}`,
   recent: `SELECT l.id, l.lr_no AS lrNo, l.consignee_name AS consignee, s.name AS toStation, l.status

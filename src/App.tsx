@@ -64,6 +64,14 @@ export default function App() {
     });
   }, [load]);
 
+  // A backup finished (the keeper announces it as a change to the settings): the status box shows its time. The day's first backup now ends after "ready".
+  useEffect(() => {
+    if (COMPONENTS_ONLY || !window.bm) return;
+    return window.bm.keeper.onChanged((change) => {
+      if (change.tables.includes('settings')) load();
+    });
+  }, [load]);
+
   // Any other way to a page drops a search pick still waiting for its own page.
   const go = (next: PageId) => {
     setJump((j) => (j && pageOf(j) === next ? j : null));

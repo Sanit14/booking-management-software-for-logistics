@@ -37,7 +37,7 @@ import { businessRows, closeDatabase, hasTable, openChecked, raiseMarker, type D
 import { makeEvents } from './events';
 import { makeFirmAccounts } from './firmAccounts';
 import { asAccountCursor, asAccountFilters, asRole, asStatementCursor, asStatementQuery, asYear } from './firmRules';
-import { blankReason, inspectBeforeOpen, readMarkerRows, writeMarker } from './guard';
+import { blankReason, inspectBeforeOpen, markRunning, readMarkerClean, readMarkerRows, writeMarker } from './guard';
 import { makeHistory } from './history';
 import { asHistoryCursor, asHistoryFilters } from './historyRules';
 import { asDefaultsInput, asLrInput } from './lrRules';
@@ -133,6 +133,7 @@ function main(): void {
         delete backup.failing;
         backup.lastAt = new Date().toISOString();
         log('backup-ok', { why, file: made.file, rows: made.rows, bytes: made.bytes });
+        events.publish(['settings']); // the seats' status line shows the new time
         try {
           const dropped = pruneBackups(backupDir);
           if (dropped.length) log('backup-pruned', { count: dropped.length });
@@ -142,6 +143,7 @@ function main(): void {
       } catch (e) {
         backup.failing = msg(e);
         log('backup-failed', { why, dir: backupDir, error: msg(e) });
+        events.publish(['settings']);
       }
     })().finally(() => {
       backingUp = null;
@@ -191,6 +193,9 @@ function main(): void {
   }
 
   async function start(): Promise<void> {
+    // Read first, then say "running": from here on a crash (or a safe mode that ends in a failed restore) must ask for the full check.
+    const full = !readMarkerClean(programDirPath, dataRoot, dbPath);
+    markRunning(programDirPath, dataRoot, dbPath);
     const decision = inspectBeforeOpen(programDirPath, dataRoot, dbPath);
     if (decision.action === 'safe-mode') {
       state = 'safe-mode';
@@ -198,8 +203,10 @@ function main(): void {
       log('guard-trip', { dataRoot, dbPath, reason });
       return;
     }
-    // quick_check runs here, before anything is migrated or written.
-    const opened = openChecked(dbPath);
+    // quick_check runs here, before anything is migrated or written: in full after anything but a clean stop (a crash, a power cut, a killed
+    // process, a first start of this file), skipped after a clean one — it reads the whole file, 16 s for a 3-year book. The backup check
+    // (verifyBackup, every hour and on stop) still reads a whole copy, so a file that went bad while the app was off is found within the hour.
+    const opened = openChecked(dbPath, full);
     if ('damaged' in opened) {
       state = 'safe-mode';
       reason = 'damaged';
@@ -229,11 +236,13 @@ function main(): void {
       backup.failing = migrated.backupError;
       log('backup-failed', { why: 'before-migration', dir: backupDir, error: migrated.backupError });
     }
-    // First backup of the day is taken before "ready", so the status line is right the first time it is read.
+    // The first backup of the day starts once the keeper is ready, not before: the book is usable at once, and the status line shows the
+    // newest backup until the new one is done (seconds on a big book).
     const today = new Date().toDateString();
-    if (!namesInBackupDir().some((b) => b.at.toDateString() === today)) await runBackup('start');
+    const needsBackup = !namesInBackupDir().some((b) => b.at.toDateString() === today);
     becomeReady();
-    log('database-open', { dbPath, action: decision.action, schemaVersion });
+    log('database-open', { dbPath, action: decision.action, schemaVersion, check: full ? 'full' : 'quick' });
+    if (needsBackup) void runBackup('start');
   }
 
   // Idempotent: every caller gets the same exit code, and none exits before the first stop has finished (a second
@@ -249,16 +258,27 @@ function main(): void {
       if (db) {
         await backingUp; // never fails: runBackup logs its own errors
         await runBackup('stop'); // a failed backup must not keep the keeper from closing the database
-        // The guard's baseline for the next start. A failure here must not skip the checkpoint below.
+        // The guard's baseline for the next start, written after the close: "clean" only if the database closed (and was checkpointed).
+        // A failure counting the rows must not skip the checkpoint below.
+        let rows: number | null = null;
         try {
-          writeMarker(programDirPath, dataRoot, dbPath, businessRows(db));
+          rows = businessRows(db);
         } catch (e) {
           failed('marker-write-failed')(e);
         }
+        let closed = false;
         try {
           closeDatabase(db);
+          closed = true;
         } catch (e) {
           failed('stop-failed')(e);
+        }
+        if (rows !== null) {
+          try {
+            writeMarker(programDirPath, dataRoot, dbPath, rows, closed);
+          } catch (e) {
+            failed('marker-write-failed')(e);
+          }
         }
         db = null;
       }
@@ -314,6 +334,7 @@ function main(): void {
   // handle (a keeper in safe mode has none). Opening the restored file, migrating it and starting the services is the same in both.
   function swapIn(file: string, seat: string, whileRunning: boolean): KeeperResult<{ schemaVersion: number }> {
     try {
+      markRunning(programDirPath, dataRoot, dbPath);
       const savedAs = restoreFiles(dbPath, backupDir, file);
       try {
         const opened = openChecked(dbPath);

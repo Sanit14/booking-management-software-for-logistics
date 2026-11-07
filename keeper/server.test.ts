@@ -60,7 +60,8 @@ function startKeeper(root: string, port: number, programData: string, backupDir:
 async function waitUp(port: number): Promise<KeeperHealth> {
   for (let i = 0; i < 100; i++) {
     const p = await probe(port);
-    if (p.kind === 'up' && p.health.state !== 'starting') return p.health;
+    // Ready means the book is open; the day's first backup starts right after, so wait for the status line to know a backup too.
+    if (p.kind === 'up' && p.health.state !== 'starting' && (p.health.state !== 'ready' || p.health.backup)) return p.health;
     await sleep(150);
   }
   throw new Error('keeper did not come up');
@@ -232,6 +233,37 @@ test('keeper: the first backup of the day is made on start, shows in health and 
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
   assert.match(logOf(s), /"why":"stop"/, 'a backup on clean stop');
+}));
+
+test('keeper: ready comes before the day\'s first backup, and the full database check runs after a first start or a crash but not after a clean stop', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const checks = () => [...logOf(s).matchAll(/\tdatabase-open\t.*"check":"(\w+)"/g)].map((m) => m[1]);
+  const marker = markerPath(s.programDir, s.root);
+  const clean = () => JSON.parse(fs.readFileSync(marker, 'utf8')).clean as boolean;
+
+  const first = startKeeper(s.root, port, s.programData, s.backupDir);
+  await waitUp(port);
+  assert.deepEqual(checks(), ['full'], 'no marker yet: the first start checks everything');
+  assert.ok(logOf(s).indexOf('database-open') < logOf(s).indexOf('"why":"start"'), 'the book was open before the backup finished');
+  assert.equal(clean(), false, 'running');
+  assert.equal(await shutdown(port), true);
+  await within(first.exited, 10000);
+  assert.equal(clean(), true, 'a clean stop says so');
+
+  const second = startKeeper(s.root, port, s.programData, s.backupDir);
+  await waitUp(port);
+  assert.deepEqual(checks(), ['full', 'quick'], 'after a clean stop the whole-file check is skipped');
+  assert.equal(clean(), false, 'running again: a crash now would leave this');
+  second.child.kill(); // not a clean stop
+  await within(second.exited, 10000);
+  assert.equal(clean(), false);
+
+  const third = startKeeper(s.root, port, s.programData, s.backupDir);
+  await waitUp(port);
+  assert.deepEqual(checks(), ['full', 'quick', 'full'], 'after a crash everything is checked again');
+  assert.equal(await shutdown(port), true);
+  await within(third.exited, 10000);
 }));
 
 test('keeper: an unwritable backup folder does not stop the keeper; health says backups are failing', () => run(async () => {
@@ -902,7 +934,7 @@ test('keeper: LR numbers run 1, 2, 3 with no gap and go on after a restart; 300 
   assert.equal(day.value.rows.length, 304);
   assert.equal(day.value.rows[0].lrNo, 304, 'newest first');
   assert.deepEqual([day.value.totals.count, day.value.totals.qty, day.value.totals.toPayPaise], [304, 912, 304 * 180000]);
-  assert.ok(took < 50, `listing 304 LRs took ${took} ms`);
+  assert.ok(took < 150, `listing 304 LRs took ${took} ms`);
   console.log(`# 300 LR saves: ${average.toFixed(1)} ms average; byDate(304 rows): ${took} ms`);
 
   const log = logOf(s);

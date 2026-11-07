@@ -206,10 +206,18 @@ function schemaV3(db: Db): void {
   db.exec('CREATE INDEX audit_by_at ON audit_log (at)');
 }
 
+// v4 (session 4.3): the Dashboard adds up every booked LR of any date (count, quantity, oldest date, stations, per station). On a 3-year book that is
+// ~23,000 LRs scattered over a 450 MB file, and reading their quantity from the rows cost ~250 ms a statement. A partial index holds only the booked LRs, and
+// holds everything those statements need, so they never touch the rows. An index only: no data changes.
+function schemaV4(db: Db): void {
+  db.exec("CREATE INDEX lrs_booked ON lrs (to_station_id, lr_date, qty) WHERE status = 'booked'");
+}
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, up: schemaV1 },
   { version: 2, up: schemaV2 },
   { version: 3, up: schemaV3 },
+  { version: 4, up: schemaV4 },
 ];
 
 /** The highest applied version; 0 for a file with no schema_version rows (e.g. a 1.2 database). */

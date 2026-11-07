@@ -26,6 +26,7 @@ test('an empty file reaches the latest version with every table and index', () =
   assert.deepEqual(names(db, 'index').filter((n) => !n.startsWith('sqlite_')).filter((n) => /^(lrs|memos|audit|wasuli)_/.test(n)), [
     'audit_by_at',
     'audit_by_entity',
+    'lrs_booked',
     'lrs_by_consignee',
     'lrs_by_consignor',
     'lrs_by_date',
@@ -38,6 +39,7 @@ test('an empty file reaches the latest version with every table and index', () =
   ]);
   const cols = (index: string) => (db.pragma(`index_info(${index})`) as { name: string }[]).map((c) => c.name);
   assert.deepEqual(cols('lrs_pending'), ['status', 'to_station_id', 'lr_date']);
+  assert.deepEqual(cols('lrs_booked'), ['to_station_id', 'lr_date', 'qty']);
   assert.deepEqual(cols('lrs_by_consignor'), ['consignor_id', 'lr_date']);
   assert.deepEqual(cols('memos_by_truck'), ['truck_id', 'memo_date']);
   assert.deepEqual(cols('wasuli_by_status'), ['status', 'agent_id', 'collected_date']);
@@ -162,6 +164,21 @@ test('v3 adds only an index: the audit log of a v2 file is exactly as it was, a 
   assert.equal(migrate(db), LATEST);
   assert.equal(names(db, 'index').filter((n) => n === 'audit_by_at').length, 1);
   assert.throws(() => db.prepare("UPDATE audit_log SET seat = 'x'").run(), /append-only/, 'the log is still append-only');
+});
+
+test('v4 adds only an index on the booked LRs: no row of a v3 file changes, and a second run changes nothing', () => {
+  const db = openDatabase(path.join(tempDir(), 'booking.db'));
+  assert.equal(migrate(db, MIGRATIONS.slice(0, 3)), 3);
+  insertLr(db, { status: 'booked' });
+  insertLr(db, { status: 'cancelled' });
+  const before = JSON.stringify(db.prepare('SELECT * FROM lrs ORDER BY id').all());
+  assert.ok(!names(db, 'index').includes('lrs_booked'));
+  assert.equal(migrate(db), LATEST);
+  assert.equal(JSON.stringify(db.prepare('SELECT * FROM lrs ORDER BY id').all()), before);
+  const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'lrs_booked'").get() as { sql: string }).sql;
+  assert.match(sql, /WHERE status = 'booked'/, 'a partial index: only booked LRs are in it');
+  assert.equal(migrate(db), LATEST);
+  assert.equal(names(db, 'index').filter((n) => n === 'lrs_booked').length, 1);
 });
 
 test('v2 from an empty v1 database makes empty tables', () => {

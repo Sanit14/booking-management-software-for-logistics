@@ -400,7 +400,7 @@ function bulkLrs(db: Db, firmIds: number[], count: number, from: number, to: num
   })();
 }
 
-test('speed: 3,000 firms and 20,000 LRs — the firm list and a big firm\'s statement each under 100 ms', () => {
+test('speed: 3,000 firms and 20,000 LRs — the firm list under 100 ms and a big firm\'s statement under 300 ms', () => {
   const s = setUp();
   const firms = makeFirmAccounts(now);
   const ids = bulkFirms(s.db, 3000);
@@ -422,13 +422,13 @@ test('speed: 3,000 firms and 20,000 LRs — the firm list and a big firm\'s stat
     assert.equal(page.rows.length, 100);
     assert.equal(page.totals.lrs, 20000);
   });
-  assert.ok(statement < 100, `statement ${statement.toFixed(1)} ms`);
+  assert.ok(statement < 300, `statement ${statement.toFixed(1)} ms`);
   const rest = fastest(3, () => {
     ok(firms.statementTop(s.db, q));
     ok(firms.kpis(s.db, q));
     ok(firms.months(s.db, big, 2026, 'both'));
   });
-  assert.ok(rest < 300, `top + kpis + months ${rest.toFixed(1)} ms`);
+  assert.ok(rest < 800, `top + kpis + months ${rest.toFixed(1)} ms`);
 });
 
 test('both sides page across page edges: every LR once (one with the firm on both sides too), by (date, number)', () => {

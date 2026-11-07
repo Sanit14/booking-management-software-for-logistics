@@ -1,7 +1,7 @@
 {
   "name": "booking-manager",
   "productName": "Booking Manager",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Booking Manager for Sundeep Freight Movers",
   "main": "dist-electron/electron/main.js",
@@ -17,7 +17,9 @@
     "check": "npm run typecheck && eslint . --max-warnings 0 && npm run clean:node && npm run build:node && cd dist-electron && node --test && cd .. && npm run test:db && npm run test:electron",
     "dist": "npm run clean:node && npm run build && electron-builder --publish never",
     "update:keygen": "node scripts/update-keygen.cjs",
-    "release": "node scripts/release.cjs"
+    "release": "node scripts/release.cjs",
+    "seed:load": "node scripts/seed-load.cjs",
+    "bench": "node scripts/bench.cjs"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1",

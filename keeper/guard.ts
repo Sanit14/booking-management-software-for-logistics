@@ -35,21 +35,55 @@ export function inspectBeforeOpen(programDirPath: string, root: string, dbPath: 
   return decideOpen(sizeOrNull(markerPath(programDirPath, root)) !== null, sizeOrNull(dbPath));
 }
 
+function readMarker(programDirPath: string, root: string): Record<string, unknown> {
+  try {
+    const v: unknown = JSON.parse(fs.readFileSync(markerPath(programDirPath, root), 'utf8'));
+    return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 // businessRows = LRs + memos + masters at the time of writing; it lets the guard spot a database that opens
-// fine but has been emptied or swapped for a blank one.
-export function writeMarker(programDirPath: string, root: string, dbPath: string, businessRows: number): void {
+// fine but has been emptied or swapped for a blank one. `clean` is true only in the marker written by a clean stop (the database closed and
+// checkpointed): the next start may then skip the full integrity check, which reads the whole file (16 s for 450 MB). It carries the size and
+// modified time of the file it vouches for, so a file replaced or cut while the app was off is not taken for it. Every other write says
+// "running" (false), so a crash, a power cut or a killed process leaves a marker that asks for the full check.
+export function writeMarker(programDirPath: string, root: string, dbPath: string, businessRows: number, clean = false): void {
   fs.mkdirSync(programDirPath, { recursive: true });
-  fs.writeFileSync(markerPath(programDirPath, root), JSON.stringify({ root, dbPath, at: new Date().toISOString(), businessRows }));
+  let file: fs.Stats | null = null;
+  if (clean) {
+    try {
+      file = fs.statSync(dbPath);
+    } catch {
+      /* no file to vouch for: not clean */
+    }
+  }
+  const stamp = file ? { dbSize: file.size, dbMtimeMs: file.mtimeMs } : {};
+  fs.writeFileSync(markerPath(programDirPath, root), JSON.stringify({ root, dbPath, at: new Date().toISOString(), businessRows, clean: file !== null, ...stamp }));
+}
+
+/** True only when the last thing that happened to this root was a clean stop AND the file is still the one it closed (no -wal beside it). No marker, an older marker (no flag) or an unreadable one: false. */
+export function readMarkerClean(programDirPath: string, root: string, dbPath: string): boolean {
+  const m = readMarker(programDirPath, root);
+  if (m.clean !== true) return false;
+  try {
+    const f = fs.statSync(dbPath);
+    return f.size === m.dbSize && f.mtimeMs === m.dbMtimeMs && !fs.existsSync(`${dbPath}-wal`);
+  } catch {
+    return false;
+  }
+}
+
+/** The database is about to be opened (or swapped): from here a crash must ask for the full check. Only rewrites a marker that exists, keeping its row count. */
+export function markRunning(programDirPath: string, root: string, dbPath: string): void {
+  if (fs.existsSync(markerPath(programDirPath, root))) writeMarker(programDirPath, root, dbPath, readMarkerRows(programDirPath, root));
 }
 
 /** Rows the marker says the database had; 0 for a marker from session 1.2 (no count) or one that cannot be read. */
 export function readMarkerRows(programDirPath: string, root: string): number {
-  try {
-    const n = (JSON.parse(fs.readFileSync(markerPath(programDirPath, root), 'utf8')) as { businessRows?: unknown }).businessRows;
-    return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
-  } catch {
-    return 0;
-  }
+  const n = readMarker(programDirPath, root).businessRows;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /** The database opened, but had records before and has none now: do not carry on as if nothing happened. */

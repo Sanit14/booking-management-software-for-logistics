@@ -1,5 +1,6 @@
 // Backups of booking.db: made with SQLite's online backup (safe while seats write), verified before they count,
 // and pruned by backupNames.pickToPrune. Needs better-sqlite3, so its tests are *.dbtest.ts.
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -31,11 +32,37 @@ export function readSummary(file: string): DbSummary | null {
   }
 }
 
-/** Throws unless the file opens read-only and passes `quick_check`; returns its business-row count. */
-export function verifyBackup(file: string): number {
-  const s = readSummary(file);
-  if (!s) throw new Error('the backup failed its integrity check');
-  return s.lrs + s.memos + s.masters;
+/**
+ * Rejects unless the file opens read-only and passes `quick_check`; resolves with its business-row count. The check reads the whole file (4 s for
+ * 450 MB), and the keeper has one thread: done here it stopped every save for that long, once an hour. So it runs in a process of its own
+ * (verifyChild.ts, started the way the keeper itself is: this executable as plain Node).
+ */
+export function verifyBackup(file: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(__dirname, 'verifyChild.js'), file], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    });
+    let out = '';
+    const hung = setTimeout(() => child.kill(), 15 * 60 * 1000); // a check that never ends (a locked file) must not hold the backup, and the stop behind it, for ever
+    child.stdout.on('data', (c: Buffer) => (out += c.toString('utf8')));
+    child.on('error', (e) => {
+      clearTimeout(hung);
+      reject(e);
+    });
+    child.on('close', (code) => {
+      clearTimeout(hung);
+      let s: DbSummary | null = null;
+      try {
+        s = code === 0 ? (JSON.parse(out) as DbSummary | null) : null;
+      } catch {
+        /* no summary = failed */
+      }
+      if (s) resolve(s.lrs + s.memos + s.masters);
+      else reject(new Error('the backup failed its integrity check'));
+    });
+  });
 }
 
 export interface MadeBackup {
@@ -48,7 +75,7 @@ export interface MadeBackup {
  * Writes `booking-YYYYMMDD-HHmm.db` into `dir`: to a temp name first, verified, then renamed, so a half-written
  * file never looks like a backup. A backup that fails is deleted and the error thrown. `dir` is created if needed.
  */
-export async function makeBackup(db: Db, dir: string, now = new Date(), verify = verifyBackup): Promise<MadeBackup> {
+export async function makeBackup(db: Db, dir: string, now = new Date(), verify: (file: string) => number | Promise<number> = verifyBackup): Promise<MadeBackup> {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, backupName(now));
   const tmp = `${file}.tmp`;
@@ -64,7 +91,7 @@ export async function makeBackup(db: Db, dir: string, now = new Date(), verify =
     } finally {
       copy.close();
     }
-    const rows = verify(tmp);
+    const rows = await verify(tmp);
     fs.renameSync(tmp, file);
     return { file, rows, bytes: fs.statSync(file).size };
   } catch (e) {

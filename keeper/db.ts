@@ -25,12 +25,15 @@ export function openDatabase(dbPath: string): Db {
  * Opens an existing file the way the keeper uses it, and checks it. `damaged` when SQLite says the file is not
  * a database (or corrupt) or `PRAGMA quick_check` is not `ok`; anything else (permissions, a locked file, no
  * WAL support) is thrown, because it says nothing about the data and must not be answered with a restore.
+ * `full` false (the last stop was clean): no `quick_check`, which reads the whole file; the header and the schema are still read.
  */
-export function openChecked(dbPath: string): { db: Db } | { damaged: string } {
+export function openChecked(dbPath: string, full = true): { db: Db } | { damaged: string } {
   let db: Db | undefined;
   try {
     db = openDatabase(dbPath);
-    const result = db.pragma('quick_check', { simple: true });
+    let result: unknown = 'ok';
+    if (full) result = db.pragma('quick_check', { simple: true });
+    else db.prepare('SELECT COUNT(*) FROM sqlite_master').get(); // the schema pages are read: a file that is not a database fails here
     if (result === 'ok') return { db };
     db.close();
     return { damaged: String(result) };
