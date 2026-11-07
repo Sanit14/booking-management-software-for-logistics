@@ -114,7 +114,8 @@ async function main() {
   let exited;
   // Starts the keeper; resolves with the ms until it reports ready, and (second number) until its first backup of the day is done.
   async function boot() {
-    child = spawn(exe, [path.join(APP, 'keeper', 'server.js'), dataDir, String(port)], { env, stdio: 'ignore', windowsHide: true });
+    // --test-hooks: the BM_* variable above (the bench's own backup folder) counts only with it. The OLD keepers (before 4.4) ignore the argument.
+    child = spawn(exe, [path.join(APP, 'keeper', 'server.js'), dataDir, String(port), '--test-hooks'], { env, stdio: 'ignore', windowsHide: true });
     exited = new Promise((r) => child.on('exit', r));
     const t = performance.now();
     let readyMs = 0;
@@ -251,11 +252,43 @@ async function main() {
     rows.push({ name: 'Saves while the full file is backed up (every save during the backup)', budget: 1000, ms: during.length ? during : [0] });
     extras.push({ name: 'Backup of the full file (export, verified)', value: `${(backupMs / 1000).toFixed(1)} s; ${during.length} saves went through meanwhile` });
 
-    // ---- the backup list opens every backup file (the Settings restore card, safe mode) ----
+    // ---- Settings -> Restore a backup...: while it lists, previews and restores, another client keeps saving LRs and pinging /health ----
+    // Every request must be ANSWERED within 1 s (a save in the short swap window may be answered "no database": answered is what counts, the
+    // keeper's thread must never be held). The saver and the pinger use this seat's own name, so they are not "another seat" for the restore.
+    async function whileBusy(what, fn) {
+      let done = false;
+      const saves = [];
+      const pings = [];
+      const saver = (async () => {
+        while (!done) {
+          const t = performance.now();
+          await call('/lrs/create', { input: lrInput() });
+          saves.push(performance.now() - t);
+        }
+      })();
+      const pinger = (async () => {
+        while (!done) {
+          const t = performance.now();
+          await request('GET', '/health');
+          pings.push(performance.now() - t);
+          await sleep(100);
+        }
+      })();
+      const t0 = performance.now();
+      let result;
+      try {
+        result = await fn();
+      } finally {
+        done = true;
+        await Promise.all([saver, pinger]);
+      }
+      rows.push({ name: `Saves while ${what}`, budget: 1000, ms: saves.length ? saves : [0] });
+      rows.push({ name: `Health pings while ${what}`, budget: 1000, ms: pings.length ? pings : [0] });
+      return { result, ms: performance.now() - t0 };
+    }
     const kept = fs.readdirSync(backupDir).filter((f) => /^booking-\d{8}-\d{4}\.db$/.test(f)).length;
-    const tList = performance.now();
-    await ok('/backups/list', {});
-    extras.push({ name: `Listing the backups (${kept} here; each is opened and checked, one after the other, on the keeper's thread)`, value: `${((performance.now() - tList) / 1000).toFixed(1)} s` });
+    const listed = await whileBusy('the backups are listed', () => ok('/backups/list', {}));
+    extras.push({ name: `Listing the backups (${kept} here; names, times and sizes only, nothing is opened)`, value: `${listed.ms.toFixed(0)} ms` });
 
     // ---- WAL ----
     const wal = path.join(dataDir, 'booking.db-wal');
@@ -266,12 +299,14 @@ async function main() {
     if (names.length === 0) {
       extras.push({ name: 'Restore of the full file', value: 'not run (no backup in the backup folder)' });
     } else {
-      const tRestore = performance.now();
-      const preview = await ok('/restore/preview', { file: names[0] });
-      const previewMs = performance.now() - tRestore;
-      const applied = await call('/restore/apply', { file: names[0], confirmToken: preview.token, adminPin: ADMIN_PIN });
-      const restoreMs = performance.now() - tRestore;
-      extras.push({ name: 'Restore of the full file (compare + fresh backup + swap)', value: applied.ok ? `${(restoreMs / 1000).toFixed(1)} s (the compare alone ${(previewMs / 1000).toFixed(1)} s)` : `refused: ${applied.code}` });
+      const previewed = await whileBusy('a backup is previewed', () => ok('/restore/preview', { file: names[0] }));
+      const applied = await whileBusy('a restore runs (check, fresh backup, swap)', () =>
+        call('/restore/apply', { file: names[0], confirmToken: previewed.result.token, adminPin: ADMIN_PIN }),
+      );
+      extras.push({
+        name: 'Restore of the full file (compare, then check + fresh backup + swap)',
+        value: applied.result.ok ? `${((previewed.ms + applied.ms) / 1000).toFixed(1)} s (the compare alone ${(previewed.ms / 1000).toFixed(1)} s)` : `refused: ${applied.result.code}`,
+      });
     }
 
     // ---- clean stop ----

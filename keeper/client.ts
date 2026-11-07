@@ -55,10 +55,18 @@ export async function probe(port: number, opts: ClientOptions = {}): Promise<Pro
   return { kind: 'foreign' };
 }
 
-/** Ask a keeper to checkpoint, close the database and exit. True if it acknowledged. */
+/**
+ * How long a stop is waited for. The keeper answers /shutdown only when it has made its last backup and closed the database: 7-16 s on a
+ * 3-year book, more on a slow disk. Nothing ever kills a keeper that is still writing; the caller gives up and says so.
+ */
+export const KEEPER_STOP_WAIT_MS = 60000;
+/** How long the screen's calls that work on whole files (restore, export, a new backup folder, the update's backup) are waited for. */
+export const LONG_CALL_MS = 10 * 60 * 1000;
+
+/** Ask a keeper to checkpoint, close the database and exit. True if it acknowledged (after its final backup, so this waits for it). */
 export async function shutdown(port: number, opts: ClientOptions = {}): Promise<boolean> {
   try {
-    return (await request(port, 'POST', '/shutdown', opts)).status === 200;
+    return (await request(port, 'POST', '/shutdown', { timeoutMs: KEEPER_STOP_WAIT_MS, ...opts })).status === 200;
   } catch {
     return false;
   }

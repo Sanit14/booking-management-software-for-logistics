@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 18;
+export const KEEPER_VERSION = 19;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -49,13 +49,11 @@ export interface DbSummary {
   lastNumbers: { name: 'lr' | 'challan'; year: number; last: number }[];
 }
 
+/** A backup in the list: its name, time and size, nothing opened (the check, and what is inside, come with the restore preview). */
 export interface BackupInfo {
   file: string; // name inside the backup folder
   at: string; // ISO, from the name
   sizeBytes: number;
-  /** Failed `quick_check` or could not be opened: listed, but cannot be chosen. */
-  damaged: boolean;
-  summary?: DbSummary;
 }
 
 export type RestoreRefusal =
@@ -1298,7 +1296,8 @@ export type AdminRefusal =
   | 'seat-name-taken' // another seat has it (seen in the last 30 days); detail: the name
   | 'seat-name-same' // already this seat's name
   | 'restore-others-online' // detail: who has the app open
-  | 'restore-backup-failed'; // the backup taken first could not be written, so nothing was restored; detail: why
+  | 'restore-backup-failed' // the backup taken first could not be written, so nothing was restored; detail: why
+  | 'restore-busy'; // another restore is running
 
 export type ResultCode = RestoreRefusal | PinRefusal | AdminRefusal | MasterRefusal | LrRefusal | MemoRefusal | PrintRefusal | WasuliRefusal | 'no-database' | 'cancelled' | 'failed' | 'keeper-unreachable';
 /**

@@ -9,6 +9,9 @@ release/
 *.log
 .env
 .env.*
+*.pem
+*.key
+BookingManagerKeys/
 .claude/hooks/.stop-rounds.json
 .claude/settings.local.json
 .claude/worktrees/

@@ -13,6 +13,9 @@ export function openDatabase(dbPath: string): Db {
     // WAL does not work on every filesystem (some network shares); better to refuse than to run unsafe.
     const mode = db.pragma('journal_mode = WAL', { simple: true });
     if (mode !== 'wal') throw new Error(`cannot use WAL journal mode here (got ${String(mode)})`);
+    // better-sqlite3 compiles WAL in at synchronous=NORMAL, which a REOPENED file gets: a commit is then not on disk when the save is answered, so a power cut
+    // can take back the last saves and the counter with them (an LR number issued twice). FULL costs one fsync per commit; the bench's save budget is 150 ms.
+    db.pragma('synchronous = FULL');
     db.pragma('foreign_keys = ON');
   } catch (e) {
     db.close();

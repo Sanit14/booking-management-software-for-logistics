@@ -34,6 +34,8 @@ interface Draft {
   to: Box;
   hire: string;
   hamali: string;
+  /** The memo version Edit started from: a save from an older one is refused by the keeper (`memo-stale`), never written over another seat's change. */
+  base: number;
 }
 const plain = (paise: number): string => (paise / 100).toFixed(2).replace(/\.00$/, '');
 const draftOf = (m: MemoDetail): Draft => ({
@@ -44,6 +46,7 @@ const draftOf = (m: MemoDetail): Draft => ({
   to: { text: m.toStation, id: m.toStationId },
   hire: plain(m.truckHirePaise),
   hamali: plain(m.loadingHamaliPaise),
+  base: m.version,
 });
 
 function Totals({ v }: { v: MemoTotals }) {
@@ -186,7 +189,7 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
   const editHeader = async (pin: string) =>
     attempt(
       pin,
-      (p) => window.bm.keeper.memos.editHeader(memo.id, memo.version, headerOf(draft as Draft) as MemoHeaderInput, p),
+      (p) => window.bm.keeper.memos.editHeader(memo.id, (draft as Draft).base, headerOf(draft as Draft) as MemoHeaderInput, p),
       (r) => (r.changed ? toast.success(t.edited(memo.challanNo)) : toast.info(t.editedNothing)),
     );
 

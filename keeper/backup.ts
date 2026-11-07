@@ -33,11 +33,11 @@ export function readSummary(file: string): DbSummary | null {
 }
 
 /**
- * Rejects unless the file opens read-only and passes `quick_check`; resolves with its business-row count. The check reads the whole file (4 s for
- * 450 MB), and the keeper has one thread: done here it stopped every save for that long, once an hour. So it runs in a process of its own
- * (verifyChild.ts, started the way the keeper itself is: this executable as plain Node).
+ * What is in a database file, null when it cannot be opened or fails `quick_check` (readSummary, in a process of its own). The check reads the
+ * whole file (4 s for 450 MB, 16 s cold), and the keeper has one thread: done here it stopped every save for that long. So it runs in
+ * verifyChild.ts, started the way the keeper itself is (this executable as plain Node). Rejects only when the process cannot be started.
  */
-export function verifyBackup(file: string): Promise<number> {
+export function summarizeInChild(file: string): Promise<DbSummary | null> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(__dirname, 'verifyChild.js'), file], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -53,17 +53,24 @@ export function verifyBackup(file: string): Promise<number> {
     });
     child.on('close', (code) => {
       clearTimeout(hung);
-      let s: DbSummary | null = null;
       try {
-        s = code === 0 ? (JSON.parse(out) as DbSummary | null) : null;
+        resolve(code === 0 ? (JSON.parse(out) as DbSummary | null) : null);
       } catch {
-        /* no summary = failed */
+        resolve(null); // no summary = failed
       }
-      if (s) resolve(s.lrs + s.memos + s.masters);
-      else reject(new Error('the backup failed its integrity check'));
     });
   });
 }
+
+/** Rejects unless the file opens read-only and passes `quick_check`; resolves with its business-row count. */
+export async function verifyBackup(file: string): Promise<number> {
+  const s = await summarizeInChild(file);
+  if (!s) throw new Error('the backup failed its integrity check');
+  return s.lrs + s.memos + s.masters;
+}
+
+/** Deletes a database file and any -wal / -shm / -journal a read of it may have left beside it. */
+export const removeWithSidecars = (file: string): void => ['', '-wal', '-shm', '-journal'].forEach((suffix) => fs.rmSync(file + suffix, { force: true }));
 
 export interface MadeBackup {
   file: string;
@@ -79,7 +86,7 @@ export async function makeBackup(db: Db, dir: string, now = new Date(), verify: 
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, backupName(now));
   const tmp = `${file}.tmp`;
-  const dropTmp = () => ['', '-wal', '-shm', '-journal'].forEach((suffix) => fs.rmSync(tmp + suffix, { force: true }));
+  const dropTmp = () => removeWithSidecars(tmp);
   dropTmp(); // left behind by a crash
   try {
     await db.backup(tmp);
@@ -115,15 +122,12 @@ export function backupFiles(dir: string): { file: string; at: Date }[] {
     .sort((a, b) => b.at.getTime() - a.at.getTime());
 }
 
-/** Backups in `dir`, newest first, each opened read-only for its summary. */
+/**
+ * Backups in `dir`, newest first: name, time and size. Nothing is opened: a check of every backup ran on the keeper's thread (16 s for one
+ * 450 MB file), so the check comes with the restore preview, in a process of its own.
+ */
 export function listBackups(dir: string): BackupInfo[] {
-  return backupFiles(dir).map(({ file, at }) => {
-    const full = path.join(dir, file);
-    const summary = readSummary(full);
-    const info: BackupInfo = { file, at: at.toISOString(), sizeBytes: fs.statSync(full).size, damaged: summary === null };
-    if (summary) info.summary = summary;
-    return info;
-  });
+  return backupFiles(dir).map(({ file, at }) => ({ file, at: at.toISOString(), sizeBytes: fs.statSync(path.join(dir, file)).size }));
 }
 
 /** Deletes the backups the retention rule drops. Returns their names. */

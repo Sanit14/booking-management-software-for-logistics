@@ -11,10 +11,11 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { callJson, probe, shutdown, subscribeEvents } from './client';
-import { backupName } from './backupNames';
+import { backupName, beforeRestoreName } from './backupNames';
 import { markerPath } from './guard';
 import { MIGRATIONS } from './migrations';
 import { ROUTES } from './routes';
+import { TEST_HOOKS_ARG } from './testHooks';
 import { CHANGE_TABLES, type KeeperChange, type KeeperHealth } from '../shared';
 
 const electronExe: string = createRequire(__filename)('electron') as unknown as string;
@@ -47,7 +48,7 @@ interface Running {
 }
 
 function startKeeper(root: string, port: number, programData: string, backupDir: string, extraEnv: Record<string, string> = {}): Running {
-  const child = spawn(electronExe, [serverJs, root, String(port)], {
+  const child = spawn(electronExe, [serverJs, root, String(port), TEST_HOOKS_ARG], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PROGRAMDATA: programData, BM_BACKUP_DIR: backupDir, ...extraEnv },
     stdio: 'ignore',
     windowsHide: true,
@@ -203,7 +204,7 @@ test('leaks: a PIN counts only as a whole value; a port, process id or time that
 });
 const backupsIn = (dir: string) => fs.readdirSync(dir).filter((n) => /^booking-\d{8}-\d{4}\.db$/.test(n));
 const beforeRestoreIn = (dir: string) => fs.readdirSync(dir).filter((n) => n.startsWith('booking-before-restore-'));
-type Listing = { ok: true; value: { file: string; damaged: boolean }[] };
+type Listing = { ok: true; value: { file: string }[] };
 
 /** Start a keeper, wait until it is ready (its first backup is taken on the way), stop it cleanly. */
 async function firstRun(s: ReturnType<typeof sandbox>, port: number): Promise<void> {
@@ -228,7 +229,7 @@ test('keeper: the first backup of the day is made on start, shows in health and 
 
   const list = (await post(port, '/backups/list', {})).json as Listing;
   assert.equal(list.ok, true);
-  assert.deepEqual(list.value.map((b) => b.damaged), [false]);
+  assert.deepEqual(list.value.map((b) => Object.keys(b).sort()), [['at', 'file', 'sizeBytes']], 'the list names the backups and opens none');
 
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
@@ -297,7 +298,6 @@ test('keeper: deleted database = safe mode -> list, preview, restore -> ready ag
   const list = (await post(port, '/backups/list', {})).json as Listing;
   assert.equal(list.ok, true);
   const file = list.value[0].file;
-  assert.equal(list.value[0].damaged, false);
 
   const preview = (await post(port, '/restore/preview', { file })).json as { ok: true; value: { token: string; live: string; backup: { schemaVersion: number } } };
   assert.equal(preview.ok, true);
@@ -482,11 +482,15 @@ test('keeper: restore while the app runs, alone: a fresh backup first, the old d
     const kept = beforeRestoreIn(s.backupDir);
     assert.equal(kept.length, 1, 'the database as it was is kept');
     assert.equal(row?.facts.savedAs, kept[0]);
-    const listing = ((await post(port, '/backups/list', {})).json as { value: { file: string; summary?: { lrs: number } }[] }).value;
-    assert.ok(listing.some((b) => b.file !== file && b.summary?.lrs === 3), 'a verified backup of the three-LR database was made first');
-    assert.ok(listing.some((b) => b.file === file && b.summary?.lrs === 1), 'the backup it was restored from is untouched');
-    await until('the restore event', () => a.got.length > seenBefore);
-    assert.deepEqual([...(a.got[a.got.length - 1]?.tables ?? [])].sort(), [...ALL].sort(), 'every view refetches');
+    const listing = ((await post(port, '/backups/list', {})).json as Listing).value;
+    // What a backup holds comes with its preview now (the list opens none); an empty one is refused as a restore over records, so it counts as -1.
+    const lrsIn = async (name: string) => ((await asSeat1(port, '/restore/preview', { file: name })).json as { value?: { backup?: { lrs: number } } }).value?.backup?.lrs ?? -1;
+    const counts = await Promise.all(listing.filter((b) => b.file !== file).map((b) => lrsIn(b.file)));
+    assert.ok(counts.includes(3), 'a verified backup of the three-LR database was made first');
+    assert.equal(await lrsIn(file), 1, 'the backup it was restored from is untouched');
+    // The backup made after the restore announces itself too (a `settings` change), so it is not the last event that must say "everything".
+    const everything = (c: KeeperChange) => [...c.tables].sort().join() === [...ALL].sort().join();
+    await until('the restore event', () => a.got.slice(seenBefore).some(everything));
 
     // The keeper goes on: a new LR is saved and numbered after the restored ones.
     assert.equal((await lrCall(port, '/lrs/create', { input: input() })).value.row.lrNo, 2);
@@ -496,6 +500,33 @@ test('keeper: restore while the app runs, alone: a fresh backup first, the old d
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
   assert.match(logOf(s), /\trestore-applied\t/);
+}));
+
+test('keeper: a restore that fails after its checks leaves the book open and ready (not stuck on starting), no checked copy beside it, and the next restore can start', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir);
+  assert.equal((await waitUp(port)).state, 'ready');
+  const { input } = await seed(port);
+  await lrCall(port, '/lrs/create', { input: input() });
+  const file = path.basename(((await post(port, '/backups/export', { dir: s.backupDir })).json as { value: { file: string } }).value.file);
+  await lrCall(port, '/lrs/create', { input: input() });
+  const preview = async () => (await asSeat1(port, '/restore/preview', { file })).json as { ok: boolean; value: { token: string } };
+  const p = await preview();
+  assert.equal(p.ok, true);
+
+  // The old database cannot be set aside (a folder holds every name it could get in the next two minutes): the swap fails after the checks, with the book closed.
+  for (let i = -2; i <= 120; i++) fs.mkdirSync(path.join(s.backupDir, beforeRestoreName(new Date(Date.now() + i * 1000))), { recursive: true });
+  const failed = (await callJson(port, 'POST', '/restore/apply', { file, confirmToken: p.value.token, adminPin: '4831' }, { seat: 'counter-1', timeoutMs: 60000 })).json as { ok: boolean; code: string };
+  assert.deepEqual([failed.ok, failed.code], [false, 'failed']);
+  assert.equal((await waitUp(port)).state, 'ready', 'the book is open again');
+  assert.equal(await lrCount(port), 2, 'nothing was restored');
+  assert.equal(fs.existsSync(`${s.dbPath}.restoring`), false, 'no checked copy is left beside the live file');
+  assert.equal((await preview()).ok, true, 'the next restore can start: nothing is left marked as running');
+  assert.match(logOf(s), /\trestore-failed\t/);
+
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
 }));
 
 test('keeper: a new backup folder - the Admin PIN, a verified backup made there first, then the setting; a folder on the data\'s drive asks twice; an unusable folder changes nothing', () => run(async () => {

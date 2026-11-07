@@ -7,6 +7,15 @@ import { businessRows, openChecked, openDatabase, raiseMarker } from './db';
 import { markerPath, readMarkerRows } from './guard';
 import { freshDb, insertLr, insertStation, tempDir } from './testing';
 
+test('a commit is on disk before the save is answered: synchronous is FULL (better-sqlite3 compiles WAL in at NORMAL, and a file that is REOPENED - every keeper start after the first - gets it: the last saves, and so a number, can be lost in a power cut)', () => {
+  const file = path.join(tempDir(), 'sync.db');
+  openDatabase(file).close(); // created
+  const db = openDatabase(file); // reopened, as the keeper does at every start
+  assert.equal(db.pragma('journal_mode', { simple: true }), 'wal');
+  assert.equal(db.pragma('synchronous', { simple: true }), 2, '2 = FULL, 1 = NORMAL');
+  db.close();
+});
+
 test('businessRows counts LRs, memos and masters, and counts an old schema as 0', () => {
   const db = freshDb();
   assert.equal(businessRows(db), 0);

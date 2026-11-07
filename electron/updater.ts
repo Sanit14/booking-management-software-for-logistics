@@ -15,7 +15,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { KEEPER_PORT, type KeeperHealth, type UpdateInstallResult, type UpdateState } from '../shared';
-import { shutdown } from '../keeper/client';
+import { KEEPER_STOP_WAIT_MS, LONG_CALL_MS, shutdown } from '../keeper/client';
 import { makeLog } from '../keeper/log';
 import { programDir } from '../keeper/paths';
 import { strings } from '../src/strings';
@@ -216,8 +216,8 @@ export function initUpdater(keeper: KeeperBridge): void {
   }
 
   async function stopKeeper(pid: number): Promise<void> {
-    await shutdown(KEEPER_PORT, { seat: keeper.seat, timeoutMs: 10000 }); // writes its backup and checkpoint, then exits
-    const deadline = Date.now() + 10000;
+    await shutdown(KEEPER_PORT, { seat: keeper.seat }); // answers after its last backup and checkpoint (7-16 s on a big book), then exits
+    const deadline = Date.now() + KEEPER_STOP_WAIT_MS; // a keeper that did not answer may still be writing: wait for it, never kill it
     while (Date.now() < deadline) {
       if (!pidAlive(pid)) return say('keeper-exited', pid);
       await sleep(250);
@@ -250,7 +250,7 @@ export function initUpdater(keeper: KeeperBridge): void {
       await assertInstallerUnchanged();
       const health = await assertNobodyElse();
       mark(1);
-      const backup = await keeper.call<{ file: string }>('POST', '/backups/export', { dir: health.backupDir });
+      const backup = await keeper.call<{ file: string }>('POST', '/backups/export', { dir: health.backupDir }, LONG_CALL_MS);
       if (!backup.ok) throw new UpdateError(p.backupFailed(strings.result(backup.code, backup.detail)));
       say('backup-ok', backup.value.file);
       // The book says who started an update, and from which version to which (the keeper checks the PIN again).

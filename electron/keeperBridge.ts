@@ -3,7 +3,7 @@
 // gets an error code and nothing else happens.
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import {
   KEEPER_PORT,
   KEEPER_VERSION,
@@ -62,7 +62,8 @@ import {
   type WasuliRow,
 } from '../shared';
 import { strings } from '../src/strings';
-import { callJson, probe, shutdown, subscribeEvents } from '../keeper/client';
+import { callJson, LONG_CALL_MS, probe, shutdown, subscribeEvents } from '../keeper/client';
+import { TEST_HOOKS_ARG } from '../keeper/testHooks';
 import { checkDataRoot, resolveDataRoot } from '../keeper/dataRoot';
 import { makeLog } from '../keeper/log';
 import { logPath, pointerPath, programDir } from '../keeper/paths';
@@ -73,7 +74,6 @@ import { KEEPER_PING_MS, keeperAction } from './watchdog';
 // A big database is checked (and backed up) before the keeper says ready; the loop still gives up at once if the keeper it started dies.
 const START_WAIT_MS = 60000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 class LauncherError extends Error {
   constructor(readonly code: KeeperErrorCode, readonly detail = '', readonly refusal?: RootRefusal) {
     super(code);
@@ -84,7 +84,7 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
   const pd = programDir();
   let dataRoot: string;
   try {
-    dataRoot = resolveDataRoot(process.env, pointerPath(pd));
+    dataRoot = resolveDataRoot(app.isPackaged ? {} : process.env, pointerPath(pd)); // BM_DATA_ROOT is a dev/test hook: the installed app ignores it
   } catch {
     throw new LauncherError('root-pointer-unreadable', pointerPath(pd));
   }
@@ -110,11 +110,15 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
   const spawned: { exitCode?: number } = {};
   if (keeperAction(p, KEEPER_VERSION) === 'start') {
     // Several seats may get here at once; the keeper takes the port before the database, so only one survives.
-    const child = spawn(process.execPath, [path.join(__dirname, '..', 'keeper', 'server.js'), dataRoot, String(KEEPER_PORT)], {
+    // The keeper serves every seat but starts with the environment of whoever opened the app first: no NODE_OPTIONS (it would load code into the shared
+    // process), and the BM_* test hooks only in a dev run (--test-hooks; the installed app never passes it).
+    const env: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+    for (const k of Object.keys(env)) if (k.toUpperCase() === 'NODE_OPTIONS') delete env[k]; // Windows keeps the spelling it was set with
+    const child = spawn(process.execPath, [path.join(__dirname, '..', 'keeper', 'server.js'), dataRoot, String(KEEPER_PORT), ...(app.isPackaged ? [] : [TEST_HOOKS_ARG])], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      env,
     });
     child.unref(); // the keeper outlives this seat and serves the others
     child.on('exit', (code) => (spawned.exitCode = code ?? -1));
@@ -176,9 +180,9 @@ export function initKeeperBridge(userDataDir: string) {
   };
 
   // A named keeper route, answered with the keeper's own KeeperResult. Only the handlers below call it.
-  const call = async <T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<KeeperResult<T>> => {
+  const call = async <T>(method: 'GET' | 'POST', url: string, body?: unknown, timeoutMs = 60000): Promise<KeeperResult<T>> => {
     try {
-      const r = await callJson(KEEPER_PORT, method, url, body, { seat, timeoutMs: 60000 }); // a backup of a big file takes a while
+      const r = await callJson(KEEPER_PORT, method, url, body, { seat, timeoutMs });
       const j = r.json as { ok?: unknown } | null;
       if (j && typeof j.ok === 'boolean') return j as KeeperResult<T>;
       return { ok: false, code: 'failed', detail: `the keeper answered ${r.status}` };
@@ -197,7 +201,7 @@ export function initKeeperBridge(userDataDir: string) {
     const win = BrowserWindow.getFocusedWindow();
     const chosen = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (chosen.canceled || chosen.filePaths.length === 0) return { ok: false, code: 'cancelled' };
-    return call('POST', '/backups/export', { dir: chosen.filePaths[0] });
+    return call('POST', '/backups/export', { dir: chosen.filePaths[0] }, LONG_CALL_MS);
   });
   // A new backup folder (4.2): the Admin PIN is checked first, so a wrong one shakes before any folder is asked for; then the folder; then the keeper
   // makes a backup there and, only if that worked, switches. A folder the keeper refused as "the data's own drive" is remembered, so the screen's
@@ -216,7 +220,7 @@ export function initKeeperBridge(userDataDir: string) {
       if (chosen.canceled || chosen.filePaths.length === 0) return { ok: false, code: 'cancelled' };
       dir = chosen.filePaths[0];
     }
-    const r = await call<{ dir: string; file: string }>('POST', '/settings/set-backup-dir', { dir, adminPin, confirmSameDrive: confirmSameDrive === true });
+    const r = await call<{ dir: string; file: string }>('POST', '/settings/set-backup-dir', { dir, adminPin, confirmSameDrive: confirmSameDrive === true }, LONG_CALL_MS);
     if (!r.ok && r.code === 'backup-dir-same-drive') refusedFolder = dir;
     return r;
   });
@@ -232,7 +236,8 @@ export function initKeeperBridge(userDataDir: string) {
     }
     return r;
   });
-  ipcMain.handle('keeper:restore-preview', (_e, file: unknown) => call<RestorePreview>('POST', '/restore/preview', { file: text(file) }));
+  // A restore checks and copies whole files and makes a backup first: a minute on a big book, several on a slow disk (the keeper keeps answering meanwhile).
+  ipcMain.handle('keeper:restore-preview', (_e, file: unknown) => call<RestorePreview>('POST', '/restore/preview', { file: text(file) }, LONG_CALL_MS));
   ipcMain.handle('keeper:restore-apply', async (_e, file: unknown, token: unknown, pin: unknown): Promise<KeeperResult<{ schemaVersion: number }>> => {
     // While the app runs nobody else may have it open: the keeper knows the seats that are pinging, Windows knows every session (a hung app,
     // two seats under one Windows user). In safe mode no one else can be working, and there is no PIN.
@@ -245,7 +250,7 @@ export function initKeeperBridge(userDataDir: string) {
         return { ok: false, code: 'failed', detail: strings.update.problem.scanFailed };
       }
     }
-    return call<{ schemaVersion: number }>('POST', '/restore/apply', { file: text(file), confirmToken: text(token), adminPin: text(pin) });
+    return call<{ schemaVersion: number }>('POST', '/restore/apply', { file: text(file), confirmToken: text(token), adminPin: text(pin) }, LONG_CALL_MS);
   });
   ipcMain.handle('keeper:pins-setup', (_e, admin: unknown, system: unknown) =>
     call<{ recoveryCode: string }>('POST', '/pins/setup', { adminPin: text(admin), systemPin: text(system) }),

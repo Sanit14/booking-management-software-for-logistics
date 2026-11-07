@@ -33,6 +33,7 @@ export default function BackupPicker({ onRestore }: { onRestore: (preview: Resto
   const [list, setList] = useState<KeeperResult<BackupInfo[]> | null>(null);
   const [preview, setPreview] = useState<KeeperResult<RestorePreview> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false); // the keeper is checking the chosen backup (seconds on a big book)
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,6 +42,7 @@ export default function BackupPicker({ onRestore }: { onRestore: (preview: Resto
 
   const choose = (file: string) => {
     setBusy(true);
+    setChecking(true);
     setProblem(null);
     void window.bm.keeper.restore
       .preview(file)
@@ -48,7 +50,10 @@ export default function BackupPicker({ onRestore }: { onRestore: (preview: Resto
         setPreview(r);
         if (!r.ok) setProblem(strings.result(r.code, r.detail));
       })
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        setChecking(false);
+      });
   };
 
   const restore = () => {
@@ -64,21 +69,12 @@ export default function BackupPicker({ onRestore }: { onRestore: (preview: Resto
   const columns: Column<BackupInfo>[] = [
     { key: 'made', header: t.columns.made, width: 170, render: (b) => t.time(b.at) },
     { key: 'size', header: t.columns.size, num: true, width: 80, render: (b) => t.kb(b.sizeBytes) },
-    { key: 'lrs', header: t.columns.lrs, num: true, width: 70, render: (b) => b.summary?.lrs ?? '' },
-    { key: 'memos', header: t.columns.memos, num: true, width: 80, render: (b) => b.summary?.memos ?? '' },
-    { key: 'masters', header: t.columns.masters, num: true, width: 90, render: (b) => b.summary?.masters ?? '' },
-    { key: 'newest', header: t.columns.newestLr, width: 120, render: (b) => b.summary?.newestLrDate ?? '' },
-    {
-      key: 'status',
-      header: t.columns.status,
-      render: (b) => <span className={b.damaged ? styles.damaged : undefined}>{b.damaged ? t.status.damaged : t.status.ok}</span>,
-    },
     {
       key: 'choose',
       header: '',
       width: 110,
       render: (b) => (
-        <Button variant="outline" small disabled={b.damaged || busy} onClick={() => choose(b.file)}>
+        <Button variant="outline" small disabled={busy} onClick={() => choose(b.file)}>
           {t.choose}
         </Button>
       ),
@@ -104,6 +100,7 @@ export default function BackupPicker({ onRestore }: { onRestore: (preview: Resto
         </Card>
       )}
 
+      {checking && <p className={styles.note}>{t.checking}</p>}
       {chosen && (
         <Card title={t.previewTitle}>
           <div className={styles.compare}>

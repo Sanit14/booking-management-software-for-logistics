@@ -92,7 +92,7 @@ function seed(o) {
   fs.mkdirSync(root, { recursive: true });
   const db = openDatabase(path.join(root, 'booking.db'));
   migrate(db);
-  db.pragma('synchronous = OFF'); // this connection only: the bench measures the real keeper, which keeps the default
+  db.pragma('synchronous = OFF'); // this connection only: the bench measures the real keeper, which runs at synchronous=FULL (keeper/db.ts)
   const triggers = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'audit_log'").all();
   const dropTriggers = () => db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'audit_log'").all().forEach((t) => db.exec(`DROP TRIGGER ${t.name}`));
   dropTriggers();

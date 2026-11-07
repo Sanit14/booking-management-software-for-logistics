@@ -6,7 +6,7 @@ import { loadKeys, saveKeys } from './seatKeys';
 import { initUpdater } from './updater';
 
 const DEV_URL = 'http://127.0.0.1:5173'; // same host and port as vite.config.ts
-const dev = process.argv.includes('--dev'); // `npm run dev` passes it; without it the built dist/ is loaded
+const dev = !app.isPackaged && process.argv.includes('--dev'); // `npm run dev` passes it; without it the built dist/ is loaded. The installed app never loads a dev server
 
 app.setAppUserModelId('com.sundeepfreight.bookingmanager');
 

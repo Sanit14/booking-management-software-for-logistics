@@ -49,12 +49,13 @@ import { makeMemos } from './memos';
 import { MIGRATIONS, migrate } from './migrations';
 import { DEFAULT_BACKUP_DIR, logPath, programDir } from './paths';
 import { ROUTES } from './routes';
+import { testHook } from './testHooks';
 import type { LockKind } from './lockout';
 import { makePins } from './pins';
 import { asPrintDone, makePrint } from './print';
 import { makeReports } from './reports';
 import { asLrsRequest, asPartySide, asReportCursor, asReportKind, asReportLrCursor, asReportQuery } from './reportRules';
-import { makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
+import { dropStaged, makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
 import { search } from './search';
 import { makeSeats } from './seats';
 import { makeWasuli } from './wasuli';
@@ -62,7 +63,8 @@ import { asCollectInput, asPeriod, asSeen, asSeenList, asWasuliCursor, asWasuliF
 
 const HOST = '127.0.0.1';
 // BM_MARKER_REFRESH_MS: tests only, so the marker's rise can be seen without waiting five minutes.
-const MARKER_REFRESH_MS = Math.max(100, Number(process.env.BM_MARKER_REFRESH_MS) || 5 * 60 * 1000);
+const hook = (name: string): string | undefined => testHook(process.argv, process.env, name); // BM_* variables count only with --test-hooks (testHooks.ts)
+const MARKER_REFRESH_MS = Math.max(100, Number(hook('BM_MARKER_REFRESH_MS')) || 5 * 60 * 1000);
 const MASTER_KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers', 'agents'];
 const BACKUP_EVERY_MS = 60 * 60 * 1000;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -98,14 +100,14 @@ function main(): void {
   let db: Db | null = null;
   let markedRows = 0;
   // BM_BACKUP_DIR: dev and tests. Otherwise settings.backupDir once the database is open, else the default.
-  const backupDirFromEnv = process.env.BM_BACKUP_DIR;
+  const backupDirFromEnv = hook('BM_BACKUP_DIR');
   let backupDir = backupDirFromEnv || DEFAULT_BACKUP_DIR;
   const backup: BackupStatus = {};
   let backingUp: Promise<void> | null = null;
   const tokens = makeTokens();
   // BM_PIN_LOCK_MS: tests only (how long a locked PIN stays locked), like BM_MARKER_REFRESH_MS.
   const lockouts: LockKind[] = [];
-  const pins = makePins(Date.now, (kind) => lockouts.push(kind), Math.max(100, Number(process.env.BM_PIN_LOCK_MS)) || undefined);
+  const pins = makePins(Date.now, (kind) => lockouts.push(kind), Math.max(100, Number(hook('BM_PIN_LOCK_MS'))) || undefined);
   const masters = makeMasters(pins);
   const lrs = makeLrs(pins, masters);
   const memos = makeMemos(pins);
@@ -120,6 +122,7 @@ function main(): void {
   const seats = makeSeats();
   let stopping: Promise<number> | null = null;
   let timersStarted = false;
+  let restoring = false; // a restore is running (checking, copying, swapping): a second one is refused
 
   // One backup at a time (two would write the same file name). Never throws: a failure is logged and shown in
   // the status line, and the keeper carries on.
@@ -249,6 +252,8 @@ function main(): void {
   // /shutdown must not cut a backup short). Failures are logged and turn the exit code to 1, never swallowed.
   function stop(why: string, finish: (code: number) => void = (code) => process.exit(code)): void {
     stopping ??= (async () => {
+      // A restore that has closed the book is in its swap: let it end (it refuses to go on once `stopping` is set) before anything is closed or the process exits.
+      while (restoring) await new Promise((r) => setTimeout(r, 100));
       let code = 0;
       const failed = (what: string) => (e: unknown) => {
         code = 1;
@@ -329,15 +334,17 @@ function main(): void {
     });
   }
 
-  // Restoring a backup over booking.db (1.4 in safe mode, 4.2 also while the app runs). The file swap is synchronous from the first file
-  // operation to the end: no request is answered between the old file going and the new one being open. The caller has closed its own
+  // Restoring a backup over booking.db (1.4 in safe mode, 4.2 also while the app runs). The copies are asynchronous (thread pool) and the book is closed
+  // meanwhile: health says 'starting', every route that needs the book answers no-database, and stop() waits for the swap. The caller has closed its own
   // handle (a keeper in safe mode has none). Opening the restored file, migrating it and starting the services is the same in both.
-  function swapIn(file: string, seat: string, whileRunning: boolean): KeeperResult<{ schemaVersion: number }> {
+  async function swapIn(file: string, seat: string, whileRunning: boolean): Promise<KeeperResult<{ schemaVersion: number }>> {
+    const was = state;
+    state = 'starting'; // the book is closed while the files move: health says so (seats wait it out), and no route touches it
     try {
       markRunning(programDirPath, dataRoot, dbPath);
-      const savedAs = restoreFiles(dbPath, backupDir, file);
+      const savedAs = await restoreFiles(dbPath, backupDir);
       try {
-        const opened = openChecked(dbPath);
+        const opened = openChecked(dbPath, false); // the copy was checked in a process of its own before anything was closed
         if ('damaged' in opened) throw new Error(`the restored file is damaged: ${opened.damaged}`);
         db = opened.db;
         schemaVersion = migrate(db);
@@ -361,13 +368,25 @@ function main(): void {
       return ok({ schemaVersion: schemaVersion ?? 0 });
     } catch (e) {
       log('restore-failed', { file, error: msg(e) });
-      // Failing before the last rename leaves the live file as it was: it was only closed, so open it again.
-      if (!db && state !== 'safe-mode') {
-        const again = openChecked(dbPath);
-        if ('db' in again) db = again.db;
-        else {
+      dropStaged(dbPath); // whatever failed, no checked copy stays beside the live file (after a good rename there is none)
+      // Failing before the last rename leaves the live file as it was: it was only closed, so open it again (a keeper that was in safe mode stays there).
+      // A reopen that throws (a locked file) must not leave 'starting' for ever: safe mode still offers Restore.
+      if (state === 'starting') {
+        let reopened: Db | null = null;
+        if (was !== 'safe-mode') {
+          try {
+            const again = openChecked(dbPath, false);
+            if ('db' in again) reopened = again.db;
+          } catch (e2) {
+            log('restore-reopen-failed', msg(e2));
+          }
+        }
+        if (reopened) {
+          db = reopened;
+          state = 'ready';
+        } else {
           state = 'safe-mode';
-          reason = 'damaged';
+          reason ??= 'damaged';
         }
       }
       return refuse('failed', msg(e));
@@ -383,25 +402,32 @@ function main(): void {
     if (!gate.ok) return gate;
     const others = seats.othersOnline(seat);
     if (others.length > 0) return refuse('restore-others-online', others.join(', '));
-    const verdict = verifyApply(dbPath, backupDir, file, token, tokens, LATEST_SCHEMA);
+    // The chosen backup is copied beside the live file and the copy is checked in a process of its own: the book stays open and answering meanwhile.
+    const verdict = await verifyApply(dbPath, backupDir, file, token, tokens, LATEST_SCHEMA);
     if (!verdict.ok) return refuse(verdict.code);
-    await backingUp;
-    // A seat may have opened while the checks above ran: look again before anything is closed.
-    const nowOthers = seats.othersOnline(seat);
-    if (nowOthers.length > 0) return refuse('restore-others-online', nowOthers.join(', '));
-    let at = new Date();
-    while (fs.existsSync(path.join(backupDir, backupName(at)))) at = new Date(at.getTime() + 60 * 1000);
+    let swapped = false;
     try {
-      const made = await makeBackup(open, backupDir, at);
-      log('backup-ok', { why: 'before-restore', file: made.file, rows: made.rows, bytes: made.bytes });
-    } catch (e) {
-      log('backup-failed', { why: 'before-restore', dir: backupDir, error: msg(e) });
-      return refuse('restore-backup-failed', msg(e));
+      await backingUp;
+      // A seat may have opened while the checks above ran: look again before anything is closed.
+      const nowOthers = seats.othersOnline(seat);
+      if (nowOthers.length > 0) return refuse('restore-others-online', nowOthers.join(', '));
+      let at = new Date();
+      while (fs.existsSync(path.join(backupDir, backupName(at)))) at = new Date(at.getTime() + 60 * 1000);
+      try {
+        const made = await makeBackup(open, backupDir, at);
+        log('backup-ok', { why: 'before-restore', file: made.file, rows: made.rows, bytes: made.bytes });
+      } catch (e) {
+        log('backup-failed', { why: 'before-restore', dir: backupDir, error: msg(e) });
+        return refuse('restore-backup-failed', msg(e));
+      }
+      if (db !== open || stopping) return refuse('no-database');
+      closeDatabase(open); // checkpointed: the file on disk is whole
+      db = null;
+      swapped = true; // restoreFiles takes the staged copy from here (and drops it itself if it fails)
+      return await swapIn(file, seat, true);
+    } finally {
+      if (!swapped) dropStaged(dbPath);
     }
-    if (db !== open || stopping) return refuse('no-database');
-    closeDatabase(open); // checkpointed: the file on disk is whole
-    db = null;
-    return swapIn(file, seat, true);
   }
 
   // A new backup folder (Admin PIN): a verified backup is made there first - that is both "can it be written" and "a backup at once" - and only
@@ -467,8 +493,8 @@ function main(): void {
     }
 
     // Everything else is a POST from our own client: JSON content type, so a cross-origin browser POST (which
-    // would need a preflight we never answer) cannot reach it. Listing is a POST too: it opens every backup,
-    // which a plain cross-origin GET from a web page on this PC must not be able to trigger.
+    // would need a preflight we never answer) cannot reach it. Listing is a POST too: it reads the backup folder
+    // and its sizes, which a plain cross-origin GET from a web page on this PC should not be able to trigger.
     if (!ROUTES.includes(url)) return send(res, 404, { error: 'unknown route' });
     const json = /^application\/json/i.test(String(req.headers['content-type'] ?? ''));
     if (method !== 'POST' || !json) return send(res, 405, { error: 'method not allowed' });
@@ -505,11 +531,12 @@ function main(): void {
     if (url === '/restore/preview') {
       const file = str('file');
       if (!file) return send(res, 400, { error: 'file required' });
+      if (restoring) return sendResult(res, refuse('restore-busy')); // a preview now would read the live file mid-swap and replace the token
       if (state === 'ready' && db && !stopping) {
         const others = seats.othersOnline(seat);
         if (others.length > 0) return sendResult(res, refuse('restore-others-online', others.join(', ')));
       } else if (state !== 'safe-mode') return sendResult(res, refuse('no-database'));
-      const r = previewRestore(dbPath, backupDir, file, tokens, LATEST_SCHEMA);
+      const r = await previewRestore(dbPath, backupDir, file, tokens, LATEST_SCHEMA);
       return sendResult(res, r.ok ? ok(r.value) : refuse(r.code));
     }
 
@@ -517,24 +544,30 @@ function main(): void {
       const file = str('file');
       const token = str('confirmToken');
       if (!file || !token) return send(res, 400, { error: 'file and confirmToken required' });
+      if (restoring) return sendResult(res, refuse('restore-busy')); // one restore at a time: they share the staged copy
       const running = state === 'ready' && db && !stopping;
       if (!running && state !== 'safe-mode') return sendResult(res, refuse('no-database'));
-      let r: KeeperResult<{ schemaVersion: number }>;
-      if (running) {
-        try {
-          r = await restoreLive(file, token, typeof body.adminPin === 'string' ? body.adminPin : '', seat);
-        } catch (e) {
-          log('restore-failed', { file, error: msg(e) });
-          r = refuse('failed', msg(e));
+      restoring = true;
+      try {
+        let r: KeeperResult<{ schemaVersion: number }>;
+        if (running) {
+          try {
+            r = await restoreLive(file, token, typeof body.adminPin === 'string' ? body.adminPin : '', seat);
+          } catch (e) {
+            log('restore-failed', { file, error: msg(e) });
+            r = refuse('failed', msg(e));
+          }
+          if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) pinRefused(url, seat, r.code, r.detail);
+          return sendResult(res, r);
         }
-        if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) pinRefused(url, seat, r.code, r.detail);
-        return sendResult(res, r);
+        const verdict = await verifyApply(dbPath, backupDir, file, token, tokens, LATEST_SCHEMA);
+        if (!verdict.ok) return sendResult(res, refuse(verdict.code));
+        // ponytail: a restored older schema is migrated without a fresh backup; the restored backup itself and
+        // the set-aside copy are both still in the backup folder.
+        return sendResult(res, await swapIn(file, seat, false));
+      } finally {
+        restoring = false;
       }
-      const verdict = verifyApply(dbPath, backupDir, file, token, tokens, LATEST_SCHEMA);
-      if (!verdict.ok) return sendResult(res, refuse(verdict.code));
-      // ponytail: a restored older schema is migrated without a fresh backup; the restored backup itself and
-      // the set-aside copy are both still in the backup folder.
-      return sendResult(res, swapIn(file, seat, false));
     }
 
     // The Admin settings (4.2): a new backup folder, this seat's name.

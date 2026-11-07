@@ -115,7 +115,7 @@ test('readSummary is null for garbage and for a file that does not exist', () =>
   assert.equal(readSummary(path.join(dir, 'nope.db')), null);
 });
 
-test('listBackups is newest first, marks a damaged backup unusable and ignores temp and other files', async () => {
+test('listBackups is newest first and ignores temp and other files', async () => {
   const db = freshDb();
   insertLr(db);
   const dir = path.join(tempDir(), 'backups');
@@ -128,12 +128,20 @@ test('listBackups is newest first, marks a damaged backup unusable and ignores t
 
   const list = listBackups(dir);
   assert.deepEqual(list.map((b) => b.file), ['booking-20261024-1000.db', 'booking-20261024-0900.db', 'booking-20261024-0800.db']);
-  assert.deepEqual(list.map((b) => b.damaged), [false, true, false]);
-  assert.equal(list[1].summary, undefined);
-  assert.equal(list[0].summary?.lrs, 1);
   assert.equal(list[0].sizeBytes, fs.statSync(path.join(dir, list[0].file)).size);
   assert.equal(list[0].at, at(2026, 10, 24, 10, 0).toISOString());
   assert.deepEqual(listBackups(path.join(dir, 'missing-folder')), [], 'no folder = no backups, not an error');
+});
+
+test('listBackups opens no backup: a damaged file is listed like a good one, by name, time and size only (the check comes with the preview)', async () => {
+  const db = freshDb();
+  insertLr(db);
+  const dir = path.join(tempDir(), 'backups');
+  await makeBackup(db, dir, at(2026, 10, 24, 8, 0));
+  fs.writeFileSync(path.join(dir, 'booking-20261024-0900.db'), Buffer.alloc(9000, 1));
+  const list = listBackups(dir);
+  assert.equal(list.length, 2);
+  for (const b of list) assert.deepEqual(Object.keys(b).sort(), ['at', 'file', 'sizeBytes']);
 });
 
 test('pruneBackups deletes what the rule drops, keeps the newest, and never touches other files', async () => {
