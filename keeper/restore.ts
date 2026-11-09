@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DbSummary, RestorePreview, RestoreRefusal } from '../shared';
-import { removeWithSidecars, summarizeInChild } from './backup';
+import { removeWithSidecars, SIDECARS, summarizeInChild } from './backup';
 import { beforeRestoreName, parseBackupName } from './backupNames';
 
 export type Gate = { ok: true } | { ok: false; code: RestoreRefusal };
@@ -126,7 +126,7 @@ export async function restoreFiles(dbPath: string, backupDir: string, now = new 
     // A -wal or -shm left by the old file must not be replayed onto the restored one; neither must one left by the check of the copy.
     fs.rmSync(`${dbPath}-wal`, { force: true });
     fs.rmSync(`${dbPath}-shm`, { force: true });
-    ['-wal', '-shm', '-journal'].forEach((suffix) => fs.rmSync(stagedPath(dbPath) + suffix, { force: true }));
+    SIDECARS.forEach((suffix) => fs.rmSync(stagedPath(dbPath) + suffix, { force: true }));
     fs.renameSync(stagedPath(dbPath), dbPath);
   } catch (e) {
     dropStaged(dbPath);

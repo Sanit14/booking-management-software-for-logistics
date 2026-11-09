@@ -1,7 +1,7 @@
 {
   "name": "booking-manager",
   "productName": "Booking Manager",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Booking Manager for Sundeep Freight Movers",
   "main": "dist-electron/electron/main.js",
@@ -19,7 +19,8 @@
     "update:keygen": "node scripts/update-keygen.cjs",
     "release": "node scripts/release.cjs",
     "seed:load": "node scripts/seed-load.cjs",
-    "bench": "node scripts/bench.cjs"
+    "bench": "node scripts/bench.cjs",
+    "measure:ui": "node scripts/measure-ui.cjs"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1",
@@ -50,8 +51,6 @@
   },
   "build": {
     "appId": "com.sundeepfreight.bookingmanager",
-    "productName": "Booking Manager",
-    "electronVersion": "22.3.27",
     "directories": {
       "output": "release"
     },
@@ -65,6 +64,7 @@
       "!dist-electron/keeper/testing.js",
       "!dist-electron/keeper/memoTesting.js",
       "!dist-electron/print/testing.js",
+      "!dist-electron/electron/uiTiming.js",
       "!**/*.{lib,exp,iobj,ipdb,pdb}",
       "!node_modules/better-sqlite3/{deps,src,bin}/**",
       "!node_modules/better-sqlite3/build/{deps,Release/obj}/**",

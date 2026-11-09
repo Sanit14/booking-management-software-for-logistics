@@ -4,11 +4,13 @@ import { rowText, visibleRows } from '../logic/masterList';
 import type { Jump } from '../logic/searchResults';
 import Page from '../shell/Page';
 import { strings } from '../strings';
+import Button from '../ui/Button';
 import { Card } from '../ui/Card';
 import Chip from '../ui/Chip';
 import Field from '../ui/Field';
 import Table, { type Column } from '../ui/Table';
 import { useKeeperData } from '../useKeeperData';
+import { useShowMore } from '../useShowMore';
 import MasterForm from './MasterForm';
 import styles from './MastersPage.module.css';
 
@@ -93,6 +95,7 @@ export default function MastersPage({ jump, onJumpUsed }: { jump: Jump | null; o
   const columns: Column<MasterRow>[] = { stations: [col.name], firms: [col.name, col.station, col.phone], trucks: [col.number], drivers: [col.name, col.phone], agents: [col.name, col.phone] }[kind];
 
   const rows = visibleRows(data[kind], kind, query, showInactive);
+  const list = useShowMore(rows, kind); // 500 rows cost over 100 ms a keystroke: the first 200, then "Show more"
 
   return (
     <Page id="masters">
@@ -147,12 +150,19 @@ export default function MastersPage({ jump, onJumpUsed }: { jump: Jump | null; o
               <Table
                 label={t.listLabel(kind)}
                 columns={columns}
-                rows={rows}
+                rows={list.shown}
                 rowKey={(r) => String(r.id)}
                 ticked={editing ? new Set([String(editing.id)]) : undefined}
                 empty={query.trim() ? t.emptySearch : t.empty}
                 onRowActivate={(r) => show(kind, r)}
               />
+              {list.hidden > 0 && (
+                <div className={styles.showMore}>
+                  <Button small variant="outline" onClick={list.showMore}>
+                    {strings.ui.showMore(list.hidden)}
+                  </Button>
+                </div>
+              )}
             </div>
           </Card>
         </div>

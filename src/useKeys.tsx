@@ -20,7 +20,6 @@ export function useKeys(): Api {
 export function KeysProvider({ children }: { children: ReactNode }) {
   const [keys, setKeys] = useState<Keymap>(DEFAULT_KEYS);
   useEffect(() => {
-    if (!window.bm) return; // `npm run dev -- --components` in a plain browser has no preload
     void window.bm.keys.get().then(setKeys, () => undefined); // no answer: the defaults stay
   }, []);
   const save = useCallback(async (next: Keymap) => {

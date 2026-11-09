@@ -16,7 +16,7 @@ const t = strings.quick;
  * The lists are fetched here, in the part that is always mounted, so the form is on screen (and has the cursor) the
  * moment the dialog opens: keys typed at once are not lost to the Close button.
  */
-export default function QuickLr({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function QuickLr({ open, onClose, onOpenLr }: { open: boolean; onClose: () => void; onOpenLr: (id: number) => void }) {
   const [date, setDate] = useState<string | null>(null); // null = today; a backdate is unlocked with the System PIN, as on LR Entry
   const [last, setLast] = useState<LrSaved | null>(null);
   const masters = useKeeperData(() => window.bm.keeper.masters.all(), MASTER_TABLES, NONE);
@@ -39,7 +39,12 @@ export default function QuickLr({ open, onClose }: { open: boolean; onClose: () 
           defaults={defaults.data}
           date={date}
           onDate={setDate}
-          onOpen={() => undefined} // a new LR only: nothing here opens a saved one
+          onOpen={(lr) => {
+            // Only one case: a save that turned out to be an LR already saved. It is shown on LR Entry; the dialog closes.
+            if (!lr) return;
+            close();
+            onOpenLr(lr.id);
+          }}
           onSaved={setLast}
         />
       ) : null}

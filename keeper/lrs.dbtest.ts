@@ -95,15 +95,66 @@ test('a refused save does not burn a number', () => {
   assert.equal(saved(save(s)).row.lrNo, 2);
 });
 
-test('the same uid twice returns the first LR and writes nothing more', () => {
+test('the same uid twice with the same values returns the first LR and writes nothing more', () => {
   const s = setUp();
   const first = saved(save(s, { uid: 'one-form' }));
   assert.equal(first.again, false);
   const before = footprint(s);
-  const second = saved(save(s, { uid: 'one-form', qty: '99', toPay: '5' })); // even if the retry differs: it is the same save
+  const second = saved(save(s, { uid: 'one-form' }));
   assert.equal(second.again, true);
   assert.deepEqual(second.row, first.row);
   assert.deepEqual(footprint(s), before);
+});
+
+test('a new firm typed on both sides in two spellings is one firm; the retry of that save is the same save', () => {
+  const s = setUp();
+  const both = {
+    consignor: { firmId: null, name: 'ABC Traders', addToFirms: true },
+    consignee: { firmId: null, name: 'abc   traders', addToFirms: true }, // saved under the first spelling
+  };
+  const first = saved(save(s, { uid: 'both', ...both }));
+  assert.equal(first.again, false);
+  assert.equal(saved(save(s, { uid: 'both', ...both })).again, true);
+});
+
+test('a retry of a walk-in added to firms, or of a backdated LR (no PIN sent), is still the same save', () => {
+  const s = setUp();
+  const added = { consignee: { firmId: null, name: '  Kale   Brothers ', addToFirms: true } };
+  assert.equal(saved(save(s, { uid: 'added', ...added })).again, false);
+  assert.equal(saved(save(s, { uid: 'added', ...added })).again, true);
+  assert.equal(saved(save(s, { uid: 'added', consignee: { firmId: null, name: 'Kale Brothers', addToFirms: false } })).again, true, 'the box ticked or not, it is the same LR');
+  const old = { date: '2025-12-30' };
+  assert.equal(saved(save(s, { uid: 'old', ...old, systemPin: SYSTEM })).again, false);
+  assert.equal(saved(save(s, { uid: 'old', ...old })).again, true, 'a retry needs no PIN');
+});
+
+test('the same uid with a changed value is refused: the saved LR is named, nothing is written, the number does not move (O3)', () => {
+  const s = setUp();
+  const first = saved(save(s, { uid: 'one-form' }));
+  const before = footprint(s);
+  const changed: Partial<LrInput>[] = [
+    { qty: '99' },
+    { toPay: '5' },
+    { toPay: '', paid: '1,800' },
+    { particular: 'Steel pipes' },
+    { chargeOption: 'blank' },
+    { hamali: '31' },
+    { staxPercent: '12' },
+    { wasuli: '10' },
+    { date: '2025-12-30', systemPin: SYSTEM },
+    { toStationId: s.yavatmal, fromStationId: s.nagpur },
+    { consignee: { firmId: null, name: 'Kale Brothers Pvt', addToFirms: false } },
+    { consignee: { firmId: s.ganesh, name: '', addToFirms: false } },
+    { qty: 'abc' }, // not even valid
+  ];
+  for (const over of changed) {
+    const r = refused(save(s, { uid: 'one-form', ...over }));
+    assert.equal(r.code, 'lr-already-saved', JSON.stringify(over));
+    assert.equal(r.lr?.id, first.row.id);
+    assert.equal(r.lr?.lrNo, first.row.lrNo);
+    assert.deepEqual(footprint(s), before, JSON.stringify(over));
+  }
+  assert.equal(saved(save(s)).row.lrNo, first.row.lrNo + 1, 'the next LR takes the next number: nothing was burnt or reused');
 });
 
 test('a walk-in without "Add to firms" is stored by name only; with it the firm is created in the same save', () => {

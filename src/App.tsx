@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardSummary, KeeperStatus } from '../shared';
 import styles from './App.module.css';
-import ComponentsPage from './ComponentsPage';
 import DashboardPage from './dashboard/DashboardPage';
 import FirmAccountsPage from './firmAccounts/FirmAccountsPage';
 import HistoryPage from './history/HistoryPage';
@@ -15,7 +14,6 @@ import MastersPage from './masters/MastersPage';
 import SearchOverlay from './search/SearchOverlay';
 import Notice from './shell/Notice';
 import PinSetup from './PinSetup';
-import Page from './shell/Page';
 import type { PageId } from './shell/pages';
 import SettingsPage from './shell/SettingsPage';
 import Sidebar from './shell/Sidebar';
@@ -29,15 +27,11 @@ import { useKeys } from './useKeys';
 
 const pageOf = (j: Jump): PageId => (j.to === 'lr' || j.to === 'day' ? 'lrEntry' : j.to === 'master' ? 'masters' : j.to === 'account' ? 'firmAccounts' : j.to === 'wasuli' ? 'wasuli' : 'loadingMemo');
 
-// `npm run dev -- --components` opens the Components page straight away, without needing the keeper.
-const COMPONENTS_ONLY = window.location.hash === '#components';
-
 export default function App() {
   const { keys } = useKeys();
   const [status, setStatus] = useState<KeeperStatus | null>(null);
   const [link, setLink] = useState<'ok' | 'reconnecting' | 'lost'>('ok'); // main's watchdog, once the shell is up
   const [page, setPage] = useState<PageId>('dashboard');
-  const [components, setComponents] = useState(COMPONENTS_ONLY);
   const [quick, setQuick] = useState(false); // the Quick LR dialog
   const [searching, setSearching] = useState(false); // the Ctrl+K search window
   const [jump, setJump] = useState<Jump | null>(null); // a search pick on its way to the page that shows it
@@ -53,7 +47,6 @@ export default function App() {
   // Once on entry; pages refetch on the keeper's change events (useKeeperData), no polling. Main's 15 s liveness ping
   // pushes "reconnecting" and then the new status when it has to start the keeper again.
   useEffect(() => {
-    if (COMPONENTS_ONLY) return;
     load();
     return window.bm.keeper.onStatus((push) => {
       if (push.kind === 'reconnecting') return setLink('reconnecting');
@@ -66,7 +59,6 @@ export default function App() {
 
   // A backup finished (the keeper announces it as a change to the settings): the status box shows its time. The day's first backup now ends after "ready".
   useEffect(() => {
-    if (COMPONENTS_ONLY || !window.bm) return;
     return window.bm.keeper.onChanged((change) => {
       if (change.tables.includes('settings')) load();
     });
@@ -89,7 +81,7 @@ export default function App() {
   useEffect(() => {
     now.current = { keys, go };
   });
-  const shellUp = status?.kind === 'connected' && status.health.pinsSet !== false && !components;
+  const shellUp = status?.kind === 'connected' && status.health.pinsSet !== false;
   // The Dashboard's counts and the sidebar badges: refetched only when the keeper announces an LR or memo change.
   const summary = useKeeperData<DashboardSummary | null>(
     () => (shellUp ? window.bm.keeper.dashboard.summary(null) : Promise.resolve({ ok: true as const, value: null })),
@@ -121,8 +113,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [shellUp]);
 
-  if (components) return <ComponentsPage onBack={COMPONENTS_ONLY ? undefined : () => setComponents(false)} />;
-
   if (status === null) return <Notice text={strings.keeperStarting} />;
   if (status.kind === 'error') return <Notice alert text={strings.keeperStatus(status)} />;
   if (status.kind === 'safe-mode') return <SafeMode message={strings.keeperStatus(status)} onRestored={load} />;
@@ -137,7 +127,7 @@ export default function App() {
       </Sidebar>
       <main className={styles.main}>
         {page === 'settings' ? (
-          <SettingsPage health={status.health} seat={status.seat} onExported={load} onComponents={() => setComponents(true)} />
+          <SettingsPage health={status.health} seat={status.seat} onExported={load} />
         ) : page === 'masters' ? (
           <MastersPage jump={jump} onJumpUsed={() => setJump(null)} />
         ) : page === 'lrEntry' ? (
@@ -159,13 +149,11 @@ export default function App() {
           <ReportsPage today={summary?.date ?? null} onPick={pick} />
         ) : page === 'history' ? (
           <HistoryPage today={summary?.date ?? null} onPick={pick} />
-        ) : page === 'dashboard' ? (
-          <DashboardPage summary={summary} onMakeMemo={() => go('loadingMemo')} onPick={pick} />
         ) : (
-          <Page id={page} />
+          <DashboardPage summary={summary} onMakeMemo={() => go('loadingMemo')} onPick={pick} />
         )}
       </main>
-      <QuickLr open={quick} onClose={() => setQuick(false)} />
+      <QuickLr open={quick} onClose={() => setQuick(false)} onOpenLr={(id) => pick({ to: 'lr', id })} />
       <SearchOverlay open={searching} onClose={() => setSearching(false)} onPick={pick} />
       <Dialog
         open={leaving !== null}

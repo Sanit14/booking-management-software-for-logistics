@@ -57,6 +57,7 @@ import { makeReports } from './reports';
 import { asLrsRequest, asPartySide, asReportCursor, asReportKind, asReportLrCursor, asReportQuery } from './reportRules';
 import { dropStaged, makeTokens, previewRestore, restoreFiles, verifyApply } from './restore';
 import { search } from './search';
+import { errnoOf } from './errno';
 import { makeSeats } from './seats';
 import { makeWasuli } from './wasuli';
 import { asCollectInput, asPeriod, asSeen, asSeenList, asWasuliCursor, asWasuliFilters } from './wasuliRules';
@@ -68,6 +69,9 @@ const MARKER_REFRESH_MS = Math.max(100, Number(hook('BM_MARKER_REFRESH_MS')) || 
 const MASTER_KINDS: MasterKind[] = ['stations', 'firms', 'trucks', 'drivers', 'agents'];
 const BACKUP_EVERY_MS = 60 * 60 * 1000;
 const MAX_BODY_BYTES = 64 * 1024;
+// A request must arrive whole within this long (the headers, then the body), or the keeper closes it: a local program that opens a socket and
+// stalls must not hold it. This is the time to RECEIVE the request: a long answer (a restore, an export) is not cut. BM_REQUEST_TIMEOUT_MS: tests only.
+const REQUEST_TIMEOUT_MS = Math.max(100, Number(hook('BM_REQUEST_TIMEOUT_MS')) || 30_000);
 const MAX_EVENT_STREAMS = 32;
 const LATEST_SCHEMA = MIGRATIONS[MIGRATIONS.length - 1].version;
 
@@ -235,6 +239,7 @@ function main(): void {
       backup.lastAt = new Date().toISOString();
       log('backup-ok', { why: 'before-migration', file: migrated.backup.file, rows: migrated.backup.rows, bytes: migrated.backup.bytes });
     }
+    if (migrated.backupSkipped) log('backup-skipped', { why: 'before-migration', file: migrated.backupSkipped }); // a backup of this schema under an hour old is enough
     if (migrated.backupError) {
       backup.failing = migrated.backupError;
       log('backup-failed', { why: 'before-migration', dir: backupDir, error: migrated.backupError });
@@ -319,7 +324,18 @@ function main(): void {
 
   const ok = <T>(value: T): KeeperResult<T> => ({ ok: true, value });
   const refuse = (code: ResultCode, detail?: string): KeeperResult<never> => ({ ok: false, code, ...(detail ? { detail } : {}) });
-  const sendResult = (res: http.ServerResponse, r: KeeperResult<unknown>): void => send(res, r.ok ? 200 : r.code === 'failed' ? 500 : 409, r);
+  // These refusals carry the error text of the operating system or SQLite in `detail`: paths and file names. The text goes to the log; the screen gets
+  // only the OS error code (EACCES, ENOSPC...), which it puts in words (src/strings.ts), or nothing.
+  const RAW_DETAIL = new Set<ResultCode>(['failed', 'backup-dir-unusable', 'restore-backup-failed']);
+  const sendResult = (res: http.ServerResponse, r: KeeperResult<unknown>): void => {
+    if (!r.ok && r.detail !== undefined && RAW_DETAIL.has(r.code)) {
+      log('refused-detail', { code: r.code, detail: r.detail });
+      const { detail, ...rest } = r;
+      const code = errnoOf(detail);
+      r = code ? { ...rest, detail: code } : rest;
+    }
+    send(res, r.ok ? 200 : r.code === 'failed' ? 500 : 409, r);
+  };
 
   function readBody(req: http.IncomingMessage): Promise<string | null> {
     return new Promise((resolve) => {
@@ -985,6 +1001,8 @@ function main(): void {
         if (!res.headersSent) send(res, 500, { error: 'internal error' });
       });
   });
+  server.headersTimeout = REQUEST_TIMEOUT_MS;
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
 
   server.on('error', (e: NodeJS.ErrnoException) => {
     if (e.code === 'EADDRINUSE') {

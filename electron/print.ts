@@ -6,8 +6,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, type WebContents } from 'electron';
 import type { KeeperResult, PrintDone, PrintFirmStatement, PrintLr, PrintMemo, PrintReport, ReportKind, ReportQuery, StatementQuery } from '../shared';
+import { errnoOf } from '../keeper/errno';
 import { asStatementQuery } from '../keeper/firmRules';
+import { makeLog } from '../keeper/log';
+import { logPath, programDir } from '../keeper/paths';
 import { asReportKind, asReportQuery } from '../keeper/reportRules';
+import { printUrl } from '../print/dataUrl';
 import { lrFileName, lrHtml } from '../print/lr';
 import { memoFileName, memoHtml } from '../print/memo';
 import { reportFileName, reportHtml } from '../print/report';
@@ -22,6 +26,8 @@ interface Page {
   spec: PageSpec;
   fileName: string;
 }
+
+const log = makeLog(logPath(programDir())); // the keeper's log file: console.error is lost in the installed app
 
 let locked = false;
 /** A session of its own, in memory, that refuses every request except a data: page. */
@@ -43,8 +49,10 @@ export async function withPage<T>(html: string, use: (contents: WebContents) => 
   try {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', (event) => event.preventDefault());
-    // ponytail: a data: URL, no temp file to clean up. Chromium refuses one over 2 MB; the most a memo carries (500 LRs) is about a third of that (tested).
-    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    // ponytail: a data: URL, no temp file to clean up. Chromium refuses one over 2 MB: `run` has refused a longer printout before this (printUrl).
+    const url = printUrl(html);
+    if (!url) throw new Error('printout too long');
+    await win.loadURL(url);
     return await use(win.webContents);
   } finally {
     win.destroy();
@@ -64,7 +72,7 @@ const sendToPrinter = ({ html, spec }: Page): Promise<Outcome> =>
     (contents) =>
       new Promise<Outcome>((resolve) =>
         contents.print({ silent: false, printBackground: false, pageSize: spec.size, landscape: spec.landscape, margins: { marginType: 'none' } }, (success, reason) =>
-          resolve(success ? { ok: true, value: {} } : /cancel/i.test(reason) ? { ok: false, code: 'cancelled' } : { ok: false, code: 'failed', detail: reason }),
+          resolve(success ? { ok: true, value: {} } : /cancel/i.test(reason) ? { ok: false, code: 'cancelled' } : (log('print-failed', { reason }), { ok: false, code: 'failed' })),
         ),
       ),
   );
@@ -109,6 +117,8 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
         if (!data.ok) return data;
         page = { html: statementHtml(data.value), spec: A4, fileName: statementFileName(data.value) };
       }
+      // Counted on the real URL, before any dialog: long names outside ASCII take 9 characters each, so the row limits alone do not keep it under 2 MB.
+      if (printUrl(page.html) === null) return { ok: false, code: kind === 'report' ? 'report-too-long' : 'print-too-long' };
       const outcome = how === 'pdf' ? await savePdf(page) : await sendToPrinter(page);
       // The audit row is for a print that went through; failing to write it does not undo the paper.
       if (outcome.ok) {
@@ -118,10 +128,10 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
       }
       return outcome;
     } catch (e) {
-      // Never the message itself: a failed load quotes the page, names included. A file error says only its code (EBUSY, EACCES).
-      console.error('print failed', e);
-      const code = (e as NodeJS.ErrnoException)?.code;
-      return { ok: false, code: 'failed', ...(typeof code === 'string' && /^E[A-Z]+$/.test(code) ? { detail: code } : {}) };
+      // Never the message itself: a failed load quotes the page, names included. The log gets the kind of error, the screen a file error's code (EBUSY, EACCES).
+      log('print-failed', { error: (e as Error)?.name ?? 'error', code: (e as NodeJS.ErrnoException)?.code });
+      const code = errnoOf(e);
+      return { ok: false, code: 'failed', ...(code ? { detail: code } : {}) };
     } finally {
       busy = false;
     }

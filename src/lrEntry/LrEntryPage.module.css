@@ -290,6 +290,12 @@
 .tableBox table th {
   height: 34px;
 }
+.tableBox > .showMore {
+  flex: none;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
 .cell {
   display: block;
   overflow: hidden;

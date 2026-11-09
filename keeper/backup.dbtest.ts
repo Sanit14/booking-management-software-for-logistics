@@ -6,7 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { listBackups, makeBackup, migrateSafely, pruneBackups, readSummary, verifyBackup } from './backup';
 import { backupName } from './backupNames';
-import { currentVersion, MIGRATIONS, type Migration } from './migrations';
+import { currentVersion, MIGRATIONS, migrate, type Migration } from './migrations';
 import { nextNumber } from './numbering';
 import { freshDb, insert, insertLr, insertStation, tempDir } from './testing';
 import { nameKey } from './names';
@@ -171,6 +171,49 @@ test('migrateSafely backs up an existing database before a pending migration run
   assert.equal(readSummary(file)?.schemaVersion, MIGRATIONS.length, 'the backup is the database as it was BEFORE the migration');
   assert.equal(readSummary(file)?.lrs, 1);
   assert.equal(currentVersion(db), next.version);
+});
+
+test('a migration that throws leaves one backup, not one per restart: the same schema backed up in the last hour is not backed up again (O4)', async () => {
+  const boom: Migration = { version: MIGRATIONS.length + 1, up: () => void assert.fail('boom') };
+  const db = freshDb();
+  insertLr(db);
+  const dir = path.join(tempDir(), 'backups');
+  const attempt = (when: Date) => migrateSafely(db, dir, when, [...MIGRATIONS, boom]);
+  await assert.rejects(attempt(at(2026, 10, 24, 9, 30)));
+  await assert.rejects(attempt(at(2026, 10, 24, 9, 31)));
+  await assert.rejects(attempt(at(2026, 10, 24, 10, 29)));
+  assert.deepEqual(fs.readdirSync(dir), ['booking-20261024-0930.db'], 'the keeper started three times: one backup');
+  await assert.rejects(attempt(at(2026, 10, 24, 10, 30)), 'an hour after the first');
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['booking-20261024-0930.db', 'booking-20261024-1030.db']);
+  assert.equal(currentVersion(db), MIGRATIONS.length, 'the failed migration changed nothing');
+});
+
+test('a recent backup of another schema version does not count, and neither does a missing or unreadable one', async () => {
+  const boom: Migration = { version: MIGRATIONS.length + 1, up: () => void assert.fail('boom') };
+  const db = freshDb();
+  insertLr(db);
+  const other = path.join(tempDir(), 'other-schema');
+  const old = openDatabase(path.join(tempDir(), 'old.db'));
+  migrate(old, MIGRATIONS.slice(0, 2));
+  await makeBackup(old, other, at(2026, 10, 24, 9, 40)); // a backup of schema 2, five minutes before
+  await assert.rejects(migrateSafely(db, other, at(2026, 10, 24, 9, 45), [...MIGRATIONS, boom]));
+  assert.ok(fs.existsSync(path.join(other, 'booking-20261024-0945.db')), 'the book is at another schema: its own backup was made');
+
+  const broken = path.join(tempDir(), 'broken');
+  fs.mkdirSync(broken);
+  fs.writeFileSync(path.join(broken, 'booking-20261024-0944.db'), 'not a database');
+  await assert.rejects(migrateSafely(db, broken, at(2026, 10, 24, 9, 45), [...MIGRATIONS, boom]));
+  assert.ok(fs.existsSync(path.join(broken, 'booking-20261024-0945.db')), 'the newest file is no backup: its own was made');
+});
+
+test('a backup folder that cannot be read (it is a file) never stops a migration: it migrates and says why there is no backup', async () => {
+  const db = freshDb();
+  const aFile = path.join(tempDir(), 'not-a-folder');
+  fs.writeFileSync(aFile, 'x');
+  const next2: Migration = { version: MIGRATIONS.length + 1, up: (d) => void d.exec('CREATE TABLE later2 (x TEXT) STRICT') };
+  const r = await migrateSafely(db, aFile, at(2026, 10, 24, 9, 30), [...MIGRATIONS, next2]);
+  assert.equal(r.version, next2.version);
+  assert.ok(r.backupError, 'the failure is reported, not thrown');
 });
 
 test('migrateSafely makes no backup for a brand-new database or when nothing is pending', async () => {

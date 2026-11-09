@@ -65,15 +65,18 @@ import { strings } from '../src/strings';
 import { callJson, LONG_CALL_MS, probe, shutdown, subscribeEvents } from '../keeper/client';
 import { TEST_HOOKS_ARG } from '../keeper/testHooks';
 import { checkDataRoot, resolveDataRoot } from '../keeper/dataRoot';
+import { errnoOf } from '../keeper/errno';
 import { makeLog } from '../keeper/log';
 import { logPath, pointerPath, programDir } from '../keeper/paths';
 import { otherSessions } from './otherSeats';
 import { loadSeat, saveSeat } from './seatName';
-import { KEEPER_PING_MS, keeperAction } from './watchdog';
+import { KEEPER_PING_MS, keeperAction, makeStartGuard } from './watchdog';
 
 // A big database is checked (and backed up) before the keeper says ready; the loop still gives up at once if the keeper it started dies.
 const START_WAIT_MS = 60000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// The keeper starts this seat has seen end in an error. After 3 in 10 minutes (a migration that throws) the seat stops starting it: see makeStartGuard.
+const startGuard = makeStartGuard();
 class LauncherError extends Error {
   constructor(readonly code: KeeperErrorCode, readonly detail = '', readonly refusal?: RootRefusal) {
     super(code);
@@ -109,6 +112,7 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
 
   const spawned: { exitCode?: number } = {};
   if (keeperAction(p, KEEPER_VERSION) === 'start') {
+    if (startGuard.gaveUp()) throw new LauncherError('keeper-start-failed');
     // Several seats may get here at once; the keeper takes the port before the database, so only one survives.
     // The keeper serves every seat but starts with the environment of whoever opened the app first: no NODE_OPTIONS (it would load code into the shared
     // process), and the BM_* test hooks only in a dev run (--test-hooks; the installed app never passes it).
@@ -121,8 +125,14 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
       env,
     });
     child.unref(); // the keeper outlives this seat and serves the others
-    child.on('exit', (code) => (spawned.exitCode = code ?? -1));
-    child.on('error', () => (spawned.exitCode = -1)); // ENOENT/EACCES: without a listener this would crash main
+    // Counted here, not in the wait loop below: a migration that runs past that loop's 60 s and then throws is a failed start too.
+    const died = (code: number) => {
+      if (spawned.exitCode !== undefined) return; // 'error' and 'exit' can both come for one child
+      spawned.exitCode = code;
+      if (code !== 0) startGuard.failed();
+    };
+    child.on('exit', (code) => died(code ?? -1));
+    child.on('error', () => died(-1)); // ENOENT/EACCES: without a listener this would crash main
   }
 
   const deadline = Date.now() + START_WAIT_MS;
@@ -130,12 +140,15 @@ async function resolveStatus(seat: string): Promise<KeeperStatus> {
   while (p.kind !== 'up' || p.health.state === 'starting') {
     if (p.kind === 'foreign') throw new LauncherError('keeper-wrong-app', String(KEEPER_PORT));
     // Exit code 0 = another keeper took the port first; keep waiting for that one.
-    if (spawned.exitCode !== undefined && spawned.exitCode !== 0) throw new LauncherError('keeper-unreachable', `exit ${spawned.exitCode}; see keeper.log`);
+    if (spawned.exitCode !== undefined && spawned.exitCode !== 0) {
+      throw new LauncherError(startGuard.gaveUp() ? 'keeper-start-failed' : 'keeper-unreachable', `exit ${spawned.exitCode}; see keeper.log`);
+    }
     if (Date.now() > deadline) throw new LauncherError('keeper-unreachable', 'timeout');
     await sleep(200);
     p = await probe(KEEPER_PORT, opts);
   }
 
+  startGuard.ok();
   const { health } = p;
   if (health.dataRoot.toLowerCase() !== dataRoot.toLowerCase()) {
     throw new LauncherError('keeper-other-root', health.dataRoot);
@@ -159,7 +172,7 @@ export function initKeeperBridge(userDataDir: string) {
         return { kind: 'error', code: err.code, detail: err.detail, ...(err.refusal ? { refusal: err.refusal } : {}) };
       })
       .then((s) => {
-        unreachable = s.kind === 'error' && s.code === 'keeper-unreachable';
+        unreachable = s.kind === 'error' && (s.code === 'keeper-unreachable' || s.code === 'keeper-start-failed');
         return s;
       })
       .finally(() => (inflight = null));
@@ -172,8 +185,11 @@ export function initKeeperBridge(userDataDir: string) {
 
   // The keeper is gone (or a request to it failed): tell the screen, start it again, tell the screen the result.
   // status() is the same single-instance start as at launch; every save is already committed, so nothing is lost.
-  const recover = async (why: string) => {
-    if (inflight || paused) return; // an attempt is already running (its caller reports the result), or the keeper is stopped on purpose
+  const recover = async (why: string, working = false) => {
+    // An attempt is already running (its caller reports the result), the keeper is stopped on purpose, or it would not start 3 times in a row
+    // (the screen already says so; trying again every 15 s would only repeat the failure). `working`: a keeper answers (another seat started
+    // it), so the attempt will not start one: it only looks, clears the count and tells the screen.
+    if (inflight || paused || (startGuard.gaveUp() && !working)) return;
     log('watchdog-restart', { seat, why });
     push({ kind: 'reconnecting' });
     push(await status());
@@ -185,10 +201,13 @@ export function initKeeperBridge(userDataDir: string) {
       const r = await callJson(KEEPER_PORT, method, url, body, { seat, timeoutMs });
       const j = r.json as { ok?: unknown } | null;
       if (j && typeof j.ok === 'boolean') return j as KeeperResult<T>;
-      return { ok: false, code: 'failed', detail: `the keeper answered ${r.status}` };
+      log('call-failed', { url, status: r.status });
+      return { ok: false, code: 'failed' };
     } catch (e) {
+      log('call-failed', { url, error: String((e as Error)?.message ?? e) }); // the text names the address; the screen gets the OS code, if there is one
       void recover('request-failed');
-      return { ok: false, code: 'keeper-unreachable', detail: String((e as Error)?.message ?? e) };
+      const code = errnoOf(e);
+      return { ok: false, code: 'keeper-unreachable', ...(code ? { detail: code } : {}) };
     }
   };
   const text = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -377,7 +396,7 @@ export function initKeeperBridge(userDataDir: string) {
     void probe(KEEPER_PORT, { seat }).then((p) => {
       const action = keeperAction(p, KEEPER_VERSION);
       if (action === 'start' || action === 'replace') void recover(action);
-      else if (action === 'ok' && unreachable) void recover('screen-showed-unreachable');
+      else if (action === 'ok' && unreachable) void recover('screen-showed-unreachable', true);
     });
   }, KEEPER_PING_MS);
 

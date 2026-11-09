@@ -147,5 +147,4 @@ const print: PrintApi = {
   report: (report, query, how) => ipcRenderer.invoke('print:report', report, query, how),
 };
 
-// `packaged`: the installed app (main passes --packaged); the developer-only screens are not shown in it.
-contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', packaged: process.argv.includes('--packaged'), keeper, update, keys, print });
+contextBridge.exposeInMainWorld('bm', { version: arg ? arg.slice(PREFIX.length) : 'unknown', keeper, update, keys, print });

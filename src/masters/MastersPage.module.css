@@ -116,6 +116,12 @@
   border: 0;
   border-radius: 0;
 }
+.tableBox > .showMore {
+  flex: none;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
 
 .nameCell {
   display: flex;

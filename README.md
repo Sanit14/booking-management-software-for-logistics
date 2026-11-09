@@ -33,6 +33,17 @@ npm run seed:load -- C:\bmload                 # PINs in a seeded book: Admin 11
 npm run bench -- C:\bmload --label mypc        # idle PC; writes docs\bench\<date>-mypc.md, every budget should say PASS
 ```
 
+Long lists in the real window (a day of 400 LRs in LR Entry, 500 firms in Masters; a keystroke and another seat's save, timed in ms). **Close Booking Manager first**: it uses the keeper port 47715.
+```powershell
+npm run build; npm run build:node
+npm run measure:ui -- --label mypc             # writes docs\bench\<date>-mypc-ui.md; a median over 100 ms means the lists need "Show more"
+```
+
+The installer's folder step (a link in place of a shared folder gets no permissions) is proved with a real throw-away installer. It needs the NSIS cache that `npm run dist` fills, and is not part of `npm run check`:
+```powershell
+node scripts\test-installer.cjs                # every line must say ok
+```
+
 ## Release (owner)
 Release from the MAIN folder, after the commit is merged and pushed, so the installer matches pushed code:
 ```powershell

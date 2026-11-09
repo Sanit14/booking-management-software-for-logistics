@@ -557,6 +557,8 @@ test('keeper: a new backup folder - the Admin PIN, a verified backup made there 
   fs.writeFileSync(file, 'x');
   const unusable = await set({ dir: path.join(file, 'sub'), adminPin: '4831', confirmSameDrive: true });
   assert.equal(unusable.code, 'backup-dir-unusable');
+  assert.match(unusable.detail ?? '', /^E[A-Z]+$/, 'the screen gets the OS error code only (O9)');
+  assert.match(logOf(s), /\trefused-detail\t.*a-file/, 'the full text, with the path, is in the log');
   assert.equal(await health(), s.backupDir);
   assert.equal((await book()).filter((r) => r.action === 'settings.backup-dir').length, 0, 'a refusal writes nothing');
 
@@ -655,7 +657,7 @@ test('keeper: first-run PIN setup is set-once, wrong PINs lock after five, other
 
 // --- masters ---------------------------------------------------------------------------------------------------
 
-type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; lr?: any; similar?: string[]; taken?: any[]; memoFields?: any; wasuli?: any[]; wasuliFields?: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Answer = { status: number; ok: boolean; value?: any; code?: string; detail?: string; row?: any; lr?: any; memo?: any; similar?: string[]; taken?: any[]; memoFields?: any; wasuli?: any[]; wasuliFields?: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const masters = async (port: number, url: string, body: unknown, seat = 'counter-1'): Promise<Answer> => {
   const r = await callJson(port, 'POST', `/masters/${url}`, body, { seat, timeoutMs: 30000 });
   return { status: r.status, ...(r.json as object) } as Answer;
@@ -1086,14 +1088,18 @@ test('keeper: two seats make memos with an overlapping LR in the same instant - 
 
     // The loser ticks again without the taken LRs and gets the next number: 1, 2 with no gap.
     const rest = loserIds.filter((id) => !overlap.includes(id));
-    const second = await memo(rest, answers[0].ok ? truck2 : truck1, answers[0].ok ? 'counter-2' : 'counter-1', 'memo-c');
+    const loserTruck = answers[0].ok ? truck2 : truck1;
+    const second = await memo(rest, loserTruck, answers[0].ok ? 'counter-2' : 'counter-1', 'memo-c');
     assert.equal(second.ok, true);
     assert.deepEqual([second.value.challanNo, second.value.lrCount], [2, 2]);
     await until('the second memo event', () => a.got.length >= 2 && b.got.length >= 2);
 
     // The same uid again is the first memo, and says so; refused calls announce nothing.
-    const again = await memo(rest, truck1, 'counter-1', 'memo-c');
+    const again = await memo(rest, loserTruck, 'counter-1', 'memo-c');
     assert.deepEqual([again.ok, again.value.id, again.value.again], [true, second.value.id, true]);
+    // ... but the same uid with another truck is neither that memo nor a new one: refused, naming the memo that exists (O3).
+    const changed = await memo(rest, answers[0].ok ? truck1 : truck2, 'counter-1', 'memo-c');
+    assert.deepEqual([changed.ok, changed.status, changed.code, changed.memo.id], [false, 409, 'memo-already-saved', second.value.id]);
     assert.equal((await memo([], truck1, 'counter-1', 'memo-d')).code, 'memo-invalid');
     assert.deepEqual((await memo([], truck1, 'counter-1', 'memo-d')).memoFields, { lrs: 'required' });
     assert.equal((await lrCall(port, '/memos/create', { input: { lrIds: [1] } })).status, 400, 'no uid');
@@ -1753,4 +1759,30 @@ test('keeper: Firm Accounts over the real routes - list, statement, top lists, K
   await within(k.exited, 10000);
   const log = logOf(s);
   for (const secret of ['Shree Ganesh', 'Kale Brothers', '193200', '386400']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
+}));
+
+test('keeper: a request that never finishes - headers or body - is closed by the keeper, and the next request is answered (O8)', () => run(async () => {
+  const s = sandbox();
+  const port = await freePort();
+  const k = startKeeper(s.root, port, s.programData, s.backupDir, { BM_REQUEST_TIMEOUT_MS: '400' });
+  await waitUp(port);
+  const host = `127.0.0.1:${port}`;
+  // What a stalled client sends: the headers of a POST that promises 100 bytes and then 5 of them; or headers that never end.
+  const stalls = [
+    `POST /lrs/defaults HTTP/1.1\r\nHost: ${host}\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{"a":`,
+    `POST /lrs/defaults HTTP/1.1\r\nHost: ${host}\r\nContent-Type: application/json\r\n`,
+  ];
+  for (const raw of stalls) {
+    const closed = new Promise<void>((resolve) => {
+      const socket = net.connect(port, '127.0.0.1', () => socket.write(raw));
+      socket.on('error', () => undefined);
+      socket.on('close', () => resolve());
+      socket.resume(); // read what the keeper answers (408), or the end of the socket would never be seen
+    });
+    await within(closed, 8000); // without a timeout the socket stays open for ever (the old keeper)
+  }
+  const p = await probe(port);
+  assert.equal(p.kind, 'up', 'the keeper still answers');
+  assert.equal(await shutdown(port), true);
+  await within(k.exited, 10000);
 }));

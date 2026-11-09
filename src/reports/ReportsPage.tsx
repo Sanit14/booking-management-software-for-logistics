@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { REPORT_FILTERS, type KeeperResult, type ReportCursor, type ReportKind } from '../../shared';
+import { REPORT_FILTERS, type ReportKind } from '../../shared';
 import { isRange, type Preset } from '../logic/firmPeriod';
+import { NO_PAGES, startPages, withFirstPage, withMorePage, type FirstPage, type Paged } from '../logic/reportPages';
 import { periodFor, queryOf, START_VIEW, type ReportsView } from '../logic/reportQuery';
 import type { Jump } from '../logic/searchResults';
 import { NONE } from '../lrEntry/LrEntryPage';
@@ -10,6 +11,7 @@ import { Card } from '../ui/Card';
 import Field from '../ui/Field';
 import SelectField from '../ui/SelectField';
 import Table from '../ui/Table';
+import { useToast } from '../ui/Toast';
 import { useDebounced } from '../useDebounced';
 import { useKeeperData } from '../useKeeperData';
 import { usePrint } from '../usePrint';
@@ -24,14 +26,8 @@ const PRESETS: Preset[] = ['today', 'month', 'lastMonth', 'year'];
 const TABLES = ['lrs', 'memos', 'wasuli', 'firms', 'stations', 'trucks', 'agents'] as const;
 const WAIT_MS = 150; // after the last key in the name box, so a fast typist asks once
 
-/** The rows with the report and the request they answer, so rows of another report are never drawn under these columns. */
-interface Answer {
-  key: string;
-  rows: unknown[];
-  next: ReportCursor | null;
-  totals: unknown;
-}
-const NO_ANSWER: Answer = { key: '', rows: [], next: null, totals: null };
+/** What the first page answers before there is an answer (no report asked for yet). */
+const NO_FIRST: FirstPage = { key: '', rows: [], next: null, totals: null };
 
 interface Saved {
   view: ReportsView;
@@ -76,31 +72,44 @@ export default function ReportsPage({ today, onPick }: Props) {
   const query = today ? queryOf(view, today, settled) : null;
   const def = DEFS[view.kind];
   const answerKey = JSON.stringify([view.kind, query]);
-  // "Load more" asks for one more page; changing the report, the period or a filter starts again from the first.
-  const [loaded, setLoaded] = useState({ key: '', pages: 1 });
-  const pages = loaded.key === answerKey ? loaded.pages : 1;
-  const list = useKeeperData<Answer>(
+  // The first page and the totals are read again whenever any seat changes something the report reads. The pages below the first (Load more) are not:
+  // they stay as they were, marked out of date, with a Refresh. (Re-reading every loaded page made each LR saved on any seat cost the keeper a full report per page.)
+  const first = useKeeperData<FirstPage>(
     async () => {
-      if (!query) return { ok: true as const, value: NO_ANSWER };
-      let cursor: ReportCursor | null = null;
-      const rows: unknown[] = [];
-      let totals: unknown = null;
-      for (let i = 0; i < pages; i++) {
-        const r: KeeperResult<{ rows: unknown[]; next: ReportCursor | null; totals: unknown }> = await def.read(query, cursor);
-        if (!r.ok) return r;
-        rows.push(...r.value.rows);
-        totals = r.value.totals;
-        cursor = r.value.next;
-        if (!cursor) break;
-      }
-      return { ok: true as const, value: { key: answerKey, rows, next: cursor, totals } };
+      if (!query) return { ok: true as const, value: NO_FIRST };
+      const r = await def.read(query, null);
+      return r.ok ? { ok: true as const, value: { key: answerKey, rows: r.value.rows, next: r.value.next, totals: r.value.totals } } : r;
     },
     TABLES,
-    NO_ANSWER,
-    [answerKey, pages],
+    NO_FIRST,
+    [answerKey],
   );
-  const answered = list.data.key === answerKey; // the answer is to this report, period and filters
-  const current = answered ? list.data : NO_ANSWER;
+  const [paged, setPaged] = useState<Paged>(NO_PAGES);
+  const [taken, setTaken] = useState<FirstPage>(NO_FIRST); // the first-page answer that `paged` has taken in
+  if (taken !== first.data) {
+    setTaken(first.data);
+    setPaged((p) => withFirstPage(p, first.data, (row) => def.rowKey(row as never)));
+  }
+  const answered = paged.key === answerKey; // the answer is to this report, period and filters
+  const current = answered ? paged : NO_PAGES;
+  const toast = useToast();
+  const moreInFlight = useRef(false);
+  const latestFirst = useRef(first.data); // the newest first page, for a Load more that is still on its way when a change comes in
+  useEffect(() => {
+    latestFirst.current = first.data;
+  });
+  const loadMore = async () => {
+    if (!query || !current.next || moreInFlight.current) return;
+    moreInFlight.current = true;
+    const askedWith = first.data;
+    try {
+      const r = await def.read(query, current.next);
+      if (!r.ok) return void toast.error(strings.result(r.code, r.detail));
+      setPaged((p) => (p.key === answerKey ? withMorePage(p, r.value, latestFirst.current !== askedWith) : p));
+    } finally {
+      moreInFlight.current = false;
+    }
+  };
 
   // The row of reports is one Tab stop; the arrow keys walk it and Enter (a click) opens the report.
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -234,9 +243,17 @@ export default function ReportsPage({ today, onPick }: Props) {
               </span>
             ))}
             {current.next && (
-              <Button small variant="outline" onClick={() => setLoaded({ key: answerKey, pages: pages + 1 })}>
+              <Button small variant="outline" onClick={() => void loadMore()}>
                 {t.loadMore}
               </Button>
+            )}
+            {current.stale && (
+              <span role="status">
+                {t.staleRows}{' '}
+                <Button small variant="outline" onClick={() => setPaged(startPages(first.data))}>
+                  {t.refresh}
+                </Button>
+              </span>
             )}
             <span className={styles.hint}>{view.kind === 'firmWise' ? t.firmNote : t.openHint[view.kind]}</span>
           </div>

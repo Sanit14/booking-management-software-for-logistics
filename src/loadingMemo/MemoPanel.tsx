@@ -110,8 +110,26 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
     if (focusError > 0) form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }, [focusError]);
 
+  // Ready for the next truck: the date and From stay, everything about this truck goes.
+  const readyForNext = () => {
+    attempt.current = { key: '', uid: crypto.randomUUID() };
+    setTruck(noBox);
+    setDriver(noBox);
+    setTo(null);
+    setHire('');
+    setHamali('');
+    onSaved();
+  };
+
   const handleRefusal = (r: Extract<KeeperResult<unknown>, { ok: false }>) => {
     switch (r.code) {
+      case 'memo-already-saved':
+        // The first answer was lost and the clerk changed something before saving again: the memo exists, a second one is never made.
+        // Show it (the typed values are dropped; the clerk edits the saved memo instead).
+        if (!r.memo) return toast.error(strings.result(r.code, r.detail));
+        toast.warning(t.alreadySaved(r.memo.challanNo));
+        readyForNext();
+        return onOpen(r.memo.id);
       case 'memo-invalid': {
         const fields: Errors = {};
         for (const [k, why] of Object.entries(r.memoFields ?? {})) fields[k as MemoField] = t.fieldError[why];
@@ -173,14 +191,7 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
       const { id, challanNo, lrCount, again } = r.value;
       if (again) toast.info(t.savedAgain(challanNo));
       else toast.success(t.saved(challanNo), t.savedDetail(lrCount), { label: strings.print.print, onClick: () => void print.memo(id, challanNo, 'print') });
-      // Ready for the next truck: the date and From stay, everything about this truck goes.
-      attempt.current = { key: '', uid: crypto.randomUUID() };
-      setTruck(noBox);
-      setDriver(noBox);
-      setTo(null);
-      setHire('');
-      setHamali('');
-      onSaved();
+      readyForNext();
     } finally {
       inFlight.current = false;
       setBusy(false);

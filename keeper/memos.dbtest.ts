@@ -335,8 +335,36 @@ test('the same uid twice is one memo: the first one comes back, nothing more is 
   const again = saved(s.memos.create(s.db, 'seat-2', input));
   assert.deepEqual([again.id, again.challanNo, again.again], [one.id, one.challanNo, true]);
   assert.equal(footprint(s), before);
-  // even when the LRs are loaded by now, the retry is not a conflict
-  assert.equal(saved(s.memos.create(s.db, 'seat-1', { ...input, lrIds: [a.id, 1] })).again, true);
+  // even when the LRs are loaded by now, the retry is not a conflict (a repeated id counts once)
+  assert.equal(saved(s.memos.create(s.db, 'seat-1', { ...input, lrIds: [a.id, a.id] })).again, true);
+});
+
+test('the same uid with a changed value is refused: the saved memo is named, nothing is written, the challan number does not move (O3)', () => {
+  const s = setUp();
+  const a = book(s);
+  const b = book(s);
+  const input = memoInput(s, [a.id], { truckHire: '4,500', loadingHamali: '300' });
+  const one = saved(s.memos.create(s.db, 'seat-1', input));
+  const before = footprint(s);
+  const changed: Partial<MemoInput>[] = [
+    { truckId: s.truck2 },
+    { toStationId: s.amravati },
+    { fromStationId: s.amravati },
+    { truckHire: '4,600' },
+    { loadingHamali: '' },
+    { date: '2026-10-30', systemPin: SYSTEM },
+    { lrIds: [a.id, b.id] },
+    { lrIds: [b.id] },
+    { truckHire: 'abc' }, // not even valid
+  ];
+  for (const over of changed) {
+    const r = refused(s.memos.create(s.db, 'seat-1', { ...input, ...over }));
+    assert.equal(r.code, 'memo-already-saved', JSON.stringify(over));
+    assert.equal(r.memo?.id, one.id);
+    assert.equal(r.memo?.challanNo, one.challanNo);
+    assert.equal(footprint(s), before, JSON.stringify(over));
+  }
+  assert.equal(saved(create(s, [b.id])).challanNo, one.challanNo + 1, 'the next memo takes the next number');
 });
 
 test('500 LRs make a memo; the 501st is refused', () => {

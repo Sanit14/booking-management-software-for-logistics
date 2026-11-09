@@ -331,6 +331,15 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
         focusFirst();
         return;
       }
+      if (r.code === 'lr-already-saved' && r.lr) {
+        // The first answer was lost and the clerk changed something before saving again: the LR exists, a second one is never made. Show it; the typed
+        // values are dropped (the clerk edits the saved LR instead).
+        toast.warning(t.alreadySaved(r.lr.lrNo));
+        clearDraft(draftSlot);
+        uid.current = crypto.randomUUID();
+        onOpen(r.lr);
+        return;
+      }
       return handleRefusal(r);
     } finally {
       inFlight.current = false;

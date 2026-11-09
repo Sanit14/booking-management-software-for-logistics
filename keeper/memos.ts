@@ -224,6 +224,21 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
   const lrNosOf = (db: Db, ids: number[]) => db.prepare(`SELECT id, lr_no AS no FROM lrs WHERE id IN (${marks(ids)}) ORDER BY lr_date, lr_no`).all(...ids) as { id: number; no: number }[];
   const bump = (db: Db, id: number) => db.prepare(`UPDATE memos SET version = version + 1, updated_at = ${NOW} WHERE id = ?`).run(id);
 
+  /** A retry (a uid that was saved) is the same save when it carries what the memo holds now: header and the LRs on it. A date counts only when one was sent. */
+  function sameAsSaved(db: Db, id: number, input: MemoInput, today: string): boolean {
+    const c = cleanMemo(input, today);
+    const m = memoRow(db, id);
+    if (!m || Object.keys(c.errors).length > 0) return false;
+    const onIt = (db.prepare('SELECT id FROM lrs WHERE memo_id = ? ORDER BY id').all(id) as { id: number }[]).map((r) => r.id);
+    const sent = [...c.ids].sort((a, b) => a - b);
+    return (
+      (input.date === null || c.date === m.date) &&
+      input.truckId === m.truckId && input.driverId === m.driverId && input.fromStationId === m.fromStationId && input.toStationId === m.toStationId &&
+      c.hirePaise === m.truckHirePaise && c.hamaliPaise === m.loadingHamaliPaise &&
+      onIt.length === sent.length && onIt.every((lrId, i) => lrId === sent[i])
+    );
+  }
+
   /** A memo with its LRs (at most 500), its frozen totals and the totals of its LRs now. */
   function detailOf(db: Db, id: number): MemoDetail | undefined {
     const m = db.prepare(`${DETAIL} WHERE m.id = ?`).get(id) as DetailRow | undefined;
@@ -295,11 +310,12 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
      * checked → challan number → memo → claim of the LRs → totals frozen → audit row. The same `uid` returns the first memo.
      */
     create(db: Db, seat: string, input: MemoInput): KeeperResult<MemoSaved> {
-      // A retry of a save that went through: the first memo again, nothing written, no PIN needed.
-      const earlier = db.prepare('SELECT id FROM memos WHERE uid = ?').get(input.uid) as { id: number } | undefined;
-      if (earlier) return ok({ ...rowOf(db, earlier.id), again: true });
-
       const today = localDate(now());
+      // A retry of a save that went through: the first memo again, nothing written, no PIN needed. A retry that carries other values is
+      // not the same save and not a new one either: it is refused and names the memo that exists.
+      const earlier = db.prepare('SELECT id FROM memos WHERE uid = ?').get(input.uid) as { id: number } | undefined;
+      if (earlier) return sameAsSaved(db, earlier.id, input, today) ? ok({ ...rowOf(db, earlier.id), again: true }) : refuse('memo-already-saved', { memo: detail(db, earlier.id) });
+
       const c = cleanMemo(input, today);
       if (Object.keys(c.errors).length > 0) return refuse('memo-invalid', { memoFields: c.errors });
       if (c.date !== today) {

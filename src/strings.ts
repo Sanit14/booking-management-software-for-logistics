@@ -62,6 +62,7 @@ const resultText: Record<ResultCode, string> = {
   'master-bad': 'One of the values cannot be saved.',
   'lr-invalid': 'The LR cannot be saved yet. Check the marked boxes.',
   'lr-stale': 'This LR was changed on another computer.',
+  'lr-already-saved': 'This LR was already saved. Open it and edit it there.',
   'lr-missing': 'That LR no longer exists.',
   'lr-cancelled': 'This LR is cancelled. Restore it first.',
   'lr-not-cancelled': 'This LR is not cancelled.',
@@ -71,11 +72,12 @@ const resultText: Record<ResultCode, string> = {
   'memo-conflict': 'Some of the ticked LRs were just loaded by another computer. Nothing was saved.',
   'memo-missing': 'That memo no longer exists.',
   'memo-stale': 'Another computer changed this memo. It is shown as it is now.',
+  'memo-already-saved': 'This memo was already saved. Open it and edit it there.',
   'memo-cancelled': 'This memo is cancelled and cannot be changed.',
   'memo-last-lr': 'A memo cannot be left with no LR. Cancel the memo instead.',
   'memo-target': 'Pick another saved memo to move the LRs to.',
   'company-invalid': 'The company name is needed, and each line can have at most 100 characters.',
-  'print-too-long': 'This statement has too many LRs to print at once. Choose a shorter period.',
+  'print-too-long': 'This is too long to print at once. Choose a shorter period.',
   'report-too-long': `This report has more than ${MAX_REPORT_PRINT_ROWS} rows, the most that can be printed at once. Choose a shorter period.`,
   'wasuli-invalid': 'The collection cannot be saved yet. Check the marked boxes.',
   'wasuli-stale': 'Another computer changed this collection. The list is refreshed.',
@@ -85,6 +87,21 @@ const resultText: Record<ResultCode, string> = {
   failed: 'It did not work',
   'keeper-unreachable': 'The database service did not answer',
 };
+
+// What a file problem is called for the clerk. The keeper and main send only the OS error code (the full text, with the path, goes to the log); a code
+// that is not here shows nothing, so the message is the plain "It did not work".
+const fileProblem: Record<string, string> = {
+  EACCES: 'Windows did not allow access to a file or folder.',
+  EPERM: 'Windows did not allow access to a file or folder.',
+  ENOSPC: 'The disk is full.',
+  ENOENT: 'A file or folder was not found.',
+  EBUSY: 'A file is in use by another program.',
+};
+// The refusals whose detail can be an OS error code (the keeper and main send nothing else of an error): their detail becomes words, or nothing.
+// Any other code's detail is a name, a number or a sentence from this file (a seat may be called ENTRY2) and is shown as it is.
+const fromOs = new Set<ResultCode>(['failed', 'backup-dir-unusable', 'restore-backup-failed', 'keeper-unreachable']);
+const withDetail = (text: string, detail?: string): string => (detail ? `${text}: ${detail}` : text);
+const words = (code: ResultCode, detail?: string): string | undefined => (detail !== undefined && fromOs.has(code) && /^E[A-Z0-9]+$/.test(detail) ? fileProblem[detail] : detail);
 
 const contactAdmin = 'Do not enter data. Please contact the administrator.';
 const masterOne: Record<MasterKind, string> = { stations: 'station', firms: 'firm', trucks: 'truck', drivers: 'driver', agents: 'agent' };
@@ -136,6 +153,8 @@ export const strings = {
         return `A database service is already running on a different data folder (${s.detail}). ${contactAdmin}`;
       case 'keeper-unreachable':
         return `The database service could not be started (${s.detail}). ${contactAdmin}`;
+      case 'keeper-start-failed':
+        return 'The database could not be opened after the update. Do not reinstall. Call Sanit.';
     }
   },
 
@@ -266,6 +285,7 @@ export const strings = {
     saved: (no: number) => `Challan ${no} saved`,
     savedDetail: (n: number) => `${n} ${n === 1 ? 'LR' : 'LRs'}`,
     savedAgain: (no: number) => `Challan ${no} was already saved`,
+    alreadySaved: (no: number) => `This memo was already saved as challan ${no}. Open it and edit it there.`,
     noneTicked: 'Tick at least one LR first.',
     conflictTitle: 'Some LRs were just loaded elsewhere',
     conflictText: 'Nothing was saved. These LRs come off your ticks:',
@@ -427,7 +447,6 @@ export const strings = {
   // History (4.2): the audit log in words. The sentences are built from the row's data in src/logic/historySentence.ts; an action this build
   // has no sentence for shows its raw code.
   history: {
-    listLabel: 'History',
     presets: { week: 'Last 7 days', today: 'Today', month: 'This month', lastMonth: 'Last month', custom: 'Custom' },
     periodLabel: 'Period',
     from: 'From',
@@ -570,6 +589,8 @@ export const strings = {
     tableLabel: (name: string) => `${name} report`,
     empty: 'Nothing in this period.',
     loadMore: 'Load more',
+    staleRows: 'Rows below may be out of date —',
+    refresh: 'Refresh',
     openHint: { dateWise: 'Enter opens that whole day in LR Entry.', stationWise: 'Enter lists its LRs.', consignorWise: 'Enter lists its LRs.', consigneeWise: 'Enter lists its LRs.', truckWise: 'Enter opens the memo.', firmWise: 'Enter opens the firm\'s account for this period.', wasuli: 'Assigned and the pool are as of now; Collected is for the period.' },
     firmNote: 'An LR between two firms is in both rows, so its money is not totalled. Walk-in counts are for the whole period.',
     walkIn: 'walk-in',
@@ -710,8 +731,6 @@ export const strings = {
     masters: 'Masters',
     settings: 'Settings',
   },
-  pageEmpty: 'Nothing to show here yet',
-  pageEmptyHint: 'This page is built in a later session.',
   status: {
     connected: 'Database service connected',
     reconnecting: 'Reconnecting…',
@@ -731,9 +750,6 @@ export const strings = {
     noSchema: '–',
     dataFolder: 'Data folder',
     backupFolder: 'Backup folder',
-    componentsTitle: 'Components',
-    componentsText: 'Every building block of the screens, in every state.',
-    openComponents: 'Open Components page',
     dataFolderNote: 'The data folder is chosen when Booking Manager is installed. To move it, run the installer again.',
     // The Admin settings (4.2): each needs the Admin PIN and each is written to History.
     backupFolderTitle: 'Backup folder',
@@ -768,75 +784,6 @@ export const strings = {
     restoreDoneText: 'Entries made after that backup are not in the database now; they are in the copy kept in the backup folder.',
     restoreSessions: (list: number[]) => `Windows session ${list.join(', ')}`,
   },
-  // The Components page (a developer showcase; its sample data is made up).
-  components: {
-    title: 'Components',
-    subtitle: 'Every building block in every state',
-    back: 'Back',
-    buttons: 'Buttons and key caps',
-    variant: { primary: 'Primary', secondary: 'Secondary', outline: 'Outline', ghost: 'Ghost', danger: 'Danger' },
-    saveLr: 'Save LR',
-    disabled: 'Disabled',
-    keyCaps: 'Key caps:',
-    fields: 'Fields (Enter moves to the next field)',
-    f: {
-      plain: 'Plain',
-      placeholder: 'Type here',
-      required: 'Required',
-      hint: 'A hint under the field',
-      error: 'With error',
-      errorText: 'Quantity must be a whole number',
-      readOnly: 'Read-only',
-      money: 'Money',
-      moneyEmpty: 'Money, empty',
-      disabled: 'Disabled',
-      last: 'Last field',
-      lastHint: 'Enter here saves',
-      firm: 'Consignor',
-      firmPlaceholder: 'Type a firm name',
-      next: 'Next field',
-      nextHint: 'Enter in Consignor lands here',
-    },
-    enterNote: 'Enter on the last field, or on this button, saves.',
-    formSubmitted: 'Form submitted',
-    typeAhead: 'TypeAhead',
-    typeAheadKeys: '↑ ↓ move, Enter picks, Esc closes',
-    walkIn: 'Walk-in — keep typing',
-    nothingTyped: 'Nothing typed yet.',
-    typedOnly: (text: string) => `Kept as typed: "${text}" (walk-in).`,
-    pickedMaster: (text: string) => `Picked from the list: "${text}".`,
-    chipsCards: 'Chips, cards and page header',
-    stat: { lrs: 'LRs booked', pending: 'Pending to load', trucks: 'Trucks out' },
-    cardTitle: 'A card',
-    cardBody: 'Cards hold lists and forms.',
-    header: { title: 'Page header', subtitle: 'Title, a line under it, and actions on the right' },
-    tables: 'Tables',
-    scrollBox: 'Scroll box with sticky header (click a row, or Enter / ↑ ↓ on it)',
-    pickedRow: (lr: number) => `Picked LR ${lr}`,
-    emptyTable: 'Empty table',
-    empty: 'Nothing here',
-    tickLr: (lr: number) => `Tick LR ${lr}`,
-    cols: { lr: 'LR', consignor: 'Consignor', to: 'To', qty: 'Qty', toPay: 'To pay ₹', status: 'Status' },
-    totals: { lrs: (n: number) => `${n} LRs`, toPay: '₹7,450' },
-    statLines: { booked: 'Booked', loaded: 'Loaded', stations: 'Stations', oldest: 'Oldest booked', memos: 'Memos' },
-    feedback: 'Toasts, dialogs and PIN',
-    toast: { success: 'Success toast', info: 'Info toast', warning: 'Warning toast', error: 'Error toast', detail: 'A second line with details' },
-    openConfirm: 'Confirm dialog',
-    openDanger: 'Danger dialog',
-    openPin: 'PIN dialog',
-    pinNote: 'Success and info toasts hide after 4 seconds; warnings and errors stay until closed. The demo PIN is 1234.',
-    dialog: {
-      title: 'Save this LR?',
-      text: 'Enter or the buttons choose; Esc cancels and focus goes back to the button that opened this.',
-      confirm: 'Save',
-      done: 'Confirmed',
-      dangerTitle: 'Cancel this LR?',
-      dangerText: 'This cannot be undone. Focus starts on Cancel.',
-      dangerConfirm: 'Cancel LR',
-    },
-    pinTitle: 'System PIN',
-    pinOk: 'PIN accepted',
-  },
   required: 'Required',
   ui: {
     dismiss: 'Dismiss',
@@ -844,10 +791,10 @@ export const strings = {
     ok: 'OK',
     pinPrompt: (digits: number) => `Enter the ${digits}-digit System PIN`,
     enter: 'Enter',
-    esc: 'Esc',
     rupee: '₹',
     pinLabel: 'System PIN',
     pinWrong: 'Wrong PIN. Try again.',
+    showMore: (n: number) => `Show more (${n} more)`,
   },
   chip: {
     booked: 'Booked',
@@ -1034,9 +981,9 @@ export const strings = {
     saved: (no: number) => `LR ${no} saved`,
     savedDetail: (consignor: string, consignee: string, to: string) => `${consignor} to ${consignee}, ${to}`,
     savedAgain: (no: number) => `LR ${no} was already saved`,
+    alreadySaved: (no: number) => `This LR was already saved as LR ${no}. Open it and edit it there.`,
     listTitle: (isToday: boolean, date: string) => (isToday ? "Today's LRs" : `LRs of ${date}`),
     listLabel: 'LRs of the day',
-    newestFirst: 'Newest first',
     empty: 'No LRs yet for this day.',
     columns: { lr: 'LR', consignor: 'Consignor', consignee: 'Consignee', to: 'To', qty: 'Qty', toPay: 'To pay', paid: 'Paid', status: 'Status' },
     totals: { lrs: 'LRs', qty: 'Qty', toPay: 'To pay ₹', paid: 'Paid ₹' },
@@ -1270,7 +1217,7 @@ export const strings = {
         ? `Wasuli already collected for LR ${detail} — undo the collection first.`
         : code === 'print-too-long' && detail
           ? `This statement has ${detail} LRs; at most ${MAX_STATEMENT_PRINT_ROWS} can be printed at once. Choose a shorter period.`
-          : `${resultText[code]}${detail ? `: ${detail}` : ''}`,
+          : withDetail(resultText[code], words(code, detail)),
 
   safeMode: {
     title: 'Restore a backup',

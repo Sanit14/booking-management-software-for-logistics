@@ -34,7 +34,6 @@ export function useKeeperData<T>(fetcher: () => Promise<KeeperResult<T>>, tables
 
   useEffect(reload, [reload, ...deps]);
   useEffect(() => {
-    if (!window.bm) return; // `npm run dev -- --components` in a plain browser has no preload
     return window.bm.keeper.onChanged((change) => {
       if (change.tables.some((t) => latest.current.tables.includes(t))) reload();
     });

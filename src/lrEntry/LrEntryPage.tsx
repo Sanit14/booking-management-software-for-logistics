@@ -15,6 +15,7 @@ import Table, { type Column } from '../ui/Table';
 import { useToast } from '../ui/Toast';
 import { useKeeperData } from '../useKeeperData';
 import { useKeys } from '../useKeys';
+import { useShowMore } from '../useShowMore';
 import LrForm from './LrForm';
 import styles from './LrEntryPage.module.css';
 
@@ -122,6 +123,7 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }:
     if (!Number.isInteger(no) || no < 1) return;
     guarded(() => void open(window.bm.keeper.lrs.find(no), t.notFound(no)).then((found) => found && setFindNo('')));
   };
+  const list = useShowMore(day.data?.rows ?? [], listDate ?? ''); // 400 rows cost over 100 ms a keystroke: the first 200, then "Show more"
   const cancelledRows = useMemo(() => new Set((day.data?.rows ?? []).filter((r) => r.status === 'cancelled').map((r) => String(r.id))), [day.data]);
   const onFindKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
@@ -190,13 +192,20 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }:
             <Table
               label={t.listLabel}
               columns={columns}
-              rows={day.data?.rows ?? []}
+              rows={list.shown}
               rowKey={(r) => String(r.id)}
               empty={t.empty}
               ticked={lr ? new Set([String(lr.id)]) : undefined}
               dimmed={cancelledRows}
               onRowActivate={(r) => guarded(() => void open(window.bm.keeper.lrs.get(r.id)))}
             />
+            {list.hidden > 0 && (
+              <div className={styles.showMore}>
+                <Button small variant="outline" onClick={list.showMore}>
+                  {strings.ui.showMore(list.hidden)}
+                </Button>
+              </div>
+            )}
           </div>
           <div className={styles.totalsStrip}>
             <span>

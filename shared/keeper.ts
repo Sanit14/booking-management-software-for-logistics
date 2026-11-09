@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 19;
+export const KEEPER_VERSION = 20;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -576,6 +576,7 @@ export type MemoRefusal =
   | 'memo-conflict' // `taken`: the LRs another seat got first; nothing was saved
   | 'memo-missing'
   | 'memo-stale' // `memo`: the current memo, to show what changed
+  | 'memo-already-saved' // a save with this uid went through with other values: `memo` is that memo, nothing was written
   | 'memo-cancelled' // a cancelled memo cannot be changed
   | 'memo-last-lr' // taking these LRs off would leave the memo with none: cancel the memo instead
   | 'memo-target'; // the memo to move LRs to is missing, cancelled, or the same memo
@@ -725,6 +726,7 @@ export type PrintRefusal =
 export type LrRefusal =
   | 'lr-invalid' // `fields`: what to fix
   | 'lr-stale' // `lr`: the current LR, to show what changed
+  | 'lr-already-saved' // a save with this uid went through with other values: `lr` is that LR, nothing was written
   | 'lr-missing'
   | 'lr-cancelled' // cannot be edited or cancelled again: restore it first
   | 'lr-not-cancelled' // restore of an LR that is not cancelled
@@ -1325,6 +1327,7 @@ export type KeeperErrorCode =
   | 'root-refused' // detail: the refused path, `refusal` says why
   | 'root-pointer-unreadable' // detail: the pointer file
   | 'keeper-unreachable'
+  | 'keeper-start-failed' // the keeper started and exited with an error 3 times in 10 minutes (a migration that throws): this seat stopped trying
   | 'keeper-wrong-app' // something else answers on the keeper port
   | 'keeper-other-root'; // a keeper is running on another data root; detail: that root
 

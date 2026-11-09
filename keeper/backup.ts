@@ -70,7 +70,8 @@ export async function verifyBackup(file: string): Promise<number> {
 }
 
 /** Deletes a database file and any -wal / -shm / -journal a read of it may have left beside it. */
-export const removeWithSidecars = (file: string): void => ['', '-wal', '-shm', '-journal'].forEach((suffix) => fs.rmSync(file + suffix, { force: true }));
+export const SIDECARS = ['-wal', '-shm', '-journal'];
+export const removeWithSidecars = (file: string): void => ['', ...SIDECARS].forEach((suffix) => fs.rmSync(file + suffix, { force: true }));
 
 export interface MadeBackup {
   file: string;
@@ -137,25 +138,56 @@ export function pruneBackups(dir: string, now = new Date()): string[] {
   return drop;
 }
 
+const RECENT_BACKUP_MS = 60 * 60 * 1000;
+
+/**
+ * The newest backup in `dir` when it is under an hour old and holds schema version `version`, else undefined. A migration that throws makes the
+ * keeper exit and start again: the first start's backup is the book as it was, so the starts after it need none (one a minute filled the disk).
+ */
+function recentBackup(dir: string, version: number, now: Date): string | undefined {
+  let newest: ReturnType<typeof backupFiles>[number] | undefined;
+  try {
+    newest = backupFiles(dir)[0];
+  } catch {
+    return undefined; // a folder that cannot be read has no backup in it: makeBackup then fails and says why (backupError), and the migration still runs
+  }
+  const age = newest ? now.getTime() - newest.at.getTime() : -1;
+  if (!newest || age < 0 || age >= RECENT_BACKUP_MS) return undefined;
+  let db: Db | undefined;
+  try {
+    db = new Database(path.join(dir, newest.file), { readonly: true, fileMustExist: true });
+    return (hasTable(db, 'schema_version') ? currentVersion(db) : 0) === version ? newest.file : undefined;
+  } catch {
+    return undefined; // an unreadable backup is no backup: make a new one
+  } finally {
+    if (db?.open) db.close();
+  }
+}
+
 /**
  * migrate(), after a backup when the database already has a schema and a migration is pending, so a bad
  * migration can always be undone. If that backup cannot be written the migration still runs (a machine without
- * its backup drive must not be left with a dead app) and the failure comes back in `backupError`.
+ * its backup drive must not be left with a dead app) and the failure comes back in `backupError`. A backup of the
+ * same schema version made in the last hour is not repeated (`backupSkipped` names it).
  */
 export async function migrateSafely(
   db: Db,
   dir: string,
   now = new Date(),
   migrations: Migration[] = MIGRATIONS,
-): Promise<{ version: number; backup?: MadeBackup; backupError?: string }> {
+): Promise<{ version: number; backup?: MadeBackup; backupError?: string; backupSkipped?: string }> {
   const latest = migrations[migrations.length - 1]?.version ?? 0;
-  const out: { version: number; backup?: MadeBackup; backupError?: string } = { version: 0 };
+  const out: { version: number; backup?: MadeBackup; backupError?: string; backupSkipped?: string } = { version: 0 };
   const at = hasTable(db, 'schema_version') ? currentVersion(db) : 0;
   if (at > 0 && at < latest) {
-    try {
-      out.backup = await makeBackup(db, dir, now);
-    } catch (e) {
-      out.backupError = String((e as Error)?.message ?? e);
+    const recent = recentBackup(dir, at, now);
+    if (recent) out.backupSkipped = recent;
+    else {
+      try {
+        out.backup = await makeBackup(db, dir, now);
+      } catch (e) {
+        out.backupError = String((e as Error)?.message ?? e);
+      }
     }
   }
   out.version = migrate(db, migrations);

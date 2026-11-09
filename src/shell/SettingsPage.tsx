@@ -15,8 +15,8 @@ import SeatCard from './SeatCard';
 import UpdateCard from './UpdateCard';
 import styles from './SettingsPage.module.css';
 
-/** Only what exists so far: versions and folders, the backup export (moved here from the 1.4 status line) and the Components page link. */
-export default function SettingsPage({ health, seat, onExported, onComponents }: { health: KeeperHealth; seat: string; onExported: () => void; onComponents: () => void }) {
+/** Versions and folders, the backup export, the backup folder, restore, the seat, PINs, keys, company lines, LR defaults and updates. */
+export default function SettingsPage({ health, seat, onExported }: { health: KeeperHealth; seat: string; onExported: () => void }) {
   const toast = useToast();
   const s = strings.settings;
   const facts: [string, string][] = [
@@ -65,17 +65,6 @@ export default function SettingsPage({ health, seat, onExported, onComponents }:
         <BackupFolderCard dir={health.backupDir} onChanged={onExported} />
         <RestoreCard onRestored={onExported} />
         <SeatCard seat={seat} />
-        {/* A building-block showcase for the developers: not in the installed app. */}
-        {!window.bm.packaged && (
-          <Card title={strings.settings.componentsTitle}>
-            <div className={styles.body}>
-              <p>{strings.settings.componentsText}</p>
-              <Button variant="outline" onClick={onComponents}>
-                {strings.settings.openComponents}
-              </Button>
-            </div>
-          </Card>
-        )}
       </div>
     </Page>
   );

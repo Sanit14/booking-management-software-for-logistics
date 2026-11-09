@@ -25,7 +25,7 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      additionalArguments: [`--app-version=${app.getVersion()}`, ...(app.isPackaged ? ['--packaged'] : [])],
+      additionalArguments: [`--app-version=${app.getVersion()}`],
     },
   });
 
@@ -37,8 +37,7 @@ function createWindow(): BrowserWindow {
   });
 
   if (dev) {
-    // `npm run dev -- --components` opens the Components page directly (the screen reads the hash).
-    void win.loadURL(process.argv.includes('--components') ? `${DEV_URL}#components` : DEV_URL);
+    void win.loadURL(DEV_URL);
   } else {
     void win.loadFile(path.join(__dirname, '..', '..', 'dist', 'index.html'));
   }

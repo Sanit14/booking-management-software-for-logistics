@@ -65,6 +65,25 @@ function detailOf(r: LrRow): LrDetail {
   };
 }
 
+/**
+ * A retry (a uid that was saved) is the same save when it carries what the LR holds: stations, amounts, particular, quantity and option equal,
+ * a picked firm by its id, a typed name by the name as booked. A date counts only when one was sent (the form sends none for "today").
+ */
+function sameAsSaved(row: LrRow, input: LrInput, today: string): boolean {
+  const c = cleanLr(input, today);
+  if (Object.keys(c.errors).length > 0) return false;
+  // A typed name is compared as the keeper compares firm names: a new firm typed on both sides in two spellings is one firm, saved under the first.
+  const party = (id: number | null, name: string, picked: LrInput['consignor'], typed: string | null) => (typed === null ? id === picked.firmId : nameKey(name) === nameKey(typed));
+  return (
+    (input.date === null || c.date === row.lr_date) &&
+    input.fromStationId === row.from_station_id && input.toStationId === row.to_station_id &&
+    party(row.consignor_id, row.consignor_name, input.consignor, c.consignorName) && party(row.consignee_id, row.consignee_name, input.consignee, c.consigneeName) &&
+    c.particular === row.particular && c.n.qty === row.qty && input.chargeOption === row.charge_option &&
+    c.n.toPay === row.topay_paise && c.n.paid === row.paid_paise && c.n.godownBhada === row.godown_bhada_paise && c.n.godownInsurance === row.godown_insurance_paise &&
+    c.n.deliveryCharges === row.delivery_charges_paise && c.n.hamali === row.hamali_paise && c.n.wasuli === row.wasuli_paise && c.n.staxBp === row.stax_bp
+  );
+}
+
 /** What an edit leaves alone: a station or firm the LR already has stays allowed even if it was deactivated since, and keeps its stored name. */
 interface Keep {
   from: number;
@@ -179,11 +198,15 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
     },
 
     create(db: Db, seat: string, input: LrInput): KeeperResult<LrSaved> {
-      // A retry of a save that went through: the first LR again, nothing written, no PIN needed.
-      const earlier = db.prepare('SELECT id FROM lrs WHERE uid = ?').get(input.uid) as { id: number } | undefined;
-      if (earlier) return ok(saved(db, earlier.id, true, false));
-
       const today = localDate(now());
+      // A retry of a save that went through: the first LR again, nothing written, no PIN needed. A retry that carries other values is
+      // not the same save and not a new one either: it is refused and names the LR that exists.
+      const earlier = db.prepare('SELECT id FROM lrs WHERE uid = ?').get(input.uid) as { id: number } | undefined;
+      if (earlier) {
+        const row = rowOf(db, earlier.id) as LrRow;
+        return sameAsSaved(row, input, today) ? ok(saved(db, earlier.id, true, false)) : refuse('lr-already-saved', { lr: detailOf(row) });
+      }
+
       const c = cleanLr(input, today);
       if (Object.keys(c.errors).length > 0) return refuse('lr-invalid', { fields: c.errors });
       if (c.date !== today) {
