@@ -14,13 +14,8 @@ const good: LrInput = {
   qty: '12',
   toPay: '1,800',
   paid: '',
-  chargeOption: 'option1',
-  godownBhada: '5',
-  godownInsurance: '5',
-  deliveryCharges: '2',
   hamali: '120',
   wasuli: '',
-  staxPercent: '5',
 };
 const today = '2026-10-29';
 const with_ = (over: Partial<LrInput>): LrInput => ({ ...good, ...over });
@@ -32,7 +27,7 @@ test('cleanLr: a complete LR has no errors and the numbers are parsed', () => {
   assert.equal(r.particular, 'Cloth bales');
   assert.equal(r.consignorName, null, 'a picked firm has no typed name');
   assert.equal(r.consigneeName, 'Kale Brothers', 'a walk-in name is trimmed and its spaces collapsed');
-  assert.deepEqual(r.n, { qty: 12, toPay: 180000, paid: 0, godownBhada: 500, godownInsurance: 500, deliveryCharges: 200, hamali: 12000, wasuli: 0, staxBp: 500 });
+  assert.deepEqual(r.n, { qty: 12, toPay: 180000, paid: 0, hamali: 12000, wasuli: 0 });
 });
 
 test('cleanLr: consignor, consignee and particular are required', () => {
@@ -62,11 +57,9 @@ test('cleanLr: to pay and paid are never both above zero; either alone is fine, 
   assert.deepEqual(cleanLr(with_({ toPay: '0', paid: '0' }), today).errors, {});
 });
 
-test('cleanLr: every money box and the tax box name themselves when malformed', () => {
-  const r = cleanLr(with_({ toPay: 'x', paid: '1.234', godownBhada: '-1', godownInsurance: '1e2', deliveryCharges: '₹5', hamali: '1,2,3', wasuli: 'abc', staxPercent: '101' }), today);
-  assert.deepEqual(r.errors, {
-    toPay: 'amount', paid: 'amount', godownBhada: 'amount', godownInsurance: 'amount', deliveryCharges: 'amount', hamali: 'amount', wasuli: 'amount', staxPercent: 'percent',
-  });
+test('cleanLr: every money box names itself when malformed', () => {
+  const r = cleanLr(with_({ toPay: 'x', paid: '1.234', hamali: '1,2,3', wasuli: 'abc' }), today);
+  assert.deepEqual(r.errors, { toPay: 'amount', paid: 'amount', hamali: 'amount', wasuli: 'amount' });
 });
 
 test('cleanLr: an absurdly large amount is refused by name, not left to blow up in the money maths', () => {
@@ -86,7 +79,7 @@ test('cleanLr: the date is today, a past date, but never a future or an impossib
 });
 
 test('parseNumbers: an empty form is all zeros and no errors (a preview can run on it)', () => {
-  const { n, errors } = parseNumbers({ qty: '', toPay: '', paid: '', godownBhada: '', godownInsurance: '', deliveryCharges: '', hamali: '', wasuli: '', staxPercent: '' });
+  const { n, errors } = parseNumbers({ qty: '', toPay: '', paid: '', hamali: '', wasuli: '' });
   assert.deepEqual(errors, {});
   assert.ok(Object.values(n).every((v) => v === 0));
 });
@@ -130,6 +123,9 @@ test('diffLr: only the columns that differ, before and after', () => {
   });
   assert.equal(diffLr(was, { ...was }), null, 'nothing differs: nothing to write');
   assert.equal(diffLr(was, { ...was, status: 'cancelled' }), null, 'only the edit columns are compared');
+  // An LR saved before 4.5 keeps its charge columns and tax rate: an edit neither writes nor compares them.
+  const old = { ...was, charge_option: 'option1', godown_bhada_paise: 500, godown_insurance_paise: 500, delivery_charges_paise: 200, stax_bp: 500 };
+  assert.equal(diffLr(old, { ...old, charge_option: 'blank', godown_bhada_paise: 0, godown_insurance_paise: 0, delivery_charges_paise: 0, stax_bp: 0 }), null);
 });
 
 test('changesOf: the audit pair as History lines, in form order; a firm that kept its name shows no line', () => {
@@ -145,7 +141,27 @@ test('changesOf: the audit pair as History lines, in form order; a firm that kep
     { field: 'toPay', from: 180000, to: 0 },
   ]);
   assert.deepEqual(changesOf({ consignee_id: null, consignee_name: 'Patil' }, { consignee_id: 7, consignee_name: 'Patil' }, () => ''), []);
-  assert.deepEqual(changesOf({ stax_bp: 500 }, { stax_bp: 250 }, () => ''), [{ field: 'staxPercent', from: '5', to: '2.5' }]);
+  assert.deepEqual(changesOf({ hamali_paise: 0 }, { hamali_paise: 1250 }, () => ''), [{ field: 'hamali', from: 0, to: 1250 }]);
+});
+
+test('changesOf: the audit row of an edit made before 4.5 still reads, its old fields after the current ones', () => {
+  const lines = changesOf(
+    { charge_option: 'blank', godown_bhada_paise: 0, delivery_charges_paise: 200, stax_bp: 500, hamali_paise: 0 },
+    { charge_option: 'option1', godown_bhada_paise: 500, delivery_charges_paise: 0, stax_bp: 250, hamali_paise: 3000 },
+    () => '',
+  );
+  assert.deepEqual(lines, [
+    { field: 'hamali', from: 0, to: 3000 },
+    { field: 'chargeOption', from: 'blank', to: 'option1' },
+    { field: 'godownBhada', from: 0, to: 500 },
+    { field: 'deliveryCharges', from: 200, to: 0 },
+    { field: 'staxPercent', from: '5', to: '2.5' },
+  ]);
+});
+
+test('asLrInput: the charge option, the godown and delivery charges and the tax % of an older client are not read', () => {
+  const r = asLrInput({ ...good, chargeOption: 'option1', godownBhada: '5', godownInsurance: '5', deliveryCharges: '2', staxPercent: '5' }) as unknown as Record<string, unknown>;
+  for (const k of ['chargeOption', 'godownBhada', 'godownInsurance', 'deliveryCharges', 'staxPercent']) assert.ok(!(k in r), k);
 });
 
 test('localDate is the local calendar date, isDate rejects dates that roll over', () => {

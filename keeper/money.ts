@@ -1,4 +1,4 @@
-// Money is integer paise everywhere. This is the only place amounts are parsed, taxed and added up.
+// Money is integer paise everywhere. This is the only place amounts are parsed and added up.
 // Pure: no database. Every function refuses input that is not a whole, non-negative paise amount.
 
 function whole(n: number, what: string): number {
@@ -20,24 +20,6 @@ export function parseRupees(text: string): number {
   return paise;
 }
 
-const PERCENT = /^(\d{1,3})(?:\.(\d{1,2}))?$/;
-
-/** "5" -> 500, "2.5" -> 250 (basis points). "" -> 0. Over 100, negative, 3 decimals or text throws. */
-export function parsePercent(text: string): number {
-  const t = text.trim();
-  if (t === '') return 0;
-  const m = PERCENT.exec(t);
-  const bp = m ? Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0')) : NaN;
-  if (!(bp <= 10000)) throw new Error(`invalid percent: ${JSON.stringify(text)}`);
-  return bp;
-}
-
-/** 250 -> "2.5", 500 -> "5": basis points as the text a person would type. */
-export function percentText(bp: number): string {
-  if (!Number.isInteger(bp) || bp < 0 || bp > 10000) throw new Error(`invalid tax rate: ${String(bp)}`);
-  return `${Math.floor(bp / 100)}${bp % 100 ? `.${String(bp % 100).padStart(2, '0').replace(/0$/, '')}` : ''}`;
-}
-
 /** 123456789 -> "12,34,567.89": the amount as printed on paper, Indian grouping, always two decimals, no sign. */
 export function inr(paise: number): string {
   const rupees = String(Math.floor(whole(paise, 'amount') / 100));
@@ -45,58 +27,17 @@ export function inr(paise: number): string {
   return `${head}${rupees.slice(-3)}.${String(paise % 100).padStart(2, '0')}`;
 }
 
-/** Service tax on `basePaise` at `bp` basis points (500 = 5%), rounded half up. The only tax code. */
-export function taxPaise(basePaise: number, bp: number): number {
-  whole(basePaise, 'tax base');
-  if (!Number.isInteger(bp) || bp < 0 || bp > 10000) throw new Error(`invalid tax rate: ${String(bp)}`);
-  return Math.floor((whole(basePaise * bp, 'tax base') + 5000) / 10000);
-}
-
-/** A charge option from Settings, in paise. Same shape as DM's CartageRule. */
-export interface ChargeRule {
-  godownBhadaPaise: number;
-  godownInsurancePaise: number;
-  deliveryChargesPaise: number;
-  hamaliPerDagPaise: number;
-  hamaliFlatPaise: number;
-  hamaliMode: 'perDag' | 'flat' | 'none';
-}
-
-/** What a rule fills into a new LR. Only hamali depends on the quantity (per dag); the rest is flat. */
-export function chargesFor(rule: ChargeRule, qty: number) {
-  whole(qty, 'quantity');
-  const hamali =
-    rule.hamaliMode === 'perDag' ? rule.hamaliPerDagPaise * qty : rule.hamaliMode === 'flat' ? rule.hamaliFlatPaise : 0;
-  return {
-    godownBhada: whole(rule.godownBhadaPaise, 'godown bhada'),
-    godownInsurance: whole(rule.godownInsurancePaise, 'godown insurance'),
-    deliveryCharges: whole(rule.deliveryChargesPaise, 'delivery charges'),
-    hamali: whole(hamali, 'hamali'),
-  };
-}
-
-/** The money columns of an LR row. */
+/** The money columns of an LR row that count: freight (to pay or paid) and hamali. The older charge and tax columns stay in the table and count for nothing. */
 export interface LrMoney {
   topay_paise: number;
   paid_paise: number;
-  godown_bhada_paise: number;
-  godown_insurance_paise: number;
-  delivery_charges_paise: number;
   hamali_paise: number;
-  pf_paise: number;
-  stax_bp: number;
 }
 
-/** Freight is to pay or paid (never both); tax is on freight only; the total is the same for either mode. */
+/** Freight is to pay or paid (never both); the total is freight + hamali, the same for either mode. No tax. */
 export function lrAmounts(lr: LrMoney) {
   if (lr.topay_paise > 0 && lr.paid_paise > 0) throw new Error('an LR cannot be both to pay and paid');
   const freight = whole(lr.topay_paise, 'to pay') + whole(lr.paid_paise, 'paid');
-  const charges =
-    whole(lr.godown_bhada_paise, 'godown bhada') +
-    whole(lr.godown_insurance_paise, 'godown insurance') +
-    whole(lr.delivery_charges_paise, 'delivery charges') +
-    whole(lr.hamali_paise, 'hamali') +
-    whole(lr.pf_paise, 'pf');
-  const stax = taxPaise(freight, lr.stax_bp);
-  return { freight, charges, stax, total: freight + charges + stax };
+  const hamali = whole(lr.hamali_paise, 'hamali');
+  return { freight, hamali, total: freight + hamali };
 }

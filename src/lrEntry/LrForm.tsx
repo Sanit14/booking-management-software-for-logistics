@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { CalendarDays, Undo2 } from 'lucide-react';
-import type { ChargeOption, Firm, KeeperResult, LrDefaults, LrDetail, LrField, LrInput, LrParty, LrPreview, LrSaved, Station } from '../../shared';
-import { applyDefaults, markManual, releaseIfEmpty, CHARGE_KEYS, type ChargeKey, type ChargeTexts } from '../logic/chargeFill';
+import type { Firm, KeeperResult, LrDefaults, LrDetail, LrField, LrInput, LrParty, LrPreview, LrSaved, Station } from '../../shared';
 import { clearDraft, hasTyped, keepDraft, loadDraft, type DraftSlot } from '../logic/drafts';
 import { errorSummary } from '../logic/errorSummary';
 import { keyLabel, matches } from '../logic/keymap';
@@ -14,7 +13,6 @@ import { Card } from '../ui/Card';
 import Dialog from '../ui/Dialog';
 import Field from '../ui/Field';
 import PinDialog from '../ui/PinDialog';
-import SelectField from '../ui/SelectField';
 import { useToast } from '../ui/Toast';
 import TypeAhead from '../ui/TypeAhead';
 import { useEnterToNext } from '../ui/useEnterToNext';
@@ -24,24 +22,12 @@ import LrActions from './LrActions';
 import styles from './LrEntryPage.module.css';
 
 const t = strings.lr;
-const OPTION_KEY = 'bm.lrChargeOption'; // the last charge option used on this seat (this Windows user's profile)
-const CHARGE_OPTIONS = (Object.keys(t.chargeOptions) as ChargeOption[]).map((value) => ({ value, label: t.chargeOptions[value] }));
-const NO_CHARGES: ChargeTexts = { godownBhada: '', godownInsurance: '', deliveryCharges: '', hamali: '' };
 
 type Errors = Partial<Record<LrField, string>>;
 
 const noParty: Party = { text: '', firmId: null, add: false };
 
-function rememberedOption(): ChargeOption | null {
-  try {
-    const v = localStorage.getItem(OPTION_KEY);
-    return v === 'option1' || v === 'option2' || v === 'blank' ? v : null;
-  } catch {
-    return null; // blocked storage: the Settings default is used
-  }
-}
-
-/** Everything the clerk types is empty; the From station, the charge option and the service tax % are what the form starts from (and keeps after a save). */
+/** Everything the clerk types is empty; the From station is what the form starts from (and keeps after a save). */
 function initial(d: LrDefaults, stations: Station[], keep?: State): State {
   const station = stations.find((s) => s.id === d.bookingStationId);
   return {
@@ -53,15 +39,10 @@ function initial(d: LrDefaults, stations: Station[], keep?: State): State {
     qty: '',
     toPay: '',
     paid: '',
-    option: keep?.option ?? rememberedOption() ?? d.chargeOption,
-    charges: NO_CHARGES,
-    manual: new Set(),
+    hamali: '',
     wasuli: '',
-    stax: keep?.stax ?? d.staxPercent,
   };
 }
-
-const sameCharges = (a: ChargeTexts, b: ChargeTexts) => CHARGE_KEYS.every((k) => a[k] === b[k]);
 
 interface Props {
   stations: Station[];
@@ -86,8 +67,8 @@ interface Props {
 
 /**
  * The LR form. The clerk types, the keeper decides: money and quantity go to the keeper as the typed text, the live
- * amounts and the charge options' amounts come back from lrs.preview, and the number comes back from the save. The
- * form shows what it is given and never adds anything up.
+ * amounts come back from lrs.preview, and the number comes back from the save. The form shows what it is given and
+ * never adds anything up.
  */
 export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onOpenMemo, onGuard, draftSlot, onSaved }: Props) {
   const toast = useToast();
@@ -112,7 +93,6 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
   const pin = useRef(''); // the System PIN that unlocked a changed date, sent with each save
   const asked = useRef(0);
   const inFlight = useRef(false); // two F4s before the first re-render must not send two saves
-  const previewPending = useRef<Promise<void> | null>(null); // the newest lrs.preview still on its way
   const form = useRef<HTMLFormElement>(null);
 
   const activeStations = useMemo(() => stations.filter((s) => s.active), [stations]);
@@ -155,33 +135,18 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
     qty: state.qty,
     toPay: state.toPay,
     paid: state.paid,
-    chargeOption: state.option,
-    godownBhada: state.charges.godownBhada,
-    godownInsurance: state.charges.godownInsurance,
-    deliveryCharges: state.charges.deliveryCharges,
-    hamali: state.charges.hamali,
+    hamali: state.hamali,
     wasuli: state.wasuli,
-    staxPercent: state.stax,
     confirmSimilar,
   });
 
-  // Live amounts, and what the charge option fills for this quantity. Only the newest answer is used.
-  // `manual` is in the key: a box emptied and left is handed back to the option, which needs a fresh answer to refill it.
-  const previewKey = JSON.stringify([state.option, state.qty, state.toPay, state.paid, state.charges, [...state.manual], state.wasuli, state.stax]);
+  // The live amounts (freight, hamali, total). Only the newest answer is used. Only the three boxes that are money in them are in the key.
+  const previewKey = JSON.stringify([state.toPay, state.paid, state.hamali]);
   useEffect(() => {
     if (locked) return; // a saved LR in view mode shows the amounts it was saved with
     const mine = ++asked.current;
-    const pending = window.bm.keeper.lrs.preview({ ...toInput(), systemPin: '' }).then((r) => {
-      if (mine !== asked.current || !r.ok) return;
-      setPreview(r.value);
-      setState((s) => {
-        const charges = applyDefaults(s.charges, s.manual, r.value.defaults);
-        return sameCharges(charges, s.charges) ? s : { ...s, charges };
-      });
-    });
-    previewPending.current = pending;
-    void pending.finally(() => {
-      if (previewPending.current === pending) previewPending.current = null;
+    void window.bm.keeper.lrs.preview({ ...toInput(), systemPin: '' }).then((r) => {
+      if (mine === asked.current && r.ok) setPreview(r.value);
     });
     // toInput() reads the same state that previewKey is made of
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -277,18 +242,6 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
 
   const save = async (confirmSimilar = false): Promise<void> => {
     if (inFlight.current || locked) return;
-    // A charge box (hamali per dag x quantity) may be about to change: let the newest preview land and the form
-    // re-render, then save with what is on screen (a newer save() is on `saveNow` by then).
-    if (previewPending.current) {
-      inFlight.current = true;
-      try {
-        await previewPending.current;
-        await new Promise((r) => setTimeout(r, 0));
-      } finally {
-        inFlight.current = false;
-      }
-      return saveNow.current(confirmSimilar);
-    }
     // A station typed but not in the list is the clerk's to fix before anything is sent.
     const local: Errors = {};
     if (state.from.text.trim() !== '' && stationId(state.from) === null) local.fromStation = t.fieldError.missing;
@@ -318,15 +271,10 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
         const { row, again } = r.value;
         if (again) toast.info(t.savedAgain(row.lrNo));
         else toast.success(t.saved(row.lrNo), t.savedDetail(row.consignor, row.consignee, row.toStation), { label: strings.print.printLr, onClick: () => void print.lr(row.id, row.lrNo, 'print') });
-        try {
-          localStorage.setItem(OPTION_KEY, state.option);
-        } catch {
-          /* blocked storage: only the memory of the last option is lost */
-        }
         clearDraft(draftSlot); // the form may be closed by now (Quick LR, another page): its unmounted effect cannot clear this
         if (!again) onSaved?.(r.value);
         uid.current = crypto.randomUUID();
-        setState((s) => initial(defaults, stations, s)); // keeps From station, the option and the tax %
+        setState((s) => initial(defaults, stations, s)); // keeps the From station
         setPreview(null);
         focusFirst();
         return;
@@ -418,20 +366,6 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
     e.preventDefault();
     void save();
   };
-
-  const chargeBox = (key: ChargeKey, label: string, className = styles.money) => (
-    <Field
-      money
-      className={className}
-      label={label}
-      readOnly={locked}
-      value={state.charges[key]}
-      error={errors[key]}
-      onChange={(e) => setState((s) => ({ ...s, charges: { ...s.charges, [key]: e.target.value }, manual: markManual(s.manual, key, e.target.value) }))}
-      // A saved LR keeps every charge as saved, a 0 (empty box) included: only a new LR hands an emptied box back to the option.
-      onBlur={lr ? undefined : (e) => setState((s) => ({ ...s, manual: releaseIfEmpty(s.manual, key, e.target.value) }))}
-    />
-  );
 
   const partyBox = (who: 'consignor' | 'consignee', label: string, first = false) => {
     const p = state[who];
@@ -547,26 +481,11 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
           <Field money className={styles.money} label={t.paid} readOnly={locked} error={errors.paid} value={state.paid} onChange={(e) => set({ paid: e.target.value }, 'paid')} />
         </div>
 
-        <div className={`${styles.row} ${styles.charges}`}>
-          <SelectField
-            className={styles.option}
-            label={t.chargeOption}
-            options={CHARGE_OPTIONS}
-            disabled={locked}
-            value={state.option}
-            onChange={(e) => set({ option: e.target.value as ChargeOption })}
-          />
-          {chargeBox('godownBhada', t.godownBhada, styles.bhada)}
-          {chargeBox('godownInsurance', t.godownInsurance, styles.insurance)}
-          {chargeBox('deliveryCharges', t.deliveryCharges, styles.delivery)}
-          {chargeBox('hamali', t.hamali)}
-          <Field money className={styles.money} label={t.wasuli} readOnly={locked} error={errors.wasuli} value={state.wasuli} onChange={(e) => set({ wasuli: e.target.value }, 'wasuli')} />
-        </div>
-
         <div className={`${styles.row} ${styles.bottom}`}>
-          <Field className={styles.tax} label={t.staxPercent} readOnly={locked} inputMode="decimal" error={errors.staxPercent} value={state.stax} onChange={(e) => set({ stax: e.target.value }, 'staxPercent')} />
+          <Field money className={styles.money} label={t.hamali} readOnly={locked} error={errors.hamali} value={state.hamali} onChange={(e) => set({ hamali: e.target.value }, 'hamali')} />
+          <Field money className={styles.money} label={t.wasuli} readOnly={locked} error={errors.wasuli} value={state.wasuli} onChange={(e) => set({ wasuli: e.target.value }, 'wasuli')} />
           <dl className={styles.amounts} aria-label={t.amountsLabel} aria-live="off">
-            {(['freight', 'charges', 'stax', 'total'] as const).map((k) => (
+            {(['freight', 'hamali', 'total'] as const).map((k) => (
               <div key={k} className={k === 'total' ? styles.total : undefined}>
                 <dt>{t.amounts[k]}</dt>
                 <dd>{amounts ? `${strings.ui.rupee}${formatPaise(amounts[k])}` : t.none}</dd>

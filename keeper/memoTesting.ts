@@ -47,13 +47,8 @@ export const lrInput = (s: Set, over: Partial<LrInput> = {}): LrInput => ({
   qty: '3',
   toPay: '1,800',
   paid: '',
-  chargeOption: 'blank',
-  godownBhada: '',
-  godownInsurance: '',
-  deliveryCharges: '',
   hamali: '',
   wasuli: '',
-  staxPercent: '0',
   ...over,
 });
 /** A booked LR through the real save; returns its id and number. A date other than today is backdated with the PIN. */

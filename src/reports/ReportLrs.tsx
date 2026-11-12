@@ -16,7 +16,7 @@ const t = strings.reports;
 const c = t.lrColumns;
 // An LR's amounts, its memo and its stations: any of those changing on any seat refetches the list.
 const TABLES = ['lrs', 'memos', 'stations', 'firms'] as const;
-const NO_PAGE: ReportLrsPage = { rows: [], next: null, totals: { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, chargesPaise: 0, staxPaise: 0, totalPaise: 0 } };
+const NO_PAGE: ReportLrsPage = { rows: [], next: null, totals: { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, hamaliPaise: 0, totalPaise: 0 } };
 
 /** What the drill-down shows: the row clicked, under the period and filters it was added up with. */
 export interface Drill {
@@ -87,8 +87,8 @@ export default function ReportLrs({ drill, onBack, onPick }: { drill: Drill; onB
     [key, pages],
   );
   const x = list.data.totals;
-  const labels = strings.paper.report.kinds.dateWise.totals; // LRs, Qty, To pay, Paid, Charges, Service tax, Total
-  const values = [String(x.lrs), String(x.qty), rupees(x.toPayPaise), rupees(x.paidPaise), rupees(x.chargesPaise), rupees(x.staxPaise), rupees(x.totalPaise)];
+  const labels = strings.paper.report.kinds.dateWise.totals; // LRs, Qty, To pay, Paid, Hamali, Total
+  const values = [String(x.lrs), String(x.qty), rupees(x.toPayPaise), rupees(x.paidPaise), rupees(x.hamaliPaise), rupees(x.totalPaise)];
   return (
     <div className={styles.drill}>
       <Card>

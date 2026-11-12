@@ -760,8 +760,7 @@ async function seed(port: number) {
   const input = (over: Record<string, unknown> = {}) => ({
     uid: `uid-${++uidSerial}`, date: null, fromStationId: from, toStationId: to,
     consignor: { firmId: firm, name: '', addToFirms: false }, consignee: { firmId: null, name: 'Kale Brothers', addToFirms: false },
-    particular: 'Cloth bales', qty: '3', toPay: '1,800', paid: '', chargeOption: 'option1',
-    godownBhada: '5', godownInsurance: '5', deliveryCharges: '2', hamali: '30', wasuli: '', staxPercent: '5', ...over,
+    particular: 'Cloth bales', qty: '3', toPay: '1,800', paid: '', hamali: '30', wasuli: '', ...over,
   });
   return { from, to, firm, input, recoveryCode: setup.value.recoveryCode as string };
 }
@@ -1246,8 +1245,8 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
     const printed = await call('/print/memo', { id: memo.id });
     assert.deepEqual([printed.ok, printed.value.rows.length, printed.value.totals, printed.value.truckHire, printed.value.company.name], [true, 2, { lrs: 2, qty: 6, toPay: '3,600.00', paid: '0.00' }, '4,500.00', 'Sundeep Freight Movers']);
     const lr = await call('/print/lr', { id: lrIds[0] });
-    // 1,800 freight + 5 + 5 + 2 + 30 charges + 5 % tax on the freight (90) = 1,932
-    assert.deepEqual([lr.value.mode, lr.value.freight, lr.value.stax, lr.value.total, lr.value.consignee], ['topay', '1,800.00', '90.00', '1,932.00', 'Kale Brothers']);
+    // 1,800 freight + 30 hamali = 1,830; the paper has no charge or tax line
+    assert.deepEqual([lr.value.mode, lr.value.freight, lr.value.hamali, lr.value.total, lr.value.consignee], ['topay', '1,800.00', '30.00', '1,830.00', 'Kale Brothers']);
 
     assert.equal((await call('/print/memo', {})).status, 400);
     assert.equal((await call('/print/lr', { id: 'x' })).status, 400);
@@ -1421,10 +1420,10 @@ test('keeper: Reports over the real routes - every report, the LRs behind a row,
     const query = { from: `${today.slice(0, 4)}-01-01`, to: today };
     const read = async (url: string, body: object) => (await lrCall(port, url, body)).value;
 
-    // Each LR: qty 3, to pay 1,800.00 + charges 42.00 + tax 90.00. Both are the same day, the same station, the same parties.
+    // Each LR: qty 3, to pay 1,800.00 + hamali 30.00. Both are the same day, the same station, the same parties.
     const day = await read('/reports/date-wise', { query, cursor: null });
     assert.deepEqual(day.rows.map((r: { date: string; lrs: number }) => [r.date, r.lrs]), [[today, 2]]);
-    assert.deepEqual(day.totals, { lrs: 2, qty: 6, toPayPaise: 360000, paidPaise: 0, chargesPaise: 8400, staxPaise: 18000, totalPaise: 386400 });
+    assert.deepEqual(day.totals, { lrs: 2, qty: 6, toPayPaise: 360000, paidPaise: 0, hamaliPaise: 6000, totalPaise: 366000 });
     assert.equal(day.next, null);
     const stations = await read('/reports/station-wise', { query, cursor: null });
     assert.deepEqual(stations.rows.map((r: { station: string; lrs: number }) => [r.station, r.lrs]), [['Nagpur', 2]]);
@@ -1437,7 +1436,7 @@ test('keeper: Reports over the real routes - every report, the LRs behind a row,
     assert.deepEqual([firms.rows.map((r: { name: string; asConsignor: number }) => [r.name, r.asConsignor]), firms.totals], [[['Shree Ganesh Traders', 2]], { firms: 1, asConsignor: 2, asConsignee: 0, walkInConsignor: 0, walkInConsignee: 2 }]);
     assert.deepEqual((await read('/reports/wasuli', { query, cursor: null })).totals, { assignedCount: 0, assignedPaise: 0, collectedCount: 0, collectedPaise: 0, poolCount: 0, poolPaise: 0 });
     const behind = await read('/reports/lrs', { of: { kind: 'stationWise', stationId: (await lrCall(port, '/reports/station-wise', { query, cursor: null })).value.rows[0].stationId }, query, cursor: null });
-    assert.deepEqual([behind.rows.length, behind.totals.lrs, behind.totals.totalPaise, behind.next], [2, 2, 386400, null]);
+    assert.deepEqual([behind.rows.length, behind.totals.lrs, behind.totals.totalPaise, behind.next], [2, 2, 366000, null]);
     assert.deepEqual((await read('/reports/lrs', { of: { kind: 'consigneeWise', firmId: null, name: 'KALE brothers' }, query, cursor: null })).totals.lrs, 2);
 
     // Bad requests are refused before anything is read.
@@ -1449,7 +1448,7 @@ test('keeper: Reports over the real routes - every report, the LRs behind a row,
 
     // The same report as printed: formatted text, and the audit row of a print that went through. Neither raises an event.
     const printed = await read('/print/report', { report: 'dateWise', query });
-    assert.deepEqual([printed.report, printed.rows, printed.totals], ['dateWise', [[`${today.slice(8)}-${today.slice(5, 7)}-${today.slice(0, 4)}`, '2', '6', '3,600.00', '–', '84.00', '180.00', '3,864.00']], ['2', '6', '3,600.00', '0.00', '84.00', '180.00', '3,864.00']]);
+    assert.deepEqual([printed.report, printed.rows, printed.totals], ['dateWise', [[`${today.slice(8)}-${today.slice(5, 7)}-${today.slice(0, 4)}`, '2', '6', '3,600.00', '–', '60.00', '3,660.00']], ['2', '6', '3,600.00', '0.00', '60.00', '3,660.00']]);
     assert.equal((await lrCall(port, '/print/report', { report: 'nothing', query })).status, 400);
     assert.equal((await lrCall(port, '/print/report', { report: 'dateWise' })).status, 400);
     const done = { kind: 'report', id: 0, how: 'print', report: 'dateWise', from: query.from, to: query.to, filters: { toStationId: null, text: 'kale', truckId: null, agentId: null } };
@@ -1464,7 +1463,7 @@ test('keeper: Reports over the real routes - every report, the LRs behind a row,
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
   const log = logOf(s);
-  for (const secret of ['Shree Ganesh', 'Kale Brothers', '193200', '386400', 'kale']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
+  for (const secret of ['Shree Ganesh', 'Kale Brothers', '183000', '366000', 'kale']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
 }));
 
 // --- History -----------------------------------------------------------------------------------------------------
@@ -1625,8 +1624,8 @@ test('keeper: PIN coverage - every route that checks a PIN writes its audit row 
         await collect(); // the last route put the collection back to Assigned: a remark belongs to a collected one
         return { row: seen(await collection()), remark: 'paid by cheque', systemPin: pin.system };
       } },
-    { url: '/settings/set-lr-defaults', kind: 'admin', audit: 'settings.lr-defaults', wrong: () => ({ input: { bookingStationId: from, chargeOption: 'option2', staxPercent: '2.5' }, adminPin: WRONG }),
-      right: () => ({ input: { bookingStationId: from, chargeOption: 'option2', staxPercent: '2.5' }, adminPin: pin.admin }) },
+    { url: '/settings/set-lr-defaults', kind: 'admin', audit: 'settings.lr-defaults', wrong: () => ({ input: { bookingStationId: from }, adminPin: WRONG }),
+      right: () => ({ input: { bookingStationId: from }, adminPin: pin.admin }) },
     { url: '/print/set-company', kind: 'admin', audit: 'settings.company', wrong: () => ({ input: { name: 'Test Co', address: '', phone: '', gstin: '' }, adminPin: WRONG }),
       right: () => ({ input: { name: 'Test Co', address: '', phone: '', gstin: '' }, adminPin: pin.admin }) },
     { url: '/memos/recalculate', kind: 'admin', audit: 'memos.recalculate', wrong: () => ({ id: m3, version: 1, adminPin: WRONG }),
@@ -1719,13 +1718,13 @@ test('keeper: Firm Accounts over the real routes - list, statement, top lists, K
     assert.deepEqual([list.count, list.next, list.rows.map((r: { name: string; asConsignor: number; asConsignee: number; lastLrDate: string }) => [r.name, r.asConsignor, r.asConsignee, r.lastLrDate])], [1, null, [['Shree Ganesh Traders', 2, 0, today]]]);
     assert.deepEqual((await lrCall(port, '/firms/accounts', { filters: { text: 'zzz' }, cursor: null })).value.rows, []);
 
-    // Each LR: to pay 1,800.00 + charges 42.00 + tax 5% of 1,800 = 90.00 -> 1,932.00
+    // Each LR: to pay 1,800.00 + hamali 30.00 = 1,830.00
     const statement = (await lrCall(port, '/firms/statement', { query, cursor: null })).value;
-    assert.deepEqual(statement.rows.map((r: { party: string; toPayPaise: number; chargesPaise: number; staxPaise: number; totalPaise: number }) => [r.party, r.toPayPaise, r.chargesPaise, r.staxPaise, r.totalPaise]), [
-      ['Kale Brothers', 180000, 4200, 9000, 193200],
-      ['Kale Brothers', 180000, 4200, 9000, 193200],
+    assert.deepEqual(statement.rows.map((r: { party: string; toPayPaise: number; hamaliPaise: number; totalPaise: number }) => [r.party, r.toPayPaise, r.hamaliPaise, r.totalPaise]), [
+      ['Kale Brothers', 180000, 3000, 183000],
+      ['Kale Brothers', 180000, 3000, 183000],
     ]);
-    assert.deepEqual([statement.totals.lrs, statement.totals.qty, statement.totals.totalPaise, statement.next], [2, 6, 386400, null]);
+    assert.deepEqual([statement.totals.lrs, statement.totals.qty, statement.totals.totalPaise, statement.next], [2, 6, 366000, null]);
     assert.equal((await lrCall(port, '/firms/statement', { query: { ...query, role: 'consignee' }, cursor: null })).value.totals.lrs, 0, 'Kale Brothers is a walk-in: the firm is not on that side');
     assert.deepEqual((await lrCall(port, '/firms/top', { query })).value, { parties: [{ name: 'Kale Brothers', lrs: 2 }], stations: [{ name: 'Nagpur', lrs: 2 }], trucks: [] });
     const kpis = (await lrCall(port, '/firms/kpis', { query })).value;
@@ -1743,7 +1742,7 @@ test('keeper: Firm Accounts over the real routes - list, statement, top lists, K
 
     // The same statement as printed: formatted text, and the audit row of a print that went through. Neither raises an event.
     const printed = (await lrCall(port, '/print/firm-statement', { query })).value;
-    assert.deepEqual([printed.firm, printed.role, printed.rows.length, printed.rows[0].total, printed.totals.total, printed.totals.hasWasuli], ['Shree Ganesh Traders', 'consignor', 2, '1,932.00', '3,864.00', false]);
+    assert.deepEqual([printed.firm, printed.role, printed.rows.length, printed.rows[0].total, printed.totals.total, printed.totals.hasWasuli], ['Shree Ganesh Traders', 'consignor', 2, '1,830.00', '3,660.00', false]);
     assert.equal((await lrCall(port, '/print/firm-statement', {})).status, 400);
     assert.equal((await lrCall(port, '/print/firm-statement', { query: { ...query, firmId: 99999 } })).code, 'master-missing');
     const done = { kind: 'firm', id: firm, how: 'pdf', from: query.from, to: query.to, role: 'consignor' };
@@ -1758,7 +1757,7 @@ test('keeper: Firm Accounts over the real routes - list, statement, top lists, K
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
   const log = logOf(s);
-  for (const secret of ['Shree Ganesh', 'Kale Brothers', '193200', '386400']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
+  for (const secret of ['Shree Ganesh', 'Kale Brothers', '183000', '366000']) assert.ok(!leaks(log, secret, true), `keeper.log holds ${secret}`);
 }));
 
 test('keeper: a request that never finishes - headers or body - is closed by the keeper, and the next request is answered (O8)', () => run(async () => {

@@ -65,10 +65,7 @@ function Totals({ v }: { v: MemoTotals }) {
         {t.frozen.paid} <strong>{rupees(v.paidPaise)}</strong>
       </span>
       <span>
-        {t.frozen.charges} <strong>{rupees(v.chargesPaise)}</strong>
-      </span>
-      <span>
-        {t.frozen.stax} <strong>{rupees(v.staxPaise)}</strong>
+        {t.frozen.hamali} <strong>{rupees(v.hamaliPaise)}</strong>
       </span>
     </>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ChargeOption, LrChange, LrDetail, LrEditField, LrHistoryEntry } from '../../shared';
+import type { LrChange, LrDetail, LrHistoryEntry } from '../../shared';
 import { isoToDisplay } from '../logic/lrOpen';
 import { formatPaise } from '../logic/rupees';
 import { strings } from '../strings';
@@ -8,13 +8,14 @@ import { useToast } from '../ui/Toast';
 import styles from './LrEntryPage.module.css';
 
 const t = strings.lr;
-const MONEY: readonly LrEditField[] = ['toPay', 'paid', 'godownBhada', 'godownInsurance', 'deliveryCharges', 'hamali', 'wasuli'];
+// The godown, delivery, charge option and service tax lines are only in the rows of edits made before 4.5.
+const MONEY: readonly LrChange['field'][] = ['toPay', 'paid', 'hamali', 'wasuli', 'godownBhada', 'godownInsurance', 'deliveryCharges'];
 
 /** One side of a change as a person reads it: rupees for money, the option's name, a date as dd-mm-yyyy. */
-function show(field: LrEditField, v: LrChange['from']): string {
+function show(field: LrChange['field'], v: LrChange['from']): string {
   if (v === null) return t.none;
   if (MONEY.includes(field)) return `${strings.ui.rupee}${formatPaise(Number(v))}`;
-  if (field === 'chargeOption') return t.chargeOptions[v as ChargeOption] ?? String(v);
+  if (field === 'chargeOption') return strings.history.chargeOptions[String(v)] ?? String(v);
   if (field === 'staxPercent') return `${v}%`;
   if (field === 'date') return isoToDisplay(String(v));
   return String(v);

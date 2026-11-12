@@ -61,7 +61,7 @@ function addUp<K extends string>(rows: Record<K, number>[], keys: readonly K[]):
   for (const r of rows) for (const k of keys) total[k] += r[k];
   return total;
 }
-const MONEY_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'chargesPaise', 'staxPaise', 'totalPaise'] as const;
+const MONEY_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'hamaliPaise', 'totalPaise'] as const;
 const WASULI_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'wasuliPaise'] as const;
 
 type Sorted<T> = T & { sortKey: string; sortNo: number };
@@ -209,7 +209,7 @@ export const lrsSql = (req: ReportLrsRequest, afterCursor: boolean) => {
   return {
     args,
     rows: `SELECT l.id AS lrId, l.lr_no AS lrNo, l.lr_year AS lrYear, l.lr_date AS date, l.consignor_name AS consignor, l.consignee_name AS consignee, ts.name AS toStation,
-        l.qty, l.topay_paise AS toPayPaise, l.paid_paise AS paidPaise, ${M.charges} AS chargesPaise, ${M.stax} AS staxPaise, ${M.total} AS totalPaise, l.status
+        l.qty, l.topay_paise AS toPayPaise, l.paid_paise AS paidPaise, ${M.total} AS totalPaise, l.status
       FROM lrs l JOIN stations ts ON ts.id = l.to_station_id WHERE ${where}${afterCursor ? ' AND (l.lr_date, l.lr_no) > (@cd, @cn)' : ''}
       ORDER BY l.lr_date, l.lr_no LIMIT ${PAGE + 1}`,
     totals: `SELECT ${WITH_TOTAL} FROM lrs l WHERE ${where}`,

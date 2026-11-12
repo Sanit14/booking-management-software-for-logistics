@@ -26,10 +26,10 @@ const refused = <T>(r: KeeperResult<T>) => {
 
 /**
  * One world, worked out by hand (paise in the comments are what the keeper must add up to). A = Shree Ganesh, B = Patil, C = Kale.
- *   LR1  A→B  10-05  qty 3  to pay 1,800.00  bhada 10.50  tax 5%      → tax 90.00      total 1,900.50
- *   LR2  A→C  10-10  qty 2  paid   2,000.50  hamali 12.25 tax 2.5%    → tax 50.01      total 2,062.76 (Amravati)
- *   LR3  B→A  10-12  qty 5  to pay   333.33  wasuli 500  tax 5%       → tax 16.67      total   350.00
- *   LR4  A→A  10-15  qty 1  to pay   100.00  tax 3%                  → tax  3.00      total   103.00 (the firm on both sides)
+ *   LR1  A→B  10-05  qty 3  to pay 1,800.00  hamali 10.50            total 1,810.50
+ *   LR2  A→C  10-10  qty 2  paid   2,000.50  hamali 12.25            total 2,012.75 (Amravati)
+ *   LR3  B→A  10-12  qty 5  to pay   333.33  wasuli 500              total   333.33
+ *   LR4  A→A  10-15  qty 1  to pay   100.00                          total   100.00 (the firm on both sides)
  *   LR5  A→B  10-20  cancelled
  *   LR6  A→B  09-30  qty 4  to pay   900.00                                           total   900.00
  *   LR7  A→B  10-31  qty 1  paid      50.00                                           total    50.00
@@ -41,10 +41,10 @@ function world() {
   const [A, B] = [s.ganesh, s.patil];
   const C = s.made(s.masters.create(s.db, 'seat-1', 'firms', { name: 'Kale Brothers', stationId: s.nagpur })).id;
   const lr = (over: Parameters<typeof book>[1]) => book(s, over);
-  const l1 = lr({ date: '2026-10-05', qty: '3', toPay: '1,800', godownBhada: '10.50', staxPercent: '5', consignor: party(A), consignee: party(B) });
-  const l2 = lr({ date: '2026-10-10', qty: '2', toPay: '', paid: '2,000.50', hamali: '12.25', staxPercent: '2.5', consignor: party(A), consignee: party(C), toStationId: s.amravati });
-  const l3 = lr({ date: '2026-10-12', qty: '5', toPay: '333.33', wasuli: '500', staxPercent: '5', consignor: party(B), consignee: party(A) });
-  const l4 = lr({ date: '2026-10-15', qty: '1', toPay: '100', staxPercent: '3', consignor: party(A), consignee: party(A) });
+  const l1 = lr({ date: '2026-10-05', qty: '3', toPay: '1,800', hamali: '10.50', consignor: party(A), consignee: party(B) });
+  const l2 = lr({ date: '2026-10-10', qty: '2', toPay: '', paid: '2,000.50', hamali: '12.25', consignor: party(A), consignee: party(C), toStationId: s.amravati });
+  const l3 = lr({ date: '2026-10-12', qty: '5', toPay: '333.33', wasuli: '500', consignor: party(B), consignee: party(A) });
+  const l4 = lr({ date: '2026-10-15', qty: '1', toPay: '100', consignor: party(A), consignee: party(A) });
   const l5 = lr({ date: '2026-10-20', qty: '1', toPay: '77', consignor: party(A), consignee: party(B) });
   const l6 = lr({ date: '2026-09-30', qty: '4', toPay: '900', consignor: party(A), consignee: party(B) });
   const l7 = lr({ date: '2026-10-31', qty: '1', toPay: '', paid: '50', consignor: party(A), consignee: party(B) });
@@ -69,16 +69,16 @@ test('the statement of A as consignor: its LRs, no cancelled one, dates inclusiv
   assert.deepEqual(p.rows.map((r) => r.lrId), [w.l1.id, w.l2.id, w.l4.id, w.l7.id], 'by date; LR5 (cancelled) and LR6 (September) are not in it');
   assert.equal(p.next, null);
   assert.deepEqual(p.totals, {
-    lrs: 4, qty: 7, toPayPaise: 190000, paidPaise: 205050, chargesPaise: 2275, staxPaise: 14301, totalPaise: 411626, wasuliOwedPaise: 0, wasuliCollectedPaise: 0,
+    lrs: 4, qty: 7, toPayPaise: 190000, paidPaise: 205050, hamaliPaise: 2275, totalPaise: 397325, wasuliOwedPaise: 0, wasuliCollectedPaise: 0,
   });
   const [r1, r2, r4] = p.rows;
   assert.deepEqual(r1, {
     lrId: w.l1.id, lrNo: w.l1.no, lrYear: 2026, date: '2026-10-05', role: 'consignor', party: 'Patil Hardware', fromStation: 'Yavatmal', toStation: 'Nagpur', particular: 'Cloth bales', qty: 3,
-    toPayPaise: 180000, paidPaise: 0, chargesPaise: 1050, staxPaise: 9000, totalPaise: 190050, status: 'loaded', memoId: w.m1.id, challanNo: w.m1.challanNo,
+    toPayPaise: 180000, paidPaise: 0, hamaliPaise: 1050, totalPaise: 181050, status: 'loaded', memoId: w.m1.id, challanNo: w.m1.challanNo,
     wasuliStatus: null, wasuliPaise: 0, wasuliCollectedPaise: 0,
   });
   assert.equal(r2.toStation, 'Amravati');
-  assert.equal(r2.totalPaise, 206276, 'tax 2.5% of 2,000.50 is 50.0125 -> 50.01');
+  assert.equal(r2.totalPaise, 201275, 'freight 2,000.50 + hamali 12.25');
   assert.equal(r4.role, 'both', 'the firm is on both sides of LR4');
   assert.equal(r4.party, 'Shree Ganesh Traders');
   assert.equal(p.rows[3].status, 'booked');
@@ -92,10 +92,10 @@ test('as consignee, and both: an LR with the firm on both sides is counted once'
   assert.deepEqual(consignee.rows.map((r) => r.lrId), [w.l3.id, w.l4.id]);
   assert.equal(consignee.rows[0].party, 'Patil Hardware', 'the other party is the consignor');
   assert.equal(consignee.rows[0].role, 'consignee');
-  assert.deepEqual(consignee.totals, { lrs: 2, qty: 6, toPayPaise: 43333, paidPaise: 0, chargesPaise: 0, staxPaise: 1967, totalPaise: 45300, wasuliOwedPaise: 50000, wasuliCollectedPaise: 0 });
+  assert.deepEqual(consignee.totals, { lrs: 2, qty: 6, toPayPaise: 43333, paidPaise: 0, hamaliPaise: 0, totalPaise: 43333, wasuliOwedPaise: 50000, wasuliCollectedPaise: 0 });
   const both = w.statement(w.A, 'both');
   assert.deepEqual(both.rows.map((r) => r.lrId), [w.l1.id, w.l2.id, w.l3.id, w.l4.id, w.l7.id]);
-  assert.deepEqual(both.totals, { lrs: 5, qty: 12, toPayPaise: 223333, paidPaise: 205050, chargesPaise: 2275, staxPaise: 15968, totalPaise: 446626, wasuliOwedPaise: 50000, wasuliCollectedPaise: 0 });
+  assert.deepEqual(both.totals, { lrs: 5, qty: 12, toPayPaise: 223333, paidPaise: 205050, hamaliPaise: 2275, totalPaise: 430658, wasuliOwedPaise: 50000, wasuliCollectedPaise: 0 });
   // B and C see their own side of the same LRs
   assert.deepEqual(w.statement(w.B, 'consignor').rows.map((r) => r.lrId), [w.l3.id]);
   assert.deepEqual(w.statement(w.C, 'both').rows.map((r) => r.lrId), [w.l2.id]);
@@ -147,10 +147,9 @@ test('the wasuli of an LR: its state, what is owed, what came in', () => {
   assert.equal(w.statement(w.A, 'both').totals.wasuliCollectedPaise, 30000, 'the same LR seen from A');
 });
 
-test('the totals are the sum of lrAmounts of the rows: 40 odd LRs, six tax rates', () => {
+test('the totals are the sum of lrAmounts of the rows: 40 odd LRs (statement total = sum of freight + hamali)', () => {
   const w = world();
   const F = w.made(w.masters.create(w.db, 'seat-1', 'firms', { name: 'Odd Amounts Ltd' })).id;
-  const rates = ['0', '2.5', '5', '12', '18', '3.33'];
   for (let i = 0; i < 40; i++) {
     const amount = `${100 + i * 37}.${String((i * 13) % 100).padStart(2, '0')}`;
     book(w, {
@@ -158,34 +157,30 @@ test('the totals are the sum of lrAmounts of the rows: 40 odd LRs, six tax rates
       qty: String(1 + (i % 6)),
       toPay: i % 2 === 0 ? amount : '',
       paid: i % 2 === 1 ? amount : '',
-      godownBhada: `${i % 7}.${String((i * 7) % 100).padStart(2, '0')}`,
       hamali: `${i % 5}.${String((i * 11) % 100).padStart(2, '0')}`,
-      staxPercent: rates[i % rates.length],
       consignor: party(F),
       consignee: party(w.B),
     });
   }
   const p = w.statement(F, 'consignor');
   assert.equal(p.rows.length, 40);
-  const sums = { qty: 0, toPay: 0, paid: 0, charges: 0, stax: 0, total: 0 };
+  const sums = { qty: 0, toPay: 0, paid: 0, hamali: 0, total: 0 };
   for (const r of p.rows) {
     const a = amountsOf(w.db, r.lrId);
-    assert.equal(r.chargesPaise, a.charges, `LR ${r.lrNo} charges`);
-    assert.equal(r.staxPaise, a.stax, `LR ${r.lrNo} tax`);
+    assert.equal(r.hamaliPaise, a.hamali, `LR ${r.lrNo} hamali`);
     assert.equal(r.totalPaise, a.total, `LR ${r.lrNo} total`);
     assert.equal(r.toPayPaise + r.paidPaise, a.freight);
     sums.qty += r.qty;
     sums.toPay += r.toPayPaise;
     sums.paid += r.paidPaise;
-    sums.charges += a.charges;
-    sums.stax += a.stax;
+    sums.hamali += a.hamali;
     sums.total += a.total;
   }
   assert.deepEqual(
-    [p.totals.lrs, p.totals.qty, p.totals.toPayPaise, p.totals.paidPaise, p.totals.chargesPaise, p.totals.staxPaise, p.totals.totalPaise],
-    [40, sums.qty, sums.toPay, sums.paid, sums.charges, sums.stax, sums.total],
+    [p.totals.lrs, p.totals.qty, p.totals.toPayPaise, p.totals.paidPaise, p.totals.hamaliPaise, p.totals.totalPaise],
+    [40, sums.qty, sums.toPay, sums.paid, sums.hamali, sums.total],
   );
-  assert.equal(p.totals.totalPaise, p.totals.toPayPaise + p.totals.paidPaise + p.totals.chargesPaise + p.totals.staxPaise);
+  assert.equal(p.totals.totalPaise, p.totals.toPayPaise + p.totals.paidPaise + p.totals.hamaliPaise);
 });
 
 test('the top lists: other parties, To stations and trucks (through memos), 5 at most, most LRs first then name', () => {
@@ -210,9 +205,9 @@ test('KPIs: the period and the one just before it, growth, and a null where the 
   const k = ok(w.firms.kpis(w.db, { firmId: w.A, role: 'both', ...OCT }));
   assert.deepEqual(k.range, OCT);
   assert.deepEqual(k.previous, { from: '2026-08-31', to: '2026-09-30' });
-  assert.deepEqual(k.now, { lrs: 5, trips: 2, qty: 12, freightPaise: 428383, totalPaise: 446626, wasuliCollectedPaise: 0 });
+  assert.deepEqual(k.now, { lrs: 5, trips: 2, qty: 12, freightPaise: 428383, totalPaise: 430658, wasuliCollectedPaise: 0 });
   assert.deepEqual(k.before, { lrs: 1, trips: 0, qty: 4, freightPaise: 90000, totalPaise: 90000, wasuliCollectedPaise: 0 });
-  assert.deepEqual(k.growth, { lrs: 400, trips: null, qty: 200, freightPaise: 376, totalPaise: 396, wasuliCollectedPaise: null });
+  assert.deepEqual(k.growth, { lrs: 400, trips: null, qty: 200, freightPaise: 376, totalPaise: 379, wasuliCollectedPaise: null });
   // trips counts a memo once, however many of the firm's LRs ride on it
   assert.equal(ok(w.firms.kpis(w.db, { firmId: w.A, role: 'consignor', ...OCT })).now.trips, 1);
   assert.equal(ok(w.firms.kpis(w.db, { firmId: w.A, role: 'consignee', ...OCT })).now.trips, 1);

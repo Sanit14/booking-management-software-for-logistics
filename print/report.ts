@@ -25,7 +25,7 @@ const CSS = '\n.rep .tot{height:auto;flex-wrap:wrap;gap:.6mm 5mm;padding:.8mm 1.
  * where a row can add up to that much (the real-PDF test checks that no number is cut); a name, a truck or a station may end in "…".
  */
 export const LAYOUT: Record<ReportKind, { widths: number[]; numbers: number[] }> = {
-  dateWise: { widths: [22, 12, 14, 28, 28, 28, 28, 30], numbers: [1, 2, 3, 4, 5, 6, 7] },
+  dateWise: { widths: [24, 14, 16, 32, 32, 32, 40], numbers: [1, 2, 3, 4, 5, 6] },
   stationWise: { widths: [64, 14, 16, 32, 32, 32], numbers: [1, 2, 3, 4, 5] },
   consignorWise: { widths: [54, 28, 12, 14, 28, 28, 26], numbers: [2, 3, 4, 5, 6] },
   consigneeWise: { widths: [54, 28, 12, 14, 28, 28, 26], numbers: [2, 3, 4, 5, 6] },

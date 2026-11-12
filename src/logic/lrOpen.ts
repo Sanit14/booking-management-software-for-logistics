@@ -1,6 +1,5 @@
 // A saved LR as the boxes of the form. Display only: the keeper's paise become the text a clerk would type, nothing is added up.
-import type { ChargeOption, LrDetail } from '../../shared';
-import { CHARGE_KEYS, type ChargeKey, type ChargeTexts } from './chargeFill';
+import type { LrDetail } from '../../shared';
 import { paiseToField } from './rupees';
 
 export interface Typed {
@@ -23,11 +22,8 @@ export interface LrFormState {
   qty: string;
   toPay: string;
   paid: string;
-  option: ChargeOption;
-  charges: ChargeTexts;
-  manual: ReadonlySet<ChargeKey>;
+  hamali: string;
   wasuli: string;
-  stax: string;
 }
 
 /** `2026-10-29` -> `29-10-2026`, the way dates are shown. */
@@ -43,16 +39,7 @@ export function formFromLr(lr: LrDetail, stationName: (id: number) => string): L
     qty: String(lr.qty),
     toPay: paiseToField(lr.toPayPaise),
     paid: paiseToField(lr.paidPaise),
-    option: lr.chargeOption,
-    charges: {
-      godownBhada: paiseToField(lr.godownBhadaPaise),
-      godownInsurance: paiseToField(lr.godownInsurancePaise),
-      deliveryCharges: paiseToField(lr.deliveryChargesPaise),
-      hamali: paiseToField(lr.hamaliPaise),
-    },
-    // What was saved is the clerk's, even a 0: the charge option must not refill it while the LR is open.
-    manual: new Set(CHARGE_KEYS),
+    hamali: paiseToField(lr.hamaliPaise),
     wasuli: paiseToField(lr.wasuliPaise),
-    stax: lr.staxPercent,
   };
 }

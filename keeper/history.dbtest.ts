@@ -101,7 +101,7 @@ function world() {
   got(s.masters.update(s.db, 'PC02', 'drivers', 1, 1, { name: 'Ramesh Pawar Sr', phone: '' }, SYSTEM));
   got(s.masters.update(s.db, 'PC02', 'agents', suresh, 1, { name: 'Suresh Kale', phone: '' }, SYSTEM));
 
-  got(s.lrs.setDefaults(s.db, 'PC02', { bookingStationId: s.yavatmal, chargeOption: 'option2', staxPercent: '2.5' }, ADMIN));
+  got(s.lrs.setDefaults(s.db, 'PC02', { bookingStationId: s.yavatmal }, ADMIN));
   got(print.setCompany(s.db, 'PC02', { name: 'Sundeep Freight Movers', address: 'Station Road', phone: '', gstin: '' }, ADMIN));
   got(print.done(s.db, 'PC03', { kind: 'lr', id: a.id, how: 'print' }));
   got(print.done(s.db, 'PC03', { kind: 'memo', id: m1.id, how: 'pdf' }));
@@ -257,8 +257,6 @@ test('the settings, PIN, backup, seat and update rows: what changed, old -> new'
   const rows = everything(s);
   assert.deepEqual(of(rows, 'settings.lr-defaults')[0].changes, [
     { field: 'bookingStation', from: null, to: 'Yavatmal' },
-    { field: 'chargeOption', from: 'blank', to: 'option2', unit: 'option' },
-    { field: 'staxPercent', from: '0', to: '2.5', unit: 'percent' },
   ]);
   assert.deepEqual(of(rows, 'settings.company')[0].changes.map((c) => c.field), ['address']);
   assert.deepEqual(of(rows, 'settings.backup-dir')[0].changes, [{ field: 'backupDir', from: 'D:\\BookingManagerBackups', to: 'E:\\BM' }]);
@@ -430,4 +428,36 @@ test('speed: the first page of the default week out of 200,000 audit rows is und
   assert.ok(seatMs < 100, `${seatMs.toFixed(1)} ms with a seat and a kind`);
   const lrMs = fastest(5, () => void history.list(s.db, { ...f, from: '2000-01-01', lrNo: 1 }, null));
   assert.ok(lrMs < 100, `${lrMs.toFixed(1)} ms for an LR number over everything`);
+});
+
+test('rows written before 4.5 still read: the LR defaults, an LR edit and a memo recalculation that name a charge option, godown or delivery charges and service tax', () => {
+  const { s } = world();
+  raw(s, '2026-10-20T10:00:00.000Z', { action: 'settings.lr-defaults', entityId: 'lr-defaults', before: JSON.stringify({ bookingStationId: null, chargeOption: 'blank', staxPercent: '0' }), after: JSON.stringify({ bookingStationId: 1, chargeOption: 'option2', staxPercent: '2.5' }) });
+  raw(s, '2026-10-20T10:01:00.000Z', {
+    action: 'lrs.update', entity: 'lrs', entityId: '1',
+    before: JSON.stringify({ charge_option: 'blank', godown_bhada_paise: 0, delivery_charges_paise: 200, stax_bp: 500, hamali_paise: 0 }),
+    after: JSON.stringify({ charge_option: 'option1', godown_bhada_paise: 500, delivery_charges_paise: 0, stax_bp: 250, hamali_paise: 3000 }),
+  });
+  raw(s, '2026-10-20T10:02:00.000Z', {
+    action: 'memos.recalculate', entity: 'memos', entityId: '1',
+    before: JSON.stringify({ lrs: 2, qty: 5, toPayPaise: 100, paidPaise: 0, chargesPaise: 1050, staxPaise: 90 }),
+    after: JSON.stringify({ lrs: 2, qty: 5, toPayPaise: 100, paidPaise: 0, chargesPaise: 1275, staxPaise: 95 }),
+  });
+  const rows = everything(s);
+  assert.deepEqual(of(rows, 'settings.lr-defaults').find((r) => r.at.startsWith('2026-10-20'))?.changes, [
+    { field: 'bookingStation', from: null, to: 'Yavatmal' },
+    { field: 'chargeOption', from: 'blank', to: 'option2', unit: 'option' },
+    { field: 'staxPercent', from: '0', to: '2.5', unit: 'percent' },
+  ]);
+  assert.deepEqual(of(rows, 'lrs.update').find((r) => r.at.startsWith('2026-10-20'))?.changes, [
+    { field: 'hamali', from: 0, to: 3000, unit: 'paise' },
+    { field: 'chargeOption', from: 'blank', to: 'option1', unit: 'option' },
+    { field: 'godownBhada', from: 0, to: 500, unit: 'paise' },
+    { field: 'deliveryCharges', from: 200, to: 0, unit: 'paise' },
+    { field: 'staxPercent', from: '5', to: '2.5', unit: 'percent' },
+  ]);
+  assert.deepEqual(of(rows, 'memos.recalculate').find((r) => r.at.startsWith('2026-10-20'))?.changes, [
+    { field: 'charges', from: 1050, to: 1275, unit: 'paise' },
+    { field: 'stax', from: 90, to: 95, unit: 'paise' },
+  ]);
 });

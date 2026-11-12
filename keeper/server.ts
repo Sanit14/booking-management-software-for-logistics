@@ -944,7 +944,7 @@ function main(): void {
         } else {
           const input = asLrInput(body.input);
           if (!input) return send(res, 400, { error: 'input with a uid required' });
-          r = url === '/lrs/preview' ? lrs.preview(db, input) : lrs.create(db, seat, input);
+          r = url === '/lrs/preview' ? lrs.preview(input) : lrs.create(db, seat, input);
         }
       } catch (e) {
         log('lrs-failed', { url, seat, error: msg(e) });

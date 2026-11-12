@@ -34,10 +34,10 @@ const walkIn = (name: string) => ({ firmId: null, name, addToFirms: false });
 
 /**
  * One world, worked out by hand. A = Shree Ganesh Traders, B = Patil Hardware, C = Kale Brothers (station Nagpur). All LRs go to Nagpur unless said.
- *   L1  A→B        10-05 qty 3 to pay 1,800.00  bhada 10.50  tax 5%     → tax 90.00   total 1,900.50
- *   L2  A→C        10-10 qty 2 paid   2,000.50  hamali 12.25 tax 2.5%   → tax 50.01   total 2,062.76 (Amravati)
- *   L3  B→A        10-12 qty 5 to pay   333.33  wasuli 500   tax 5%     → tax 16.67   total   350.00
- *   L4  A→A        10-15 qty 1 to pay   100.00  tax 3%                  → tax  3.00   total   103.00 (the firm on both sides; on a memo that was cancelled)
+ *   L1  A→B        10-05 qty 3 to pay 1,800.00  hamali 10.50            total 1,810.50
+ *   L2  A→C        10-10 qty 2 paid   2,000.50  hamali 12.25            total 2,012.75 (Amravati)
+ *   L3  B→A        10-12 qty 5 to pay   333.33  wasuli 500              total   333.33
+ *   L4  A→A        10-15 qty 1 to pay   100.00                          total   100.00 (the firm on both sides; on a memo that was cancelled)
  *   L5  A→B        10-20 cancelled
  *   L6  A→B        09-30 qty 4 to pay   900.00  wasuli 700
  *   L7  A→B        10-31 qty 1 paid      50.00
@@ -53,10 +53,10 @@ function build() {
   const s = setUp();
   const [A, B] = [s.ganesh, s.patil];
   const C = s.made(s.masters.create(s.db, 'seat-1', 'firms', { name: 'Kale Brothers', stationId: s.nagpur })).id;
-  const l1 = book(s, { date: '2026-10-05', qty: '3', toPay: '1,800', godownBhada: '10.50', staxPercent: '5', consignor: party(A), consignee: party(B) });
-  const l2 = book(s, { date: '2026-10-10', qty: '2', toPay: '', paid: '2,000.50', hamali: '12.25', staxPercent: '2.5', consignor: party(A), consignee: party(C), toStationId: s.amravati });
-  const l3 = book(s, { date: '2026-10-12', qty: '5', toPay: '333.33', wasuli: '500', staxPercent: '5', consignor: party(B), consignee: party(A) });
-  const l4 = book(s, { date: '2026-10-15', qty: '1', toPay: '100', staxPercent: '3', consignor: party(A), consignee: party(A) });
+  const l1 = book(s, { date: '2026-10-05', qty: '3', toPay: '1,800', hamali: '10.50', consignor: party(A), consignee: party(B) });
+  const l2 = book(s, { date: '2026-10-10', qty: '2', toPay: '', paid: '2,000.50', hamali: '12.25', consignor: party(A), consignee: party(C), toStationId: s.amravati });
+  const l3 = book(s, { date: '2026-10-12', qty: '5', toPay: '333.33', wasuli: '500', consignor: party(B), consignee: party(A) });
+  const l4 = book(s, { date: '2026-10-15', qty: '1', toPay: '100', consignor: party(A), consignee: party(A) });
   const l5 = book(s, { date: '2026-10-20', qty: '1', toPay: '77', consignor: party(A), consignee: party(B) });
   const l6 = book(s, { date: '2026-09-30', qty: '4', toPay: '900', wasuli: '700', consignor: party(A), consignee: party(B) });
   const l7 = book(s, { date: '2026-10-31', qty: '1', toPay: '', paid: '50', consignor: party(A), consignee: party(B) });
@@ -128,10 +128,10 @@ function byHand(db: Db, where: string, ...args: unknown[]) {
       const a = lrAmounts(r);
       return {
         lrs: t.lrs + 1, qty: t.qty + r.qty, toPayPaise: t.toPayPaise + r.topay_paise, paidPaise: t.paidPaise + r.paid_paise,
-        chargesPaise: t.chargesPaise + a.charges, staxPaise: t.staxPaise + a.stax, totalPaise: t.totalPaise + a.total, wasuliPaise: t.wasuliPaise + r.wasuli_paise,
+        hamaliPaise: t.hamaliPaise + a.hamali, totalPaise: t.totalPaise + a.total, wasuliPaise: t.wasuliPaise + r.wasuli_paise,
       };
     },
-    { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, chargesPaise: 0, staxPaise: 0, totalPaise: 0, wasuliPaise: 0 },
+    { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, hamaliPaise: 0, totalPaise: 0, wasuliPaise: 0 },
   );
 }
 const LIVE_IN = "lr_date BETWEEN ? AND ? AND status != 'cancelled'";
@@ -149,18 +149,18 @@ test('Date-wise: one row per LR date, cancelled LRs and other months left out, w
   const w = world();
   const { rows, totals } = date(w, Q(OCT));
   assert.deepEqual(
-    rows.map((r) => [r.date, r.lrs, r.qty, r.toPayPaise, r.paidPaise, r.chargesPaise, r.staxPaise, r.totalPaise]),
+    rows.map((r) => [r.date, r.lrs, r.qty, r.toPayPaise, r.paidPaise, r.hamaliPaise, r.totalPaise]),
     [
-      ['2026-10-05', 1, 3, 180000, 0, 1050, 9000, 190050],
-      ['2026-10-10', 1, 2, 0, 200050, 1225, 5001, 206276],
-      ['2026-10-12', 3, 8, 53333, 6000, 0, 1667, 61000],
-      ['2026-10-15', 1, 1, 10000, 0, 0, 300, 10300],
-      ['2026-10-20', 1, 4, 40000, 0, 0, 0, 40000],
-      ['2026-10-31', 1, 1, 0, 5000, 0, 0, 5000],
+      ['2026-10-05', 1, 3, 180000, 0, 1050, 181050],
+      ['2026-10-10', 1, 2, 0, 200050, 1225, 201275],
+      ['2026-10-12', 3, 8, 53333, 6000, 0, 59333],
+      ['2026-10-15', 1, 1, 10000, 0, 0, 10000],
+      ['2026-10-20', 1, 4, 40000, 0, 0, 40000],
+      ['2026-10-31', 1, 1, 0, 5000, 0, 5000],
     ],
     'L5 (cancelled) is not on 10-20; L6 is September',
   );
-  assert.deepEqual(totals, { lrs: 8, qty: 19, toPayPaise: 283333, paidPaise: 211050, chargesPaise: 2275, staxPaise: 15968, totalPaise: 512626 });
+  assert.deepEqual(totals, { lrs: 8, qty: 19, toPayPaise: 283333, paidPaise: 211050, hamaliPaise: 2275, totalPaise: 496658 });
   const { wasuliPaise, ...money } = byHand(w.db, LIVE_IN, OCT.from, OCT.to);
   void wasuliPaise;
   assert.deepEqual(totals, money, 'the SQL adds up what lrAmounts adds up');
@@ -392,10 +392,10 @@ test('reports.lrs: the LRs of a row by (date, number), adding up to the row, und
   assert.deepEqual(nagpur.rows.map((r) => r.lrId), [w.l1.id, w.l3.id, w.l8.id, w.l4.id, w.l7.id], 'by date, then LR number: L3 and L8 share 10-12');
   assert.deepEqual(nagpur.rows[0], {
     lrId: w.l1.id, lrNo: w.l1.no, lrYear: 2026, date: '2026-10-05', consignor: 'Shree Ganesh Traders', consignee: 'Patil Hardware', toStation: 'Nagpur', qty: 3,
-    toPayPaise: 180000, paidPaise: 0, chargesPaise: 1050, staxPaise: 9000, totalPaise: 190050, status: 'loaded',
+    toPayPaise: 180000, paidPaise: 0, totalPaise: 181050, status: 'loaded',
   });
   assert.equal(nagpur.rows[3].status, 'booked', 'L4 came off its cancelled memo');
-  assert.deepEqual(nagpur.totals, { lrs: 5, qty: 12, toPayPaise: 243333, paidPaise: 5000, chargesPaise: 1050, staxPaise: 10967, totalPaise: 260350 });
+  assert.deepEqual(nagpur.totals, { lrs: 5, qty: 12, toPayPaise: 243333, paidPaise: 5000, hamaliPaise: 1050, totalPaise: 249383 });
 
   // a walk-in consignor: the two spellings are one party
   const walk = lrs({ of: { kind: 'consignorWise', firmId: null, name: 'ROAD SIDE TRADERS' }, query: Q(OCT) });
@@ -426,8 +426,8 @@ function bulkLrs(db: Db, n: number, at: (i: number) => Partial<Record<string, st
   const base = db.prepare('SELECT id FROM stations ORDER BY id').all() as { id: number }[];
   const from = base[0].id;
   const put = db.prepare(
-    `INSERT INTO lrs (uid, lr_year, lr_no, lr_date, consignor_id, consignor_name, consignee_id, consignee_name, from_station_id, to_station_id, particular, qty, topay_paise, paid_paise, godown_bhada_paise, stax_bp, wasuli_paise, seat)
-     VALUES (@uid, CAST(substr(@date, 1, 4) AS INTEGER), @no, @date, @cid, @cname, @eid, @ename, @from, @to, 'Cloth', 2, @topay, 0, 500, 500, @wasuli, 'test')`,
+    `INSERT INTO lrs (uid, lr_year, lr_no, lr_date, consignor_id, consignor_name, consignee_id, consignee_name, from_station_id, to_station_id, particular, qty, topay_paise, paid_paise, hamali_paise, wasuli_paise, seat)
+     VALUES (@uid, CAST(substr(@date, 1, 4) AS INTEGER), @no, @date, @cid, @cname, @eid, @ename, @from, @to, 'Cloth', 2, @topay, 0, 500, @wasuli, 'test')`,
   );
   return db.transaction(() =>
     Array.from({ length: n }, (_, i) =>
@@ -641,9 +641,9 @@ test('print.report: the whole report as formatted text — the screen\'s rows an
   const print = printer(w);
   const p = (kind: ReportKind, q = Q(OCT)) => ok(print.report(w.db, kind, q));
   const d = p('dateWise');
-  assert.deepEqual(d.rows[0], ['05-10-2026', '1', '3', '1,800.00', '–', '10.50', '90.00', '1,900.50']);
-  assert.deepEqual(d.rows[1], ['10-10-2026', '1', '2', '–', '2,000.50', '12.25', '50.01', '2,062.76']);
-  assert.deepEqual(d.totals, ['8', '19', '2,833.33', '2,110.50', '22.75', '159.68', '5,126.26']);
+  assert.deepEqual(d.rows[0], ['05-10-2026', '1', '3', '1,800.00', '–', '10.50', '1,810.50']);
+  assert.deepEqual(d.rows[1], ['10-10-2026', '1', '2', '–', '2,000.50', '12.25', '2,012.75']);
+  assert.deepEqual(d.totals, ['8', '19', '2,833.33', '2,110.50', '22.75', '4,966.58']);
   assert.deepEqual([d.report, d.from, d.to, d.rows.length, d.anyDiffers], ['dateWise', '01-10-2026', '31-10-2026', 6, false]);
   assert.equal(d.company.name, 'Sundeep Freight Movers');
 

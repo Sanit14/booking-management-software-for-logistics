@@ -47,15 +47,15 @@ const lastAudit = (s: Set, count = 1) =>
 
 test('get: a fresh memo shows its frozen totals and the totals now, equal, and does not differ', () => {
   const s = setUp();
-  const m = memoOf(s, 3, {}, { staxPercent: '5', godownBhada: '10', hamali: '4' });
+  const m = memoOf(s, 3, {}, { hamali: '4' });
   const d = m.get();
   assert.deepEqual(d.now, d.frozen);
   assert.equal(d.differs, false);
   assert.equal(d.frozen.lrs, 3);
-  assert.ok(d.frozen.staxPaise > 0 && d.frozen.chargesPaise > 0);
+  assert.equal(d.frozen.hamaliPaise, 1200, 'the hamali of the three LRs, frozen');
 });
 
-test('differs: an LR edit that changes count, quantity, to pay, paid, charges or tax makes the memo differ; one that changes none of them does not', () => {
+test('differs: an LR edit that changes count, quantity, to pay, paid or hamali makes the memo differ; one that changes none of them does not', () => {
   const s = setUp();
   const m = memoOf(s, 2);
   const target = m.lrs[0].id;
@@ -70,8 +70,7 @@ test('differs: an LR edit that changes count, quantity, to pay, paid, charges or
     ['qty', { qty: '4' }],
     ['to pay', { qty: '4', toPay: '2,000' }],
     ['paid', { qty: '4', toPay: '', paid: '700' }],
-    ['charges', { qty: '4', toPay: '', paid: '700', godownBhada: '15' }],
-    ['tax', { qty: '4', toPay: '', paid: '700', godownBhada: '15', staxPercent: '12' }],
+    ['hamali', { qty: '4', toPay: '', paid: '700', hamali: '15' }],
   ];
   for (const [name, over] of flags) {
     edit(over);
@@ -79,7 +78,7 @@ test('differs: an LR edit that changes count, quantity, to pay, paid, charges or
     assert.equal(got(s.memos.list(s.db, none, null)).rows.find((r) => r.id === m.id)?.differs, true, `${name} (list)`);
   }
   // putting it back to what it was clears the difference with no recalculation: it is computed when read
-  edit({ qty: '3', toPay: '1,800', paid: '', godownBhada: '', staxPercent: '0' });
+  edit({ qty: '3', toPay: '1,800', paid: '', hamali: '' });
   assert.equal(m.get().differs, false);
   assert.equal(got(s.memos.list(s.db, none, null)).rows.find((r) => r.id === m.id)?.differs, false);
 });
@@ -482,4 +481,35 @@ test('speed: the saved-memos list answers in under 100 ms over 5 000 memos, and 
   // Fastest of 5 like the other speed budgets: a busy PC (the Stop hook's check next to another job) slows one run, not all five.
   const pinMs = fastest(5, () => s.pins.verify(s.db, 'system', SYSTEM));
   assert.ok(t2 - 2 * pinMs < 250, `remove + add took ${t2.toFixed(1)} ms with two PIN checks of ${pinMs.toFixed(1)} ms`);
+});
+
+// ---- Session 4.5 ----
+
+test('a memo saved before 4.5 (frozen charges + tax) shows Differs; Recalculate freezes the hamali now and clears it', () => {
+  const s = setUp();
+  const m = memoOf(s, 2, {}, { toPay: '100', hamali: '4' });
+  assert.equal(m.get().differs, false);
+  // What the earlier program froze: godown and delivery charges, and 5% service tax, on top of the hamali.
+  s.db.prepare('UPDATE memos SET frozen_charges_paise = 1300, frozen_stax_paise = 1000 WHERE id = ?').run(m.id);
+  const d = m.get();
+  assert.equal(d.differs, true, 'accepted in 4.5: no customer data exists yet, 4.6 reworks the memo totals');
+  assert.equal(got(s.memos.list(s.db, none, null)).rows[0].differs, true);
+  const r = got(s.memos.recalculate(s.db, 'seat-1', m.id, d.version, ADMIN));
+  assert.equal(r.changed, true);
+  assert.equal(r.memo.differs, false);
+  assert.equal(r.memo.frozen.hamaliPaise, 800);
+});
+
+test('the History of a memo recalculation made before 4.5 still reads: charges and service tax, old → new', () => {
+  const s = setUp();
+  const m = memoOf(s, 1);
+  s.db
+    .prepare("INSERT INTO audit_log (seat, action, entity, entity_id, before_json, after_json) VALUES ('PC01', 'memos.recalculate', 'memos', ?, ?, ?)")
+    .run(
+      String(m.id),
+      JSON.stringify({ lrs: 1, qty: 3, toPayPaise: 100, paidPaise: 0, chargesPaise: 4200, staxPaise: 9000 }),
+      JSON.stringify({ lrs: 1, qty: 3, toPayPaise: 100, paidPaise: 0, chargesPaise: 3000, staxPaise: 0 }),
+    );
+  const e = got(s.memos.history(s.db, m.id)).find((x) => x.action === 'recalculated');
+  assert.deepEqual(e?.changes, [{ field: 'charges', from: 4200, to: 3000 }, { field: 'stax', from: 9000, to: 0 }]);
 });

@@ -26,7 +26,7 @@ import type { Db } from './db';
 import type { makeFirmAccounts } from './firmAccounts';
 import { asRange, asRole } from './firmRules';
 import type { makeMemos } from './memos';
-import { inr, lrAmounts, percentText, type LrMoney } from './money';
+import { inr, lrAmounts, type LrMoney } from './money';
 import type { makePins } from './pins';
 import type { makeReports } from './reports';
 import { asReportKind, asReportQuery } from './reportRules';
@@ -161,7 +161,7 @@ export function makePrint(
       });
     },
 
-    /** An LR as printed. Freight is To pay or Paid; the total is freight + charges + tax either way (`lrAmounts`). */
+    /** An LR as printed. Freight is To pay or Paid; the total is freight + hamali either way (`lrAmounts`). */
     lr(db: Db, id: number): KeeperResult<PrintLr> {
       const r = db
         .prepare(
@@ -171,7 +171,6 @@ export function makePrint(
         .get(id) as LrPrintRow | undefined;
       if (!r) return refuse('lr-missing');
       const a = lrAmounts(r);
-      // ponytail: pf_paise has no line because nothing writes it; if a screen ever does, add its line or the paper will not add up.
       return ok({
         company: company(db),
         lrNo: r.lr_no,
@@ -185,12 +184,7 @@ export function makePrint(
         qty: r.qty,
         mode: r.topay_paise > 0 ? 'topay' : r.paid_paise > 0 ? 'paid' : 'none',
         freight: inr(a.freight),
-        godownBhada: inr(r.godown_bhada_paise),
-        godownInsurance: inr(r.godown_insurance_paise),
-        deliveryCharges: inr(r.delivery_charges_paise),
-        hamali: inr(r.hamali_paise),
-        staxPercent: percentText(r.stax_bp),
-        stax: inr(a.stax),
+        hamali: inr(a.hamali),
         total: inr(a.total),
         cancelled: r.status === 'cancelled',
       });
@@ -222,10 +216,10 @@ export function makePrint(
         to: display(q.to),
         rows: rows.map((r) => ({
           lrNo: r.lrNo, date: display(r.date), party: r.party, to: r.toStation, qty: r.qty,
-          toPay: dash(r.toPayPaise), paid: dash(r.paidPaise), chargesTax: dash(r.chargesPaise + r.staxPaise), total: inr(r.totalPaise),
+          toPay: dash(r.toPayPaise), paid: dash(r.paidPaise), hamali: dash(r.hamaliPaise), total: inr(r.totalPaise),
         })),
         totals: {
-          lrs: t.lrs, qty: t.qty, toPay: inr(t.toPayPaise), paid: inr(t.paidPaise), charges: inr(t.chargesPaise), stax: inr(t.staxPaise), total: inr(t.totalPaise),
+          lrs: t.lrs, qty: t.qty, toPay: inr(t.toPayPaise), paid: inr(t.paidPaise), hamali: inr(t.hamaliPaise), total: inr(t.totalPaise),
           wasuliOwed: inr(t.wasuliOwedPaise), wasuliCollected: inr(t.wasuliCollectedPaise), hasWasuli: t.wasuliOwedPaise > 0,
         },
       });
@@ -263,8 +257,8 @@ export function makePrint(
           if (!all.ok) return all;
           const t = all.value.totals;
           return build(
-            all.value.rows.map((r) => [display(r.date), n(r.lrs), n(r.qty), dash(r.toPayPaise), dash(r.paidPaise), dash(r.chargesPaise), dash(r.staxPaise), inr(r.totalPaise)]),
-            [n(t.lrs), n(t.qty), inr(t.toPayPaise), inr(t.paidPaise), inr(t.chargesPaise), inr(t.staxPaise), inr(t.totalPaise)],
+            all.value.rows.map((r) => [display(r.date), n(r.lrs), n(r.qty), dash(r.toPayPaise), dash(r.paidPaise), dash(r.hamaliPaise), inr(r.totalPaise)]),
+            [n(t.lrs), n(t.qty), inr(t.toPayPaise), inr(t.paidPaise), inr(t.hamaliPaise), inr(t.totalPaise)],
           );
         }
         case 'stationWise': {

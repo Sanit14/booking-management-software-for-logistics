@@ -1,6 +1,6 @@
 // Firm Accounts (3.5): what a firm sent and received in a period. Five named reads, nothing written, no event. The period is by LR
 // date, both days included, cancelled LRs left out. Every figure is added up here in SQL; the screen only formats. The money
-// expressions are the SQL twin of `lrAmounts` (tax per LR, round half up, then summed) — firmAccounts.dbtest.ts compares them.
+// expressions are the SQL twin of `lrAmounts` (freight + hamali, `lrSql.ts`) — firmAccounts.dbtest.ts compares them.
 import type {
   FirmAccountCursor, FirmAccountFilters, FirmAccountPage, FirmAccountRow, FirmFigures, FirmKpis, FirmMonth, FirmRole, KeeperResult, ResultCode,
   StatementCursor, StatementPage, StatementQuery, StatementRow, StatementTop, StatementTotals, TopItem,
@@ -36,8 +36,8 @@ function setOf(role: FirmRole): string {
   return `l.id IN (${side('consignor_id')} UNION ${side('consignee_id')}) AND ${LIVE}`;
 }
 
-/** Charges, freight, tax (per LR, round half up: the arithmetic of `taxPaise`) and total as SQL: the one definition in `lrSql.ts`. */
-const { charges: CHARGES, freight: FREIGHT, stax: STAX, total: TOTAL } = lrMoneySql('l.');
+/** Freight, hamali and total as SQL: the one definition in `lrSql.ts`. */
+const { freight: FREIGHT, hamali: HAMALI, total: TOTAL } = lrMoneySql('l.');
 
 const SUMS = `${lrSumsSql('l.')}, COALESCE(SUM(${TOTAL}), 0) AS totalPaise,
     COALESCE(SUM(w.amount_paise), 0) AS wasuliOwedPaise, COALESCE(SUM(w.collected_paise), 0) AS wasuliCollectedPaise`;
@@ -45,7 +45,7 @@ const ROW_COLUMNS = `l.id AS lrId, l.lr_no AS lrNo, l.lr_year AS lrYear, l.lr_da
     CASE WHEN l.consignor_id = @f AND l.consignee_id = @f THEN 'both' WHEN l.consignor_id = @f THEN 'consignor' ELSE 'consignee' END AS role,
     CASE WHEN l.consignor_id = @f THEN l.consignee_name ELSE l.consignor_name END AS party,
     fs.name AS fromStation, ts.name AS toStation, l.particular, l.qty, l.topay_paise AS toPayPaise, l.paid_paise AS paidPaise,
-    ${CHARGES} AS chargesPaise, ${STAX} AS staxPaise, ${TOTAL} AS totalPaise, l.status, l.memo_id AS memoId, m.challan_no AS challanNo,
+    ${HAMALI} AS hamaliPaise, ${TOTAL} AS totalPaise, l.status, l.memo_id AS memoId, m.challan_no AS challanNo,
     w.status AS wasuliStatus, COALESCE(w.amount_paise, 0) AS wasuliPaise, COALESCE(w.collected_paise, 0) AS wasuliCollectedPaise`;
 
 /** Every statement the page needs for one role, built from fixed text: only values are bound (@f, @from, @to; @cd and @cn after a cursor). */

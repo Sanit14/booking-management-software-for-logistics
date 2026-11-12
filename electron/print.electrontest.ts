@@ -210,7 +210,7 @@ void app.whenReady().then(async () => {
   });
   await check('a statement shows a 6-digit LR number, a date, a 3-digit quantity and amounts up to 9,99,999.99 (12,34,567.89 in Total) whole', async () => {
     const base = sampleStatement(12);
-    const widest = { ...base, rows: base.rows.map((r) => ({ ...r, lrNo: 109999, date: '31-12-2026', qty: 120, toPay: '9,99,999.99', paid: '9,99,999.99', chargesTax: '99,999.99', total: '12,34,567.89' })) };
+    const widest = { ...base, rows: base.rows.map((r) => ({ ...r, lrNo: 109999, date: '31-12-2026', qty: 120, toPay: '9,99,999.99', paid: '9,99,999.99', hamali: '9,99,999.99', total: '12,34,567.89' })) };
     assert.deepEqual(await cutCells(statementHtml(widest)), []);
     // the check can see a cut: the first version of the Date column (17 mm) cut every date
     const html = statementHtml(widest).replace('<col style="width:20mm">', '<col style="width:12mm">');
@@ -234,7 +234,7 @@ void app.whenReady().then(async () => {
   const TEXT_COLUMNS: Record<ReportKind, number[]> = { dateWise: [], stationWise: [0], consignorWise: [0, 1], consigneeWise: [0, 1], truckWise: [2, 3], firmWise: [0], wasuli: [0] };
   const MONEY = '12,34,567.89';
   const WIDEST: Record<ReportKind, string[]> = {
-    dateWise: ['31-12-2026', '99999', '9999999', MONEY, MONEY, MONEY, MONEY, MONEY],
+    dateWise: ['31-12-2026', '99999', '9999999', MONEY, MONEY, MONEY, MONEY],
     stationWise: ['Station', '99999', '9999999', MONEY, MONEY, MONEY],
     consignorWise: ['Name', 'Station', '99999', '9999999', MONEY, MONEY, MONEY],
     consigneeWise: ['Name', 'Station', '99999', '9999999', MONEY, MONEY, MONEY],
@@ -278,7 +278,7 @@ void app.whenReady().then(async () => {
   }
   // The #-wide cell check can see a cut: a 12 mm Date column cuts every date.
   await check('the report cut-cell check sees a cut', async () => {
-    const html = reportHtml(sampleReport('dateWise', 3)).replace('<col style="width:22mm">', '<col style="width:12mm">');
+    const html = reportHtml(sampleReport('dateWise', 3)).replace('<col style="width:24mm">', '<col style="width:12mm">');
     assert.ok((await cutReportCells(html, [])).length > 0, 'a 12 mm Date column is cut');
   });
   const R = { first: REPORT_FIRST_ROWS, next: REPORT_NEXT_ROWS, totals: REPORT_TOTALS_ROWS };

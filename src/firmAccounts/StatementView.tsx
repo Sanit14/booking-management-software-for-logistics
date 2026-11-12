@@ -24,7 +24,7 @@ const ROLES: FirmRole[] = ['both', 'consignor', 'consignee'];
 const NO_STATEMENT: StatementPage = {
   rows: [],
   next: null,
-  totals: { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, chargesPaise: 0, staxPaise: 0, totalPaise: 0, wasuliOwedPaise: 0, wasuliCollectedPaise: 0 },
+  totals: { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, hamaliPaise: 0, totalPaise: 0, wasuliOwedPaise: 0, wasuliCollectedPaise: 0 },
 };
 const nothing = <T,>(value: T): Promise<KeeperResult<T>> => Promise.resolve({ ok: true as const, value });
 const money = (paise: number) => (paise > 0 ? rupees(paise) : '–');
@@ -191,18 +191,7 @@ export default function StatementView({ firm, today, state, onChange, onBack, on
         </>
       ),
     },
-    {
-      key: 'charges',
-      header: c.chargesTax,
-      width: 92,
-      num: true,
-      render: (r) => (
-        <>
-          {money(r.chargesPaise)}
-          <span className={styles.sub}>{`${c.taxShort} ${money(r.staxPaise)}`}</span>
-        </>
-      ),
-    },
+    { key: 'hamali', header: c.hamali, width: 92, num: true, render: (r) => money(r.hamaliPaise) },
     { key: 'total', header: c.total, width: 92, num: true, render: (r) => rupees(r.totalPaise) },
     {
       key: 'challan',
@@ -337,10 +326,7 @@ export default function StatementView({ firm, today, state, onChange, onBack, on
               {t.totals.paid} <strong>{rupees(x.paidPaise)}</strong>
             </span>
             <span>
-              {t.totals.charges} <strong>{rupees(x.chargesPaise)}</strong>
-            </span>
-            <span>
-              {t.totals.stax} <strong>{rupees(x.staxPaise)}</strong>
+              {t.totals.hamali} <strong>{rupees(x.hamaliPaise)}</strong>
             </span>
             <span>
               {t.totals.total} <strong>{rupees(x.totalPaise)}</strong>

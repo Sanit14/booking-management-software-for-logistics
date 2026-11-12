@@ -35,8 +35,7 @@
 .row > * {
   min-width: 0;
 }
-/* Labels that wrap to two lines push their box down: line the boxes up on the bottom edge instead. */
-.charges,
+/* The labels of the bottom row's boxes and the amounts strip differ in height: line them up on the bottom edge. */
 .bottom {
   align-items: flex-end;
 }
@@ -111,30 +110,13 @@
 .money {
   flex: 0 0 112px;
 }
-/* The labels of the charge boxes stay on one line (a wrapped label makes the whole row 18 px taller). */
-.option {
-  flex: 0 0 100px;
-}
-.bhada {
-  flex: 0 0 112px;
-}
-.insurance {
-  flex: 0 0 136px;
-}
-.delivery {
-  flex: 0 0 122px;
-}
-.tax {
-  flex: 0 0 124px;
-}
-
 .amounts {
   display: flex;
   flex: 1 1 0;
   justify-content: space-around;
   gap: 8px;
   margin: 0;
-  padding: 6px 12px;
+  padding: 6px 8px; /* three figures share what is left of the row beside Hamali, Wasuli and Save */
   border: 1px solid var(--border-soft);
   border-radius: var(--r-md);
   background: var(--readonly-bg);

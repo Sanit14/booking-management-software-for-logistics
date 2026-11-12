@@ -52,13 +52,8 @@ export function sampleLr(over: Partial<PrintLr> = {}): PrintLr {
     qty: 7,
     mode: 'topay',
     freight: '1,800.00',
-    godownBhada: '10.00',
-    godownInsurance: '5.00',
-    deliveryCharges: '2.00',
     hamali: '12.50',
-    staxPercent: '5',
-    stax: '90.00',
-    total: '1,919.50',
+    total: '1,812.50',
     cancelled: false,
     ...over,
   };
@@ -74,7 +69,7 @@ export function sampleStatement(count: number, over: Partial<PrintFirmStatement>
     qty: 3 + (i % 5),
     toPay: i % 2 === 0 ? '1,800.00' : '–',
     paid: i % 2 === 0 ? '–' : '2,500.50',
-    chargesTax: i % 3 === 0 ? '132.00' : '–',
+    hamali: i % 3 === 0 ? '132.00' : '–',
     total: i % 2 === 0 ? '1,932.00' : '2,632.50',
   }));
   return {
@@ -85,7 +80,7 @@ export function sampleStatement(count: number, over: Partial<PrintFirmStatement>
     to: '31-10-2026',
     rows,
     totals: {
-      lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', charges: '12,345.00', stax: '5,678.90', total: '11,29,134.40',
+      lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', hamali: '12,345.00', total: '11,29,134.40',
       wasuliOwed: '0.00', wasuliCollected: '0.00', hasWasuli: false,
     },
     ...over,
@@ -99,8 +94,8 @@ const longName = 'Maharashtra State Cooperative Marketing Federation Limited, Ya
 /** The cells of row `i` and the totals strip of each report, in the order of its columns (strings.paper.report). */
 const REPORT_SAMPLES: Record<ReportKind, { row: (i: number) => string[]; totals: string[] }> = {
   dateWise: {
-    row: (i) => [`${String(1 + (i % 28)).padStart(2, '0')}-10-2026`, String(3 + (i % 40)), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2), amt(i, 3), amt(i, 4), '12,345.67'],
-    totals: ['1,234', '5,678', '12,34,567.89', '9,87,654.50', '12,345.00', '5,678.90', '29,13,134.40'],
+    row: (i) => [`${String(1 + (i % 28)).padStart(2, '0')}-10-2026`, String(3 + (i % 40)), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2), amt(i, 3), '12,345.67'],
+    totals: ['1,234', '5,678', '12,34,567.89', '9,87,654.50', '12,345.00', '29,13,134.40'],
   },
   stationWise: {
     row: (i) => [i % 10 === 9 ? longName : `Station ${i}`, String(3 + (i % 40)), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2), amt(i, 5)],

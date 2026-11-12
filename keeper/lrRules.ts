@@ -1,27 +1,23 @@
 // What makes a typed LR acceptable. Pure: no database, no clock (the caller passes today). The money and quantity
 // arrive as the TEXT the clerk typed; this is where they become numbers, so the screen never has to.
-import type { ChargeOption, LrChange, LrDefaultsInput, LrEditField, LrField, LrFieldError, LrInput, LrParty } from '../shared';
+import type { LrChange, LrDefaultsInput, LrEditField, LrField, LrFieldError, LrInput, LrOldField, LrParty } from '../shared';
 import { cleanName } from './masterRules';
-import { parsePercent, parseRupees, percentText } from './money';
+import { parseRupees } from './money';
 
 export type LrErrors = Partial<Record<LrField, LrFieldError>>;
 
-/** The typed numbers: paise, a count, basis points. A malformed one is 0 here and named in the errors. */
+/** The typed numbers: paise and a count. A malformed one is 0 here and named in the errors. */
 export interface LrNumbers {
   qty: number;
   toPay: number;
   paid: number;
-  godownBhada: number;
-  godownInsurance: number;
-  deliveryCharges: number;
   hamali: number;
   wasuli: number;
-  staxBp: number;
 }
 
-/** Rs 100 crore in paise: far above any LR, far below what `taxPaise` can multiply. */
+/** Rs 100 crore in paise: far above any LR, and far below a safe integer for the sums over a day's LRs. */
 export const MAX_PAISE = 100_00_00_000 * 100;
-const MONEY = ['toPay', 'paid', 'godownBhada', 'godownInsurance', 'deliveryCharges', 'hamali', 'wasuli'] as const;
+const MONEY = ['toPay', 'paid', 'hamali', 'wasuli'] as const;
 
 export const obj = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const text = (o: Record<string, unknown>, k: string): string => (typeof o[k] === 'string' ? (o[k] as string) : '');
@@ -52,23 +48,16 @@ export function asLrInput(v: unknown): LrInput | null {
     qty: text(o, 'qty'),
     toPay: text(o, 'toPay'),
     paid: text(o, 'paid'),
-    chargeOption: text(o, 'chargeOption') as ChargeOption,
-    godownBhada: text(o, 'godownBhada'),
-    godownInsurance: text(o, 'godownInsurance'),
-    deliveryCharges: text(o, 'deliveryCharges'),
     hamali: text(o, 'hamali'),
     wasuli: text(o, 'wasuli'),
-    staxPercent: text(o, 'staxPercent'),
     confirmSimilar: o.confirmSimilar === true,
   };
 }
 
 export function asDefaultsInput(v: unknown): LrDefaultsInput {
   const o = obj(v) ?? {};
-  return { bookingStationId: int(o, 'bookingStationId'), chargeOption: text(o, 'chargeOption') as ChargeOption, staxPercent: text(o, 'staxPercent') };
+  return { bookingStationId: int(o, 'bookingStationId') };
 }
-
-export const isChargeOption =(v: unknown): v is ChargeOption => v === 'option1' || v === 'option2' || v === 'blank';
 
 /** Local calendar date, `YYYY-MM-DD` (not UTC: at 3 a.m. in India UTC is still yesterday). */
 export function localDate(now: Date): string {
@@ -83,9 +72,9 @@ export function isDate(text: string): boolean {
 }
 
 /** Only what is malformed in the typed numbers; an empty box is 0 (not "required"), so a preview can run on a half-filled form. */
-export function parseNumbers(i: Pick<LrInput, 'qty' | 'staxPercent' | (typeof MONEY)[number]>): { n: LrNumbers; errors: LrErrors } {
+export function parseNumbers(i: Pick<LrInput, 'qty' | (typeof MONEY)[number]>): { n: LrNumbers; errors: LrErrors } {
   const errors: LrErrors = {};
-  const n: LrNumbers = { qty: 0, toPay: 0, paid: 0, godownBhada: 0, godownInsurance: 0, deliveryCharges: 0, hamali: 0, wasuli: 0, staxBp: 0 };
+  const n: LrNumbers = { qty: 0, toPay: 0, paid: 0, hamali: 0, wasuli: 0 };
   const qty = i.qty.trim();
   if (qty !== '') {
     if (/^\d{1,6}$/.test(qty) && Number(qty) >= 1) n.qty = Number(qty);
@@ -94,17 +83,12 @@ export function parseNumbers(i: Pick<LrInput, 'qty' | 'staxPercent' | (typeof MO
   for (const f of MONEY) {
     try {
       n[f] = parseRupees(i[f]);
-      // A stuck key must not reach the money maths (freight x tax would overflow a safe integer): refused by name.
+      // A stuck key must not reach the money maths (a day's sums would overflow a safe integer): refused by name.
       if (n[f] > MAX_PAISE) throw new Error('too big');
     } catch {
       n[f] = 0;
       errors[f] = 'amount';
     }
-  }
-  try {
-    n.staxBp = parsePercent(i.staxPercent);
-  } catch {
-    errors.staxPercent = 'percent';
   }
   if (n.toPay > 0 && n.paid > 0) errors.paid = 'both';
   return { n, errors };
@@ -128,11 +112,14 @@ export function cleanReason(v: unknown): string | null {
 const EDIT_COLUMNS: [LrEditField, string][] = [
   ['date', 'lr_date'], ['fromStation', 'from_station_id'], ['toStation', 'to_station_id'],
   ['consignor', 'consignor_name'], ['consignee', 'consignee_name'], ['particular', 'particular'], ['qty', 'qty'],
-  ['chargeOption', 'charge_option'], ['toPay', 'topay_paise'], ['paid', 'paid_paise'], ['godownBhada', 'godown_bhada_paise'],
-  ['godownInsurance', 'godown_insurance_paise'], ['deliveryCharges', 'delivery_charges_paise'], ['hamali', 'hamali_paise'],
-  ['wasuli', 'wasuli_paise'], ['staxPercent', 'stax_bp'],
+  ['toPay', 'topay_paise'], ['paid', 'paid_paise'], ['hamali', 'hamali_paise'], ['wasuli', 'wasuli_paise'],
 ];
 const EDIT_COLUMN_NAMES = [...EDIT_COLUMNS.map(([, c]) => c), 'consignor_id', 'consignee_id'];
+// Old rows only: the columns an edit could change before 4.5. An edit now leaves them alone; the audit rows of those edits are still read.
+const OLD_COLUMNS: [LrOldField, string][] = [
+  ['chargeOption', 'charge_option'], ['godownBhada', 'godown_bhada_paise'], ['godownInsurance', 'godown_insurance_paise'],
+  ['deliveryCharges', 'delivery_charges_paise'], ['staxPercent', 'stax_bp'],
+];
 
 type Row = Record<string, unknown>;
 
@@ -151,17 +138,17 @@ export function diffLr(was: object, now: object): { before: Row; after: Row } | 
 }
 
 /**
- * An edit's audit pair as History lines in form order. `stationName` turns an id into a name; money stays paise
- * (the screen shows rupees). A firm picked for a walk-in of the same name changes an id only, which shows no line.
+ * An edit's audit pair as History lines in form order (the old fields of a row saved before 4.5 last). `stationName` turns an id into a name;
+ * money stays paise (the screen shows rupees). A firm picked for a walk-in of the same name changes an id only, which shows no line.
  */
 export function changesOf(before: Row, after: Row, stationName: (id: unknown) => string | undefined): LrChange[] {
   const out: LrChange[] = [];
-  for (const [field, column] of EDIT_COLUMNS) {
+  for (const [field, column] of [...EDIT_COLUMNS, ...OLD_COLUMNS]) {
     if (!(column in after) || before[column] === after[column]) continue;
     const show = (v: unknown): string | number | null => {
       if (v === undefined || v === null) return null;
       if (field === 'fromStation' || field === 'toStation') return stationName(v) ?? String(v);
-      if (field === 'staxPercent') return percentText(Number(v));
+      if (field === 'staxPercent') return String(Number(v) / 100); // an old row: basis points as typed (500 -> '5', 250 -> '2.5')
       return v as string | number;
     };
     out.push({ field, from: show(before[column]), to: show(after[column]) });
@@ -195,8 +182,6 @@ export function cleanLr(i: LrInput, today: string): CleanLr {
   if (!from) errors.fromStation = 'required';
   if (!to) errors.toStation = 'required';
   else if (from && i.fromStationId === i.toStationId) errors.toStation = 'same';
-
-  if (!isChargeOption(i.chargeOption)) errors.chargeOption = 'required';
 
   const particular = cleanName(i.particular);
   if (particular === null) errors.particular = 'required';

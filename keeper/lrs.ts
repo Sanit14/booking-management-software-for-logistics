@@ -1,11 +1,11 @@
 // LRs: the number, the validation and the money all happen here, inside ONE transaction per save. The screen sends
 // what was typed (money as text) and gets back the saved LR with its amounts; it never adds anything up.
-import type { ChargeOption, KeeperResult, LrDay, LrDefaults, LrDefaultsInput, LrDetail, LrHistoryEntry, LrInput, LrListRow, LrPreview, LrSaved, LrStatus, LrUpdated, ResultCode } from '../shared';
+import type { KeeperResult, LrDay, LrDefaults, LrDefaultsInput, LrDetail, LrHistoryEntry, LrInput, LrListRow, LrPreview, LrSaved, LrStatus, LrUpdated, ResultCode } from '../shared';
 import { parseJson, writeAudit, type AuditRow } from './audit';
 import type { Db } from './db';
-import { changesOf, cleanLr, cleanReason, diffLr, isChargeOption, isDate, localDate, parseNumbers, type CleanLr, type LrErrors } from './lrRules';
+import { changesOf, cleanLr, cleanReason, diffLr, isDate, localDate, parseNumbers, type CleanLr, type LrErrors } from './lrRules';
 import type { makeMasters } from './masters';
-import { chargesFor, lrAmounts, parsePercent, percentText, type ChargeRule, type LrMoney } from './money';
+import { lrAmounts, type LrMoney } from './money';
 import { nameKey } from './names';
 import { nextNumber } from './numbering';
 import type { makePins } from './pins';
@@ -22,15 +22,9 @@ class Stop extends Error {
 }
 
 const DAY_LIMIT = 1000;
-const NO_CHARGES: ChargeRule = { godownBhadaPaise: 0, godownInsurancePaise: 0, deliveryChargesPaise: 0, hamaliPerDagPaise: 0, hamaliFlatPaise: 0, hamaliMode: 'none' };
 
 const setting = (db: Db, key: string): string | undefined =>
   (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
-
-function chargeRule(db: Db, option: ChargeOption): ChargeRule {
-  const text = setting(db, `chargeRule_${option}`);
-  return text ? (JSON.parse(text) as ChargeRule) : NO_CHARGES;
-}
 
 const LIST = `SELECT l.id, l.lr_no AS lrNo, l.consignor_name AS consignor, l.consignee_name AS consignee, s.name AS toStation,
   l.qty, l.topay_paise AS toPayPaise, l.paid_paise AS paidPaise, l.status
@@ -48,7 +42,7 @@ const NOW = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
 type LrRow = LrMoney & {
   id: number; version: number; status: LrStatus; lr_year: number; lr_no: number; lr_date: string; memo_id: number | null; memo_no: number | null;
   from_station_id: number; to_station_id: number; consignor_id: number | null; consignor_name: string; consignee_id: number | null; consignee_name: string;
-  particular: string; qty: number; charge_option: ChargeOption; wasuli_paise: number;
+  particular: string; qty: number; wasuli_paise: number;
 };
 
 const rowOf = (db: Db, id: unknown): LrRow | undefined =>
@@ -59,14 +53,13 @@ function detailOf(r: LrRow): LrDetail {
     id: r.id, version: r.version, status: r.status, lrNo: r.lr_no, lrYear: r.lr_year, date: r.lr_date, memoNo: r.memo_no, memoId: r.memo_id,
     fromStationId: r.from_station_id, toStationId: r.to_station_id,
     consignorId: r.consignor_id, consignor: r.consignor_name, consigneeId: r.consignee_id, consignee: r.consignee_name,
-    particular: r.particular, qty: r.qty, toPayPaise: r.topay_paise, paidPaise: r.paid_paise, chargeOption: r.charge_option,
-    godownBhadaPaise: r.godown_bhada_paise, godownInsurancePaise: r.godown_insurance_paise, deliveryChargesPaise: r.delivery_charges_paise,
-    hamaliPaise: r.hamali_paise, wasuliPaise: r.wasuli_paise, staxPercent: percentText(r.stax_bp), amounts: lrAmounts(r),
+    particular: r.particular, qty: r.qty, toPayPaise: r.topay_paise, paidPaise: r.paid_paise,
+    hamaliPaise: r.hamali_paise, wasuliPaise: r.wasuli_paise, amounts: lrAmounts(r),
   };
 }
 
 /**
- * A retry (a uid that was saved) is the same save when it carries what the LR holds: stations, amounts, particular, quantity and option equal,
+ * A retry (a uid that was saved) is the same save when it carries what the LR holds: stations, amounts, particular and quantity equal,
  * a picked firm by its id, a typed name by the name as booked. A date counts only when one was sent (the form sends none for "today").
  */
 function sameAsSaved(row: LrRow, input: LrInput, today: string): boolean {
@@ -78,9 +71,8 @@ function sameAsSaved(row: LrRow, input: LrInput, today: string): boolean {
     (input.date === null || c.date === row.lr_date) &&
     input.fromStationId === row.from_station_id && input.toStationId === row.to_station_id &&
     party(row.consignor_id, row.consignor_name, input.consignor, c.consignorName) && party(row.consignee_id, row.consignee_name, input.consignee, c.consigneeName) &&
-    c.particular === row.particular && c.n.qty === row.qty && input.chargeOption === row.charge_option &&
-    c.n.toPay === row.topay_paise && c.n.paid === row.paid_paise && c.n.godownBhada === row.godown_bhada_paise && c.n.godownInsurance === row.godown_insurance_paise &&
-    c.n.deliveryCharges === row.delivery_charges_paise && c.n.hamali === row.hamali_paise && c.n.wasuli === row.wasuli_paise && c.n.staxBp === row.stax_bp
+    c.particular === row.particular && c.n.qty === row.qty &&
+    c.n.toPay === row.topay_paise && c.n.paid === row.paid_paise && c.n.hamali === row.hamali_paise && c.n.wasuli === row.wasuli_paise
   );
 }
 
@@ -164,14 +156,10 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
     const on = date !== null && isDate(date) ? date : today;
     const station = Number(setting(db, 'bookingStationId'));
     const active = Number.isInteger(station) && db.prepare('SELECT 1 FROM stations WHERE id = ? AND active = 1').get(station) !== undefined;
-    const option = setting(db, 'defaultChargeOption');
-    const bp = Number(setting(db, 'defaultStaxBp') ?? 0);
     const last = db.prepare("SELECT last FROM counters WHERE name = 'lr' AND year = ?").get(Number(on.slice(0, 4))) as { last: number } | undefined;
     return {
       today,
       bookingStationId: active ? station : null,
-      chargeOption: isChargeOption(option) ? option : 'blank',
-      staxPercent: percentText(Number.isInteger(bp) && bp >= 0 && bp <= 10000 ? bp : 0),
       nextNo: (last?.last ?? 0) + 1,
     };
   }
@@ -179,22 +167,11 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
   return {
     defaults,
 
-    /** No write. Amounts from `lrAmounts` on what is typed so far, and what the chosen charge option fills for this quantity. */
-    preview(db: Db, input: LrInput): KeeperResult<LrPreview> {
+    /** No write, no database. Amounts from `lrAmounts` on what is typed so far. */
+    preview(input: LrInput): KeeperResult<LrPreview> {
       const { n, errors } = parseNumbers(input);
-      const option = isChargeOption(input.chargeOption) ? input.chargeOption : 'blank';
-      const c = chargesFor(chargeRule(db, option), n.qty);
-      const amounts = lrAmounts({
-        topay_paise: n.toPay,
-        paid_paise: errors.paid === 'both' ? 0 : n.paid,
-        godown_bhada_paise: n.godownBhada,
-        godown_insurance_paise: n.godownInsurance,
-        delivery_charges_paise: n.deliveryCharges,
-        hamali_paise: n.hamali,
-        pf_paise: 0,
-        stax_bp: n.staxBp,
-      });
-      return ok({ amounts, defaults: c, fields: errors });
+      const amounts = lrAmounts({ topay_paise: n.toPay, paid_paise: errors.paid === 'both' ? 0 : n.paid, hamali_paise: n.hamali });
+      return ok({ amounts, fields: errors });
     },
 
     create(db: Db, seat: string, input: LrInput): KeeperResult<LrSaved> {
@@ -220,18 +197,17 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
           // checks as Masters, inside this transaction, so a refusal rolls the whole LR back.
           const { consignor, consignee, firmsAdded } = resolveLr(db, masters, seat, input, c);
 
+          // The older charge and tax columns of `lrs` are not named here: a new LR keeps their defaults (0, 'blank').
           const { year, no } = nextNumber(db, 'lr', c.date);
           const r = db
             .prepare(
               `INSERT INTO lrs (uid, lr_year, lr_no, lr_date, consignor_id, consignor_name, consignee_id, consignee_name, from_station_id, to_station_id,
-                 particular, qty, topay_paise, paid_paise, charge_option, godown_bhada_paise, godown_insurance_paise, delivery_charges_paise,
-                 hamali_paise, wasuli_paise, stax_bp, seat)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 particular, qty, topay_paise, paid_paise, hamali_paise, wasuli_paise, seat)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               input.uid, year, no, c.date, consignor.id, consignor.name, consignee.id, consignee.name, input.fromStationId, input.toStationId,
-              c.particular, c.n.qty, c.n.toPay, c.n.paid, input.chargeOption, c.n.godownBhada, c.n.godownInsurance, c.n.deliveryCharges,
-              c.n.hamali, c.n.wasuli, c.n.staxBp, seat,
+              c.particular, c.n.qty, c.n.toPay, c.n.paid, c.n.hamali, c.n.wasuli, seat,
             );
           const id = Number(r.lastInsertRowid);
           writeAudit(db, { seat, action: 'lrs.create', entity: 'lrs', entityId: id, after: db.prepare('SELECT * FROM lrs WHERE id = ?').get(id) });
@@ -282,9 +258,7 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
           const next = {
             lr_date: c.date, from_station_id: input.fromStationId, to_station_id: input.toStationId,
             consignor_id: r.consignor.id, consignor_name: r.consignor.name, consignee_id: r.consignee.id, consignee_name: r.consignee.name,
-            particular: c.particular, qty: c.n.qty, topay_paise: c.n.toPay, paid_paise: c.n.paid, charge_option: input.chargeOption,
-            godown_bhada_paise: c.n.godownBhada, godown_insurance_paise: c.n.godownInsurance, delivery_charges_paise: c.n.deliveryCharges,
-            hamali_paise: c.n.hamali, wasuli_paise: c.n.wasuli, stax_bp: c.n.staxBp,
+            particular: c.particular, qty: c.n.qty, topay_paise: c.n.toPay, paid_paise: c.n.paid, hamali_paise: c.n.hamali, wasuli_paise: c.n.wasuli,
           };
           const diff = diffLr(row, next);
           if (!diff) return ok({ lr: detailOf(row), firmsAdded: false, changed: false, wasuli: false });
@@ -367,29 +341,18 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
       return ok({ date: on, rows, totals: t });
     },
 
-    /** Booking station, default charge option, default service tax: the Admin PIN changes them. */
+    /** The booking station a new LR starts from: the Admin PIN changes it. */
     setDefaults(db: Db, seat: string, input: LrDefaultsInput, adminPin: string): KeeperResult<LrDefaults> {
       const gate = pins.verify(db, 'admin', adminPin);
       if (!gate.ok) return gate;
-      let bp: number;
-      try {
-        bp = parsePercent(String(input.staxPercent));
-      } catch {
-        return refuse('lr-invalid', { fields: { staxPercent: 'percent' } });
-      }
-      if (!isChargeOption(input.chargeOption)) return refuse('lr-invalid', { fields: { chargeOption: 'required' } });
       const station = input.bookingStationId;
       if (station !== null && (!Number.isInteger(station) || db.prepare('SELECT 1 FROM stations WHERE id = ? AND active = 1').get(station) === undefined)) {
         return refuse('lr-invalid', { fields: { fromStation: 'missing' } });
       }
       db.transaction(() => {
         const before = defaults(db, null);
-        const put = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
-        put.run('bookingStationId', station === null ? '' : String(station));
-        put.run('defaultChargeOption', input.chargeOption);
-        put.run('defaultStaxBp', String(bp));
-        const was = { bookingStationId: before.bookingStationId, chargeOption: before.chargeOption, staxPercent: before.staxPercent };
-        writeAudit(db, { seat, action: 'settings.lr-defaults', entity: 'settings', entityId: 'lr-defaults', before: was, after: { bookingStationId: station, chargeOption: input.chargeOption, staxPercent: percentText(bp) } });
+        db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run('bookingStationId', station === null ? '' : String(station));
+        writeAudit(db, { seat, action: 'settings.lr-defaults', entity: 'settings', entityId: 'lr-defaults', before: { bookingStationId: before.bookingStationId }, after: { bookingStationId: station } });
       })();
       return ok(defaults(db, null));
     },

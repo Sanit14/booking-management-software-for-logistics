@@ -12,11 +12,8 @@ const blank = (): LrFormState => ({
   qty: '',
   toPay: '',
   paid: '',
-  option: 'blank',
-  charges: { godownBhada: '', godownInsurance: '', deliveryCharges: '', hamali: '' },
-  manual: new Set(),
+  hamali: '',
   wasuli: '',
-  stax: '0',
 });
 const typed = (over: Partial<LrFormState>): LrFormState => ({ ...blank(), ...over });
 
@@ -26,9 +23,12 @@ const reset = () => {
   clearDraft('quick');
 };
 
-test('only what the clerk typed makes a draft: From station, the option and the tax % alone do not', () => {
+test('only what the clerk typed makes a draft: the From station alone does not; hamali and wasuli count', () => {
   assert.equal(hasTyped(blank()), false);
-  assert.equal(hasTyped(typed({ from: { text: 'Pune', id: 2 }, stax: '5', option: 'option1' })), false);
+  assert.equal(hasTyped(typed({ from: { text: 'Pune', id: 2 } })), false);
+  assert.equal(hasTyped(typed({ hamali: '50' })), true);
+  assert.equal(hasTyped(typed({ wasuli: '300' })), true);
+  assert.equal(hasTyped(typed({ hamali: '  ', wasuli: ' ' })), false);
   assert.equal(hasTyped(typed({ qty: '3' })), true);
   assert.equal(hasTyped(typed({ consignee: { text: 'Patil', firmId: null, add: false } })), true);
   assert.equal(hasTyped(typed({ particular: '   ' })), false);

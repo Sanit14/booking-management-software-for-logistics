@@ -3,16 +3,18 @@ import assert from 'node:assert/strict';
 import { lrFileName, lrHtml } from './lr';
 import { matchSnapshot, sampleLr, smallestPt } from './testing';
 
-test('lrHtml: one A5 landscape sheet with the company, LORRY RECEIPT, the number, the date, the parties, the goods and every amount', () => {
+test('lrHtml: one A5 landscape sheet with the company, LORRY RECEIPT, the number, the date, the parties, the goods, freight, hamali and the total', () => {
   const html = lrHtml(sampleLr());
   assert.equal(html.split('<section').length - 1, 1);
   assert.match(html, /@page\{size:A5 landscape;margin:0\}/);
   for (const text of [
     'Sundeep Freight Movers', 'Station Road, Yavatmal 445001', 'LORRY RECEIPT', 'LR No.', '1248', '31-10-2026', 'Yavatmal', 'Nagpur', 'Shree Ganesh Traders', 'Kale Brothers', 'Cloth bales', '>7<',
-    'Freight (To pay)', '1,800.00', 'Godown bhada', '10.00', 'Godown insurance', '5.00', 'Delivery charges', '2.00', 'Hamali', '12.50', 'Service tax 5%', '90.00', 'Total', '1,919.50', 'Signature',
+    'Freight (To pay)', '1,800.00', 'Hamali', '12.50', 'Total', '1,812.50', 'Signature',
   ]) {
     assert.ok(html.includes(text), text);
   }
+  // The charge lines and the service tax are gone from the paper (4.5).
+  for (const text of ['Godown', 'Delivery', 'Service tax', 'Charges']) assert.ok(!html.includes(text), `no ${text}`);
   assert.ok(!html.includes('CANCELLED'));
 });
 

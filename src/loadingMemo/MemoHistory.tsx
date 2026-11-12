@@ -8,7 +8,8 @@ import { useToast } from '../ui/Toast';
 import styles from './LoadingMemoPage.module.css';
 
 const t = strings.memo;
-const MONEY: readonly MemoChangeField[] = ['truckHire', 'loadingHamali', 'toPay', 'paid', 'charges', 'stax'];
+// `charges` and `stax` only in the recalculations made before 4.5
+const MONEY: readonly MemoChangeField[] = ['truckHire', 'loadingHamali', 'toPay', 'paid', 'hamali', 'charges', 'stax'];
 
 /** One side of a change as a person reads it: rupees for money, a date as dd-mm-yyyy. */
 function show(field: MemoChangeField, v: MemoChange['from']): string {

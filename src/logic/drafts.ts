@@ -11,9 +11,9 @@ export interface Draft {
 
 const drafts = new Map<DraftSlot, Draft>();
 
-/** True when the clerk typed something: From station, the charge option and the tax % are only what a new form starts from. */
+/** True when the clerk typed something: the From station is only what a new form starts from. */
 export const hasTyped = (s: LrFormState) =>
-  [s.consignor.text, s.consignee.text, s.to.text, s.particular, s.qty, s.toPay, s.paid].some((v) => v.trim() !== '');
+  [s.consignor.text, s.consignee.text, s.to.text, s.particular, s.qty, s.toPay, s.paid, s.hamali, s.wasuli].some((v) => v.trim() !== '');
 
 /** Remembers the form while something is typed in it; an emptied form leaves no draft. */
 export function keepDraft(slot: DraftSlot, draft: Draft): void {

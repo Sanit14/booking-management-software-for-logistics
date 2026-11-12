@@ -27,7 +27,7 @@ const WIDTHS = [13, 20, 34, 20, 9, 22, 22, 24, 26];
 
 const head = () => {
   const c = s.columns;
-  const names = [c.lr, c.date, c.party, c.to, c.qty, c.toPay, c.paid, c.chargesTax, c.total];
+  const names = [c.lr, c.date, c.party, c.to, c.qty, c.toPay, c.paid, c.hamali, c.total];
   const right = [false, false, false, false, true, true, true, true, true];
   const cols = WIDTHS.map((w) => `<col style="width:${w}mm">`).join('');
   const cells = names.map((n, i) => `<th${right[i] ? ' class="n"' : ''}>${esc(n)}</th>`).join('');
@@ -36,11 +36,11 @@ const head = () => {
 
 const row = (r: PrintStatementRow) =>
   `<tr><td class="n">${r.lrNo}</td><td>${esc(r.date)}</td><td>${esc(r.party)}</td><td>${esc(r.to)}</td><td class="n">${r.qty}</td>` +
-  `<td class="n">${esc(r.toPay)}</td><td class="n">${esc(r.paid)}</td><td class="n">${esc(r.chargesTax)}</td><td class="n">${esc(r.total)}</td></tr>`;
+  `<td class="n">${esc(r.toPay)}</td><td class="n">${esc(r.paid)}</td><td class="n">${esc(r.hamali)}</td><td class="n">${esc(r.total)}</td></tr>`;
 
 const totals = (p: PrintFirmStatement) => {
   const x = p.totals;
-  const amounts: [string, string][] = [[s.toPay, x.toPay], [s.paid, x.paid], [s.charges, x.charges], [s.stax, x.stax], [s.grand, x.total]];
+  const amounts: [string, string][] = [[s.toPay, x.toPay], [s.paid, x.paid], [s.hamali, x.hamali], [s.grand, x.total]];
   const wasuli = x.hasWasuli ? `<span class="l">${esc(s.wasuli(x.wasuliOwed, x.wasuliCollected))}</span>` : '';
   return (
     `<div class="tot"><span class="l">${esc(s.total(x.lrs, x.qty))}</span>` +

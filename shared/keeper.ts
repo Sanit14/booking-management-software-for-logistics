@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 20;
+export const KEEPER_VERSION = 21;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -157,8 +157,6 @@ export interface KeeperChange {
   ids?: number[];
 }
 
-export type ChargeOption = 'option1' | 'option2' | 'blank';
-
 /** Who an LR is from / to: a firm picked from the list, or a walk-in name (optionally saved to the firms master with the LR). */
 export interface LrParty {
   firmId: number | null;
@@ -168,7 +166,7 @@ export interface LrParty {
 }
 
 /**
- * What a clerk typed. Money, quantity and tax are the typed TEXT: the keeper parses them (the screen never calculates).
+ * What a clerk typed. Money and quantity are the typed TEXT: the keeper parses them (the screen never calculates).
  * `date` null = today; any other date needs `systemPin`.
  */
 export interface LrInput {
@@ -184,43 +182,31 @@ export interface LrInput {
   qty: string;
   toPay: string;
   paid: string;
-  chargeOption: ChargeOption;
-  godownBhada: string;
-  godownInsurance: string;
-  deliveryCharges: string;
   hamali: string;
   wasuli: string;
-  staxPercent: string;
   confirmSimilar?: boolean;
 }
 
 export type LrField =
-  | 'date' | 'fromStation' | 'toStation' | 'consignor' | 'consignee' | 'particular' | 'qty' | 'chargeOption'
-  | 'toPay' | 'paid' | 'godownBhada' | 'godownInsurance' | 'deliveryCharges' | 'hamali' | 'wasuli' | 'staxPercent'
+  | 'date' | 'fromStation' | 'toStation' | 'consignor' | 'consignee' | 'particular' | 'qty'
+  | 'toPay' | 'paid' | 'hamali' | 'wasuli'
   | 'reason'; // the reason for cancelling, not a box of the form
 /** The fields an edit can change (and History lists). */
 export type LrEditField = Exclude<LrField, 'reason'>;
-/** Why a field is refused: required · amount (not a rupee amount) · whole (not a whole number ≥ 1) · percent · both (to pay AND paid) · same (from = to) · future (date) · date (not a date) · year (an edit moved the date into another year: the number belongs to its year) · missing (no such, or inactive, station / firm). */
-export type LrFieldError = 'required' | 'amount' | 'whole' | 'percent' | 'both' | 'same' | 'future' | 'date' | 'year' | 'missing';
+/** Fields an LR had before 4.5 (a charge option, the godown and delivery charges, service tax). Nothing writes them now; only the History of old rows names them. */
+export type LrOldField = 'chargeOption' | 'godownBhada' | 'godownInsurance' | 'deliveryCharges' | 'staxPercent';
+/** Why a field is refused: required · amount (not a rupee amount) · whole (not a whole number ≥ 1) · both (to pay AND paid) · same (from = to) · future (date) · date (not a date) · year (an edit moved the date into another year: the number belongs to its year) · missing (no such, or inactive, station / firm). */
+export type LrFieldError = 'required' | 'amount' | 'whole' | 'both' | 'same' | 'future' | 'date' | 'year' | 'missing';
 
-/** Paise. Computed by the keeper's `lrAmounts` only. */
+/** Paise. Computed by the keeper's `lrAmounts` only: total = freight + hamali. */
 export interface LrAmounts {
   freight: number;
-  charges: number;
-  stax: number;
-  total: number;
-}
-/** What a charge option fills for a quantity, in paise. */
-export interface ChargeDefaults {
-  godownBhada: number;
-  godownInsurance: number;
-  deliveryCharges: number;
   hamali: number;
+  total: number;
 }
 /** No write. `fields` holds only what is wrong with the numbers typed so far (not "required"). */
 export interface LrPreview {
   amounts: LrAmounts;
-  defaults: ChargeDefaults;
   fields: Partial<Record<LrField, LrFieldError>>;
 }
 
@@ -253,7 +239,7 @@ export interface LrDay {
   /** Cancelled LRs are left out. All from SQL. */
   totals: { count: number; qty: number; toPayPaise: number; paidPaise: number; booked: number; loaded: number };
 }
-/** One saved LR with everything the form needs to open it. Money in paise, tax as typed text; the screen only formats. */
+/** One saved LR with everything the form needs to open it. Money in paise; the screen only formats. */
 export interface LrDetail {
   id: number;
   /** Sent back with an edit, cancel or restore: a stale one is refused. */
@@ -277,13 +263,8 @@ export interface LrDetail {
   qty: number;
   toPayPaise: number;
   paidPaise: number;
-  chargeOption: ChargeOption;
-  godownBhadaPaise: number;
-  godownInsurancePaise: number;
-  deliveryChargesPaise: number;
   hamaliPaise: number;
   wasuliPaise: number;
-  staxPercent: string;
   amounts: LrAmounts;
 }
 export interface LrUpdated {
@@ -295,9 +276,9 @@ export interface LrUpdated {
   /** The edit made, changed or removed the LR's wasuli row. */
   wasuli: boolean;
 }
-/** A changed field: station names (not ids), paise for the money fields, the option code for `chargeOption`, text otherwise. */
+/** A changed field: station names (not ids), paise for the money fields, text otherwise. A row saved before 4.5 can name an old field (`LrOldField`): its option code, or paise, or basis points as typed text. */
 export interface LrChange {
-  field: LrEditField;
+  field: LrEditField | LrOldField;
   from: string | number | null;
   to: string | number | null;
 }
@@ -314,16 +295,11 @@ export interface LrHistoryEntry {
 export interface LrDefaults {
   today: string;
   bookingStationId: number | null;
-  chargeOption: ChargeOption;
-  /** The default service tax as typed text ("0", "5", "2.5"). */
-  staxPercent: string;
   /** The number the next LR dated `date` will most likely get (a hint: another seat may take it first). */
   nextNo: number;
 }
 export interface LrDefaultsInput {
   bookingStationId: number | null;
-  chargeOption: ChargeOption;
-  staxPercent: string;
 }
 
 /** The Dashboard's counts for one day (null = today). Counts only, never money: nothing here is an amount. */
@@ -488,14 +464,13 @@ export interface MemoSaved extends MemoListRow {
   /** The same uid had been saved before: this is that first memo, nothing new was written. */
   again: boolean;
 }
-/** What a memo's LRs add up to: the totals frozen on the memo, or the totals of its LRs now. */
+/** What a memo's LRs add up to: the totals frozen on the memo, or the totals of its LRs now. `hamaliPaise` is kept in the memo's `frozen_charges_paise` column (4.6 reworks memo totals). */
 export interface MemoTotals {
   lrs: number;
   qty: number;
   toPayPaise: number;
   paidPaise: number;
-  chargesPaise: number;
-  staxPaise: number;
+  hamaliPaise: number;
 }
 /** A saved memo: its header, the totals frozen when it was saved, the totals of its LRs now, and its LRs. */
 export interface MemoDetail extends MemoListRow {
@@ -542,7 +517,8 @@ export interface MemoChanged {
   memo: MemoDetail;
   changed: boolean;
 }
-export type MemoChangeField = 'date' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs' | 'qty' | 'toPay' | 'paid' | 'charges' | 'stax';
+/** `hamali` is the LRs' hamali added up (a recalculation); `charges` and `stax` only come from the audit rows of recalculations made before 4.5. */
+export type MemoChangeField = 'date' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs' | 'qty' | 'toPay' | 'paid' | 'hamali' | 'charges' | 'stax';
 /** A changed field: names (not ids) for truck, driver and stations, paise for money, text otherwise. */
 export interface MemoChange {
   field: MemoChangeField;
@@ -635,12 +611,7 @@ export interface PrintLr {
   qty: number;
   mode: 'topay' | 'paid' | 'none';
   freight: string;
-  godownBhada: string;
-  godownInsurance: string;
-  deliveryCharges: string;
   hamali: string;
-  staxPercent: string;
-  stax: string;
   total: string;
   cancelled: boolean;
 }
@@ -655,8 +626,7 @@ export interface PrintStatementRow {
   qty: number;
   toPay: string;
   paid: string;
-  /** Charges + service tax. */
-  chargesTax: string;
+  hamali: string;
   total: string;
 }
 /** A statement carries at most this many LRs on paper (the print page is one data: URL, which Chromium refuses above 2 MB); more asks for a shorter period. */
@@ -676,8 +646,7 @@ export interface PrintFirmStatement {
     qty: number;
     toPay: string;
     paid: string;
-    charges: string;
-    stax: string;
+    hamali: string;
     total: string;
     /** The wasuli amounts of these LRs and what came in; the paper shows the line only when something is owed. */
     wasuliOwed: string;
@@ -869,7 +838,7 @@ export interface StatementQuery extends FirmRange {
   firmId: number;
   role: FirmRole;
 }
-/** One LR of the statement. Money in paise; `totalPaise` = freight + charges + service tax (the same on a To pay and a Paid LR). */
+/** One LR of the statement. Money in paise; `totalPaise` = freight + hamali (the same on a To pay and a Paid LR). */
 export interface StatementRow {
   lrId: number;
   lrNo: number;
@@ -885,8 +854,7 @@ export interface StatementRow {
   qty: number;
   toPayPaise: number;
   paidPaise: number;
-  chargesPaise: number;
-  staxPaise: number;
+  hamaliPaise: number;
   totalPaise: number;
   status: 'booked' | 'loaded';
   /** The memo the LR is on (to open it) and its challan number. */
@@ -903,8 +871,7 @@ export interface StatementTotals {
   qty: number;
   toPayPaise: number;
   paidPaise: number;
-  chargesPaise: number;
-  staxPaise: number;
+  hamaliPaise: number;
   totalPaise: number;
   wasuliOwedPaise: number;
   wasuliCollectedPaise: number;
@@ -1002,10 +969,9 @@ export interface ReportFigures {
   toPayPaise: number;
   paidPaise: number;
 }
-/** Date-wise totals and rows also carry charges, service tax and the total (freight + charges + tax, the same for a To pay and a Paid LR). */
+/** Date-wise totals and rows also carry hamali and the total (freight + hamali, the same for a To pay and a Paid LR). */
 export interface ReportMoney extends ReportFigures {
-  chargesPaise: number;
-  staxPaise: number;
+  hamaliPaise: number;
   totalPaise: number;
 }
 export interface ReportDateRow extends ReportMoney {
@@ -1107,8 +1073,6 @@ export interface ReportLrRow {
   qty: number;
   toPayPaise: number;
   paidPaise: number;
-  chargesPaise: number;
-  staxPaise: number;
   totalPaise: number;
   status: 'booked' | 'loaded';
 }

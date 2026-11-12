@@ -13,8 +13,7 @@ export function lrHtml(p: PrintLr): string {
   ];
   const amounts: [string, string][] = [
     [p.mode === 'none' ? t.freight : `${t.freight} (${mode})`, p.freight],
-    [t.godownBhada, p.godownBhada], [t.godownInsurance, p.godownInsurance], [t.deliveryCharges, p.deliveryCharges], [t.hamali, p.hamali],
-    [t.stax(p.staxPercent), p.stax],
+    [t.hamali, p.hamali],
   ];
   const left = goods.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
   const right =

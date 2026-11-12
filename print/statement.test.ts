@@ -40,7 +40,8 @@ test('statementHtml: 60 LRs are two sheets, each with its own header row and "Pa
   });
   const last = sheets[sheets.length - 1];
   assert.match(last, /Total · LRs: 60 · Qty: \d+/);
-  for (const text of ['To pay <b>1,23,456.00</b>', 'Paid <b>9,87,654.50</b>', 'Charges <b>12,345.00</b>', 'Service tax <b>5,678.90</b>', 'Total <b>11,29,134.40</b>']) assert.ok(last.includes(text), text);
+  for (const text of ['To pay <b>1,23,456.00</b>', 'Paid <b>9,87,654.50</b>', 'Hamali <b>12,345.00</b>', 'Total <b>11,29,134.40</b>']) assert.ok(last.includes(text), text);
+  for (const text of ['Charges', 'Service tax', 'tax']) assert.ok(!html.includes(text), `no ${text}`);
   assert.equal(count(html, /<tr><td class="n">\d{4}<\/td><td>\d\d-10-2026<\/td>/g), 60, 'every LR once');
 });
 

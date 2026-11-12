@@ -89,9 +89,9 @@ export function pageSql(f: HistoryFilters, scope: { lrId: number | null; memoId:
 
 // How a changed value is written. Fields not named here are shown as they are.
 const UNIT: Record<string, HistoryUnit> = {
-  toPay: 'paise', paid: 'paise', godownBhada: 'paise', godownInsurance: 'paise', deliveryCharges: 'paise', hamali: 'paise', wasuli: 'paise',
-  truckHire: 'paise', loadingHamali: 'paise', charges: 'paise', stax: 'paise', amount: 'paise',
-  date: 'date', staxPercent: 'percent', chargeOption: 'option',
+  toPay: 'paise', paid: 'paise', hamali: 'paise', wasuli: 'paise', truckHire: 'paise', loadingHamali: 'paise', amount: 'paise', date: 'date',
+  // Only the rows saved before 4.5 name these: the charges and service tax of an LR and of a memo recalculation, and the LR defaults.
+  godownBhada: 'paise', godownInsurance: 'paise', deliveryCharges: 'paise', charges: 'paise', stax: 'paise', staxPercent: 'percent', chargeOption: 'option',
 };
 const change = (field: string, from: HistoryChange['from'], to: HistoryChange['to']): HistoryChange => (UNIT[field] ? { field, from, to, unit: UNIT[field] } : { field, from, to });
 
@@ -261,6 +261,7 @@ function describe(db: Db, r: Raw, { nameOf, challanNo, lrOf, lrOfWasuli }: Look)
       f.pin = text(after.kind) ?? undefined;
       break;
     case 'settings.lr-defaults': {
+      // A row written now carries the booking station only; the option and the tax % are in rows saved before 4.5.
       const station = (v: unknown) => (v === null || v === undefined ? null : (nameOf('stations', v) ?? `#${String(v)}`));
       const plain = (v: unknown) => (v === null || v === undefined ? null : String(v));
       const pairs = [

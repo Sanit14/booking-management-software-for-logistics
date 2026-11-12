@@ -64,11 +64,11 @@ export const DEFS: Record<ReportKind, Def> = {
       { key: 'qty', header: c.qty, width: 60, num: true, render: (r) => r.qty },
       { key: 'toPay', header: c.toPay, width: 136, num: true, render: (r) => money(r.toPayPaise) },
       { key: 'paid', header: c.paid, width: 136, num: true, render: (r) => money(r.paidPaise) },
-      { key: 'charges', header: c.charges, width: 112, num: true, render: (r) => two(money(r.chargesPaise), `${c.tax} ${money(r.staxPaise)}`) },
+      { key: 'hamali', header: c.lrHamali, width: 112, num: true, render: (r) => money(r.hamaliPaise) },
       { key: 'total', header: c.total, width: 148, num: true, render: (r) => rupees(r.totalPaise) },
     ],
     rowKey: (r) => r.date,
-    totals: (t) => [...counts(t), rupees(t.toPayPaise), rupees(t.paidPaise), rupees(t.chargesPaise), rupees(t.staxPaise), rupees(t.totalPaise)],
+    totals: (t) => [...counts(t), rupees(t.toPayPaise), rupees(t.paidPaise), rupees(t.hamaliPaise), rupees(t.totalPaise)],
     open: (r) => ({ jump: { to: 'day', date: r.date } }),
   }),
 

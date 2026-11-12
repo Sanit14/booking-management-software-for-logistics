@@ -45,10 +45,10 @@ const DETAIL = `SELECT m.id, m.challan_year AS challanYear, m.challan_no AS chal
   m.truck_id AS truckId, t.number AS truck, m.driver_id AS driverId, d.name AS driver,
   m.from_station_id AS fromStationId, fs.name AS fromStation, m.to_station_id AS toStationId, ts.name AS toStation,
   m.truck_hire_paise AS truckHirePaise, m.loading_hamali_paise AS loadingHamaliPaise,
-  m.frozen_qty AS fQty, m.frozen_topay_paise AS fToPay, m.frozen_paid_paise AS fPaid, m.frozen_charges_paise AS fCharges, m.frozen_stax_paise AS fStax
+  m.frozen_qty AS fQty, m.frozen_topay_paise AS fToPay, m.frozen_paid_paise AS fPaid, m.frozen_charges_paise AS fHamali
   FROM memos m JOIN trucks t ON t.id = m.truck_id JOIN drivers d ON d.id = m.driver_id
   JOIN stations fs ON fs.id = m.from_station_id JOIN stations ts ON ts.id = m.to_station_id`;
-type DetailRow = Omit<MemoDetail, 'frozen' | 'now' | 'differs' | 'lrs'> & { fQty: number; fToPay: number; fPaid: number; fCharges: number; fStax: number };
+type DetailRow = Omit<MemoDetail, 'frozen' | 'now' | 'differs' | 'lrs'> & { fQty: number; fToPay: number; fPaid: number; fHamali: number };
 
 /**
  * The pending list's SQL, built from fixed pieces: only values are bound, a column name never comes from the request.
@@ -90,12 +90,12 @@ export function pendingSql(f: MemoFilters, afterCursor: boolean) {
   };
 }
 
-/** What the LRs of a memo add up to. `stax` is the SQL twin of `taxPaise` per LR (round half up), summed (`lrSql.ts`). */
+/** What the LRs of a memo add up to (`lrSql.ts`). The hamali sum is frozen in the column `frozen_charges_paise`; `frozen_stax_paise` is no longer written (a new memo keeps its default 0) or compared. */
 const SUMS = lrSumsSql();
 /** The totals frozen onto a memo, from the LRs now on it. */
 export const FROZEN_SQL = `SELECT ${SUMS} FROM lrs WHERE memo_id = ?`;
 
-const TOTAL_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'chargesPaise', 'staxPaise'] as const;
+const TOTAL_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'hamaliPaise'] as const;
 /** A saved memo differs when its LRs no longer add up to the totals frozen on it; a cancelled memo never does. The same rule is in `savedSql` (for a page of memos): keep the two together. */
 const differs = (status: string, now: MemoTotals, frozen: MemoTotals): boolean => status === 'saved' && TOTAL_KEYS.some((k) => now[k] !== frozen[k]);
 
@@ -104,7 +104,7 @@ const differs = (status: string, now: MemoTotals, frozen: MemoTotals): boolean =
  * columns. The saved-memos list and the Truck-wise report both use this one text; `differs()` above is its twin for one memo.
  */
 export const DIFFERS_SQL = `m.status = 'saved' AND (COALESCE(c.lrs, 0) != m.frozen_lr_count OR COALESCE(c.qty, 0) != m.frozen_qty OR COALESCE(c.toPayPaise, 0) != m.frozen_topay_paise
-        OR COALESCE(c.paidPaise, 0) != m.frozen_paid_paise OR COALESCE(c.chargesPaise, 0) != m.frozen_charges_paise OR COALESCE(c.staxPaise, 0) != m.frozen_stax_paise)`;
+        OR COALESCE(c.paidPaise, 0) != m.frozen_paid_paise OR COALESCE(c.hamaliPaise, 0) != m.frozen_charges_paise)`;
 
 /** The SUMS grouped by memo for these memo ids (a `SELECT id FROM page`-style subquery), as the `c` that `DIFFERS_SQL` reads. Used with `lrs_by_memo`. */
 export const memoSumsSql = (ids: string): string => `SELECT memo_id, ${SUMS} FROM lrs WHERE memo_id IN (${ids}) GROUP BY memo_id`;
@@ -168,7 +168,9 @@ const HEADER_COLUMNS = [
 ] as const;
 type HeaderKey = (typeof HEADER_COLUMNS)[number][0];
 const HEADER_FIELD = { date: 'date', truckId: 'truck', driverId: 'driver', fromStationId: 'fromStation', toStationId: 'toStation', truckHirePaise: 'truckHire', loadingHamaliPaise: 'loadingHamali' } as const;
-const TOTAL_FIELD = { lrs: 'lrs', qty: 'qty', toPayPaise: 'toPay', paidPaise: 'paid', chargesPaise: 'charges', staxPaise: 'stax' } as const;
+const TOTAL_FIELD = { lrs: 'lrs', qty: 'qty', toPayPaise: 'toPay', paidPaise: 'paid', hamaliPaise: 'hamali' } as const;
+/** The totals of a recalculation made before 4.5 also had charges and service tax: History still reads them. */
+const OLD_TOTAL_FIELD = { chargesPaise: 'charges', staxPaise: 'stax' } as const;
 
 const TOTALS_SQL = `SELECT COUNT(*) AS lrs, COALESCE(SUM(qty), 0) AS qty, COALESCE(SUM(topay_paise), 0) AS toPayPaise, COALESCE(SUM(paid_paise), 0) AS paidPaise
   FROM lrs WHERE status = 'booked' AND id IN`;
@@ -198,6 +200,7 @@ export function memoEntry(db: Db, r: AuditRow): MemoHistoryEntry | null {
     for (const [key] of HEADER_COLUMNS) if (key in after) entry.changes.push({ field: HEADER_FIELD[key], from: show(key, before[key]), to: show(key, after[key]) });
   } else if (action === 'recalculated') {
     for (const k of TOTAL_KEYS) if (before[k] !== after[k]) entry.changes.push({ field: TOTAL_FIELD[k], from: before[k] as number, to: after[k] as number });
+    for (const [k, field] of Object.entries(OLD_TOTAL_FIELD)) if (before[k] !== after[k]) entry.changes.push({ field, from: before[k] as number, to: after[k] as number });
   } else if (action === 'cancelled') entry.reason = String(after.reason ?? '');
   else if (action === 'moved-out') entry.otherNo = Number(after.toChallanNo);
   else if (action === 'moved-in') entry.otherNo = Number(after.fromChallanNo);
@@ -246,8 +249,8 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
     const lrs = db
       .prepare(`SELECT ${LR_COLUMNS} FROM lrs l JOIN stations s ON s.id = l.to_station_id WHERE l.memo_id = ? ORDER BY l.lr_date, l.lr_no LIMIT ${MAX_MEMO_LRS}`)
       .all(id) as MemoLrRow[];
-    const { fQty, fToPay, fPaid, fCharges, fStax, ...head } = m;
-    const frozen: MemoTotals = { lrs: m.lrCount, qty: fQty, toPayPaise: fToPay, paidPaise: fPaid, chargesPaise: fCharges, staxPaise: fStax };
+    const { fQty, fToPay, fPaid, fHamali, ...head } = m;
+    const frozen: MemoTotals = { lrs: m.lrCount, qty: fQty, toPayPaise: fToPay, paidPaise: fPaid, hamaliPaise: fHamali };
     const current = db.prepare(FROZEN_SQL).get(id) as MemoTotals;
     return { ...head, frozen, now: current, differs: differs(m.status, current, frozen), lrs };
   }
@@ -353,8 +356,8 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
 
         const frozen = db.prepare(FROZEN_SQL).get(memoId) as MemoTotals;
         db.prepare(
-          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ?, frozen_stax_paise = ? WHERE id = ?`,
-        ).run(frozen.lrs, frozen.qty, frozen.toPayPaise, frozen.paidPaise, frozen.chargesPaise, frozen.staxPaise, memoId);
+          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ? WHERE id = ?`,
+        ).run(frozen.lrs, frozen.qty, frozen.toPayPaise, frozen.paidPaise, frozen.hamaliPaise, memoId);
 
         writeAudit(db, {
           seat, action: 'memos.create', entity: 'memos', entityId: memoId,
@@ -546,9 +549,9 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
         if (!before.differs) return ok({ memo: before, changed: false });
         const n = before.now;
         db.prepare(
-          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ?, frozen_stax_paise = ?,
+          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ?,
              version = version + 1, updated_at = ${NOW} WHERE id = ?`,
-        ).run(n.lrs, n.qty, n.toPayPaise, n.paidPaise, n.chargesPaise, n.staxPaise, id);
+        ).run(n.lrs, n.qty, n.toPayPaise, n.paidPaise, n.hamaliPaise, id);
         writeAudit(db, { seat, action: 'memos.recalculate', entity: 'memos', entityId: id, before: before.frozen, after: n });
         return ok({ memo: detail(db, id), changed: true });
       });

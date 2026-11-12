@@ -118,8 +118,7 @@ async function main(): Promise<string> {
   const lr = (over: Partial<LrInput> = {}): LrInput => ({
     uid: `timing-${++serial}`, date: null, fromStationId: from, toStationId: to,
     consignor: { firmId: firmIds[serial % FIRMS], name: '', addToFirms: false }, consignee: { firmId: null, name: `Walk-in ${serial}`, addToFirms: false },
-    particular: 'Cloth bales', qty: '3', toPay: '1,800', paid: '', chargeOption: 'blank',
-    godownBhada: '', godownInsurance: '', deliveryCharges: '', hamali: '', wasuli: '', staxPercent: '0', confirmSimilar: false, systemPin: '', ...over,
+    particular: 'Cloth bales', qty: '3', toPay: '1,800', paid: '', hamali: '', wasuli: '', confirmSimilar: false, systemPin: '', ...over,
   });
   for (let i = 0; i < LRS; i++) await post('/lrs/create', { input: lr() });
 

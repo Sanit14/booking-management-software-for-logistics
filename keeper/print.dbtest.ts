@@ -101,31 +101,29 @@ test('print.memo: a 500-LR memo is read in well under 100 ms', () => {
 
 // ---- the LR ----
 
-test('print.lr: every amount is lrAmounts, formatted, for a to-pay LR with charges and tax', () => {
+test('print.lr: every amount is lrAmounts, formatted, for a to-pay LR with hamali; no charge or tax lines', () => {
   const { s, print } = setup();
-  const lr = book(s, { toPay: '1,800', godownBhada: '10', godownInsurance: '5', deliveryCharges: '2', hamali: '12.50', staxPercent: '5', qty: '7' });
+  const lr = book(s, { toPay: '1,800', hamali: '12.50', qty: '7' });
   const p = got(print.lr(s.db, lr.id));
   const row = s.db.prepare('SELECT * FROM lrs WHERE id = ?').get(lr.id) as LrMoney;
   const a = lrAmounts(row);
   assert.equal(p.mode, 'topay');
   assert.equal(p.freight, inr(a.freight));
-  assert.equal(p.stax, inr(a.stax));
+  assert.equal(p.hamali, inr(a.hamali));
   assert.equal(p.total, inr(a.total));
-  // the same, worked by hand: 1,800 + (10 + 5 + 2 + 12.50) + 5 % of 1,800
-  assert.deepEqual(
-    [p.freight, p.godownBhada, p.godownInsurance, p.deliveryCharges, p.hamali, p.staxPercent, p.stax, p.total],
-    ['1,800.00', '10.00', '5.00', '2.00', '12.50', '5', '90.00', '1,919.50'],
-  );
+  // the same, worked by hand: 1,800 + 12.50
+  assert.deepEqual([p.freight, p.hamali, p.total], ['1,800.00', '12.50', '1,812.50']);
+  assert.deepEqual(Object.keys(p).filter((k) => /godown|delivery|stax|tax/i.test(k)), [], 'the paper has no charge or tax fields');
   assert.deepEqual([p.lrNo, p.lrYear, p.date, p.from, p.to, p.qty, p.cancelled], [lr.no, 2026, '31-10-2026', 'Yavatmal', 'Nagpur', 7, false]);
   assert.deepEqual([p.consignor, p.consignee, p.particular], ['Shree Ganesh Traders', 'Patil Hardware', 'Cloth bales']);
 });
 
-test('print.lr: a paid LR says Paid and its total is freight + charges + tax, the same as for to pay', () => {
+test('print.lr: a paid LR says Paid and its total is freight + hamali, the same as for to pay', () => {
   const { s, print } = setup();
-  const lr = book(s, { toPay: '', paid: '2,000', hamali: '40', staxPercent: '2.5' });
+  const lr = book(s, { toPay: '', paid: '2,000', hamali: '40' });
   const p = got(print.lr(s.db, lr.id));
   assert.equal(p.mode, 'paid');
-  assert.deepEqual([p.freight, p.stax, p.total], ['2,000.00', '50.00', '2,090.00']);
+  assert.deepEqual([p.freight, p.hamali, p.total], ['2,000.00', '40.00', '2,040.00']);
 });
 
 test('print.lr: an LR with no freight says so, a walk-in is printed as typed, and a cancelled LR carries the flag', () => {
@@ -148,13 +146,13 @@ test('print.lr: an LR that is not there is refused', () => {
 
 const party = (firmId: number) => ({ firmId, name: '', addToFirms: false });
 const OCT = { from: '2026-10-01', to: '2026-10-31' };
-/** A = Shree Ganesh Traders, B = Patil Hardware. Worked by hand: a 1,900.50 · b 2,062.76 · c 350.00 (B to A, wasuli 500) · d 100.00. */
+/** A = Shree Ganesh Traders, B = Patil Hardware. Worked by hand: a 1,810.50 · b 2,012.75 · c 333.33 (B to A, wasuli 500) · d 100.00. */
 function firmWorld() {
   const w = setup();
   const [A, B] = [w.s.ganesh, w.s.patil];
-  const a = book(w.s, { date: '2026-10-05', qty: '3', toPay: '1,800', godownBhada: '10.50', staxPercent: '5', consignor: party(A), consignee: party(B) });
-  const b = book(w.s, { date: '2026-10-10', qty: '2', toPay: '', paid: '2,000.50', hamali: '12.25', staxPercent: '2.5', consignor: party(A), consignee: party(B) });
-  const c = book(w.s, { date: '2026-10-12', qty: '5', toPay: '333.33', wasuli: '500', staxPercent: '5', consignor: party(B), consignee: party(A) });
+  const a = book(w.s, { date: '2026-10-05', qty: '3', toPay: '1,800', hamali: '10.50', consignor: party(A), consignee: party(B) });
+  const b = book(w.s, { date: '2026-10-10', qty: '2', toPay: '', paid: '2,000.50', hamali: '12.25', consignor: party(A), consignee: party(B) });
+  const c = book(w.s, { date: '2026-10-12', qty: '5', toPay: '333.33', wasuli: '500', consignor: party(B), consignee: party(A) });
   const d = book(w.s, { date: '2026-10-15', qty: '1', toPay: '100', consignor: party(A), consignee: party(B) });
   return { ...w, A, B, a, b, c, d };
 }
@@ -165,12 +163,12 @@ test('print.firmStatement: the firm, the period and the LRs by date, every amoun
   assert.deepEqual([p.firm, p.role, p.from, p.to], ['Shree Ganesh Traders', 'both', '01-10-2026', '31-10-2026']);
   assert.equal(p.company.name, 'Sundeep Freight Movers');
   assert.deepEqual(p.rows.map((r) => r.lrNo), [a.no, b.no, c.no, d.no]);
-  assert.deepEqual(p.rows[0], { lrNo: a.no, date: '05-10-2026', party: 'Patil Hardware', to: 'Nagpur', qty: 3, toPay: '1,800.00', paid: '–', chargesTax: '100.50', total: '1,900.50' });
-  assert.deepEqual([p.rows[1].toPay, p.rows[1].paid, p.rows[1].chargesTax, p.rows[1].total], ['–', '2,000.50', '62.26', '2,062.76'], 'charges 12.25 + tax 50.01');
-  assert.deepEqual([p.rows[2].party, p.rows[2].chargesTax, p.rows[2].total], ['Patil Hardware', '16.67', '350.00'], 'LR c: the other party is its consignor');
-  assert.deepEqual([p.rows[3].chargesTax, p.rows[3].total], ['–', '100.00'], 'no charges, no tax');
+  assert.deepEqual(p.rows[0], { lrNo: a.no, date: '05-10-2026', party: 'Patil Hardware', to: 'Nagpur', qty: 3, toPay: '1,800.00', paid: '–', hamali: '10.50', total: '1,810.50' });
+  assert.deepEqual([p.rows[1].toPay, p.rows[1].paid, p.rows[1].hamali, p.rows[1].total], ['–', '2,000.50', '12.25', '2,012.75']);
+  assert.deepEqual([p.rows[2].party, p.rows[2].hamali, p.rows[2].total], ['Patil Hardware', '–', '333.33'], 'LR c: the other party is its consignor');
+  assert.deepEqual([p.rows[3].hamali, p.rows[3].total], ['–', '100.00'], 'no hamali');
   assert.deepEqual(p.totals, {
-    lrs: 4, qty: 11, toPay: '2,233.33', paid: '2,000.50', charges: '22.75', stax: '156.68', total: '4,413.26', wasuliOwed: '500.00', wasuliCollected: '0.00', hasWasuli: true,
+    lrs: 4, qty: 11, toPay: '2,233.33', paid: '2,000.50', hamali: '22.75', total: '4,256.58', wasuliOwed: '500.00', wasuliCollected: '0.00', hasWasuli: true,
   });
 });
 
@@ -181,7 +179,7 @@ test('print.firmStatement: each row is lrAmounts formatted, and the printed tota
   p.rows.forEach((r, i) => {
     const m = lrAmounts(lrs[i]);
     assert.equal(r.total, inr(m.total), `LR ${r.lrNo}`);
-    assert.equal(r.chargesTax, m.charges + m.stax > 0 ? inr(m.charges + m.stax) : '–');
+    assert.equal(r.hamali, m.hamali > 0 ? inr(m.hamali) : '–');
   });
   const sum = lrs.reduce((t, l) => t + lrAmounts(l).total, 0);
   assert.equal(p.totals.total, inr(sum));
@@ -193,7 +191,7 @@ test('print.firmStatement: the role narrows it, and a statement with nothing owe
   assert.equal(consignor.rows.length, 3);
   assert.deepEqual([consignor.totals.hasWasuli, consignor.totals.wasuliOwed], [false, '0.00']);
   const consignee = got(print.firmStatement(s.db, { firmId: A, role: 'consignee', ...OCT }));
-  assert.deepEqual(consignee.rows.map((r) => r.total), ['350.00']);
+  assert.deepEqual(consignee.rows.map((r) => r.total), ['333.33']);
   assert.equal(consignee.totals.hasWasuli, true);
   const empty = got(print.firmStatement(s.db, { firmId: B, role: 'both', from: '2026-02-01', to: '2026-02-28' }));
   assert.deepEqual([empty.rows.length, empty.totals.lrs, empty.totals.total, empty.totals.toPay], [0, 0, '0.00', '0.00']);

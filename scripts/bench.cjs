@@ -157,8 +157,7 @@ async function main() {
       return {
         uid: `bench-${Date.now()}-${k}`, date: null, fromStationId: yavatmal.id, toStationId: towns[k % towns.length].id,
         consignor: { firmId: firms[k % firms.length].id, name: '', addToFirms: false }, consignee: { firmId: firms[(k * 7 + 3) % firms.length].id, name: '', addToFirms: false },
-        particular: 'Cloth bales', qty: String(1 + (k % 9)), toPay: String(500 + (k % 50) * 10), paid: '', chargeOption: 'option1',
-        godownBhada: '5', godownInsurance: '5', deliveryCharges: '2', hamali: String((1 + (k % 9)) * 10), wasuli: '', staxPercent: '5',
+        particular: 'Cloth bales', qty: String(1 + (k % 9)), toPay: String(500 + (k % 50) * 10), paid: '', hamali: String((1 + (k % 9)) * 10), wasuli: '',
       };
     };
 

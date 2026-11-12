@@ -174,9 +174,9 @@ test('totals: only the ticked LRs that are still booked, added up by the keeper'
 
 test('a memo takes the next challan number, loads its LRs and freezes totals equal to the sum of lrAmounts', () => {
   const s = setUp();
-  const a = book(s, { toPay: '333.33', staxPercent: '2.5', chargeOption: 'option1', godownBhada: '5', godownInsurance: '5', deliveryCharges: '2', hamali: '30' });
-  const b = book(s, { toPay: '', paid: '100.10', staxPercent: '5', chargeOption: 'option2', godownBhada: '1.50' });
-  const c = book(s, { toPay: '999.99', staxPercent: '12.36', hamali: '0.01', qty: '5' });
+  const a = book(s, { toPay: '333.33', hamali: '30' });
+  const b = book(s, { toPay: '', paid: '100.10', hamali: '1.50' });
+  const c = book(s, { toPay: '999.99', hamali: '0.01', qty: '5' });
   const outside = book(s);
   assert.equal(nextNo(s), 1);
 
@@ -195,12 +195,12 @@ test('a memo takes the next challan number, loads its LRs and freezes totals equ
   assert.equal(row.frozen_qty, rows.reduce((t, r) => t + r.qty, 0));
   assert.equal(row.frozen_topay_paise, 33333 + 99999);
   assert.equal(row.frozen_paid_paise, 10010);
-  assert.equal(row.frozen_charges_paise, sum((m) => m.charges));
-  assert.equal(row.frozen_stax_paise, sum((m) => m.stax));
-  assert.ok((row.frozen_stax_paise as number) > 0 && (row.frozen_charges_paise as number) > 0);
+  assert.equal(row.frozen_charges_paise, sum((m) => m.hamali), 'the column that used to freeze charges + tax now freezes the hamali');
+  assert.equal(row.frozen_charges_paise, 3000 + 150 + 1);
+  assert.equal(row.frozen_stax_paise, 0, 'service tax is gone: a new memo keeps the column at its default');
   assert.deepEqual([row.truck_hire_paise, row.loading_hamali_paise, row.seat, row.version], [450000, 25075, 'seat-1', 1]);
   assert.deepEqual(s.db.prepare(FROZEN_SQL).get(memo.id), {
-    lrs: 3, qty: row.frozen_qty, toPayPaise: row.frozen_topay_paise, paidPaise: row.frozen_paid_paise, chargesPaise: row.frozen_charges_paise, staxPaise: row.frozen_stax_paise,
+    lrs: 3, qty: row.frozen_qty, toPayPaise: row.frozen_topay_paise, paidPaise: row.frozen_paid_paise, hamaliPaise: row.frozen_charges_paise,
   });
 
   const audit = s.db.prepare("SELECT seat, entity, entity_id AS entityId, after_json AS after FROM audit_log WHERE action = 'memos.create'").all() as { seat: string; entity: string; entityId: string; after: string }[];
@@ -212,17 +212,18 @@ test('a memo takes the next challan number, loads its LRs and freezes totals equ
   assert.equal(nextNo(s), 2);
 });
 
-test('frozen tax is the same as lrAmounts for many odd amounts and rates (the SQL twin of taxPaise)', () => {
+test('frozen hamali and freight are the same as lrAmounts for many odd amounts (the SQL twin)', () => {
   const s = setUp();
   const ids: number[] = [];
   for (let i = 0; i < 40; i++) {
     const rupees = `${17 + i * 37}.${String((i * 7) % 100).padStart(2, '0')}`;
-    ids.push(book(s, { toPay: i % 2 === 0 ? rupees : '', paid: i % 2 === 1 ? rupees : '', staxPercent: ['0', '2.5', '5', '12.36', '18', '0.01'][i % 6] }).id);
+    ids.push(book(s, { toPay: i % 2 === 0 ? rupees : '', paid: i % 2 === 1 ? rupees : '', hamali: i % 3 === 0 ? '' : `${i * 3}.${String((i * 13) % 100).padStart(2, '0')}` }).id);
   }
   const memo = saved(create(s, ids));
   const rows = s.db.prepare('SELECT * FROM lrs WHERE memo_id = ?').all(memo.id) as Parameters<typeof lrAmounts>[0][];
-  const frozen = s.db.prepare(FROZEN_SQL).get(memo.id) as { staxPaise: number };
-  assert.equal(frozen.staxPaise, rows.reduce((t, r) => t + lrAmounts(r).stax, 0));
+  const frozen = s.db.prepare(FROZEN_SQL).get(memo.id) as { hamaliPaise: number; toPayPaise: number; paidPaise: number };
+  assert.equal(frozen.hamaliPaise, rows.reduce((t, r) => t + lrAmounts(r).hamali, 0));
+  assert.equal(frozen.toPayPaise + frozen.paidPaise, rows.reduce((t, r) => t + lrAmounts(r).freight, 0));
 });
 
 test('challan numbers run per year: a backdated memo takes its own year\'s number and does not disturb this year\'s', () => {
@@ -393,7 +394,7 @@ test('get: header with names, the frozen totals and its LRs in (date, number) or
   assert.ok(got.ok);
   const m = got.value;
   assert.deepEqual([m.challanNo, m.truck, m.driver, m.fromStation, m.toStation, m.truckHirePaise, m.loadingHamaliPaise, m.version, m.status], [1, 'MH 29 BE 1234', 'Ramesh Pawar', 'Yavatmal', 'Amravati', 100000, 5000, 1, 'saved']);
-  assert.deepEqual(m.frozen, { lrs: 2, qty: 5, toPayPaise: 20000, paidPaise: 5000, chargesPaise: 0, staxPaise: 0 });
+  assert.deepEqual(m.frozen, { lrs: 2, qty: 5, toPayPaise: 20000, paidPaise: 5000, hamaliPaise: 0 });
   assert.deepEqual(m.lrs.map((r) => r.lrNo), [early.no, late.no]);
   const missing = s.memos.get(s.db, 12345);
   assert.deepEqual([missing.ok, !missing.ok && missing.code], [false, 'memo-missing']);

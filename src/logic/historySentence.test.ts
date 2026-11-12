@@ -102,6 +102,7 @@ test('a changed field in words: rupees, dates, percentages, a charge option\'s n
   assert.equal(changeLine({ field: 'date', from: '2026-10-25', to: '2026-10-26', unit: 'date' }, t), 'Date: 25-10-2026 → 26-10-2026');
   assert.equal(changeLine({ field: 'staxPercent', from: '0', to: '2.5', unit: 'percent' }, t), 'Service tax: 0% → 2.5%');
   assert.equal(changeLine({ field: 'chargeOption', from: 'blank', to: 'option2', unit: 'option' }, t), 'Charge option: Blank → Option 2');
+  assert.equal(changeLine({ field: 'godownBhada', from: 0, to: 500, unit: 'paise' }, t), 'Godown bhada: ₹0 → ₹5');
   assert.equal(changeLine({ field: 'station', from: null, to: 'Yavatmal' }, t), 'Station: — → Yavatmal');
   assert.equal(changeLine({ field: 'remark', from: '', to: 'paid' }, t), 'Remark: — → paid');
   assert.equal(changeLine({ field: 'somethingNew', from: 1, to: 2 }, t), 'somethingNew: 1 → 2', 'a field without a label shows its code');

@@ -127,7 +127,7 @@ function seed(o) {
     const truckIds = Array.from({ length: 60 }, (_, i) => make('trucks', { number: `MH 29 BE ${1000 + i * 7}` }));
     const driverIds = Array.from({ length: 30 }, (_, i) => make('drivers', { name: `${FIRST[i % 10]} ${LAST[Math.floor(i / 10)]}`, phone: `98${String(10000000 + i * 1234567).slice(0, 8)}` }));
     const agentIds = AGENTS.map((name) => make('agents', { name }));
-    must(lrs.setDefaults(db, 'SEED', { bookingStationId: from, chargeOption: 'blank', staxPercent: '0' }, '1111'), 'defaults');
+    must(lrs.setDefaults(db, 'SEED', { bookingStationId: from }, '1111'), 'defaults');
     backdate(iso(new Date(dayAt(0).getTime() - 86400000)));
 
     const walkIns = Array.from({ length: 300 }, (_, i) => `${FIRST[i % 10]} ${FIRM_B[(i * 7) % 20]} & Sons ${100 + i}`);
@@ -167,17 +167,12 @@ function seed(o) {
       for (let k = 0; k < total; k++) {
         const qty = 1 + Math.floor(rand() * rand() * 20);
         const freight = String(100 + Math.round(rand() * rand() * 19900));
-        const charged = rand() < 0.6;
-        const option = charged ? (rand() < 0.5 ? 'option1' : 'option2') : 'blank';
         const input = {
           uid: `seed-lr-${++n}`, date: null, fromStationId: from, toStationId: towns[pickTown()],
           consignor: party(), consignee: party(), particular: pick(GOODS), qty: String(qty),
-          toPay: rand() < 0.7 ? freight : '', paid: '', chargeOption: option,
-          godownBhada: option === 'option1' ? '5' : option === 'option2' ? '2' : '',
-          godownInsurance: option === 'option1' ? '5' : option === 'option2' ? '3' : '',
-          deliveryCharges: option === 'option1' ? '2' : option === 'option2' ? '3' : '',
-          hamali: option === 'option1' ? String(qty * 10) : '',
-          wasuli: rand() < 0.3 ? String(300 + int(2700)) : '', staxPercent: rand() < 0.6 ? '0' : '5',
+          toPay: rand() < 0.7 ? freight : '', paid: '',
+          hamali: rand() < 0.6 ? String(qty * 10) : '', // typed on the LR, as the clerks do
+          wasuli: rand() < 0.3 ? String(300 + int(2700)) : '',
         };
         if (input.toPay === '') input.paid = freight;
         const saved = must(lrs.create(db, pick(SEATS), input), `lr ${n}`);

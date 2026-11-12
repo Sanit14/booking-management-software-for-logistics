@@ -42,13 +42,8 @@ const input = (s: Set, over: Partial<LrInput> = {}): LrInput => ({
   qty: '3',
   toPay: '1,800',
   paid: '',
-  chargeOption: 'option1',
-  godownBhada: '5',
-  godownInsurance: '5',
-  deliveryCharges: '2',
   hamali: '30',
   wasuli: '',
-  staxPercent: '5',
   ...over,
 });
 
@@ -137,9 +132,7 @@ test('the same uid with a changed value is refused: the saved LR is named, nothi
     { toPay: '5' },
     { toPay: '', paid: '1,800' },
     { particular: 'Steel pipes' },
-    { chargeOption: 'blank' },
     { hamali: '31' },
-    { staxPercent: '12' },
     { wasuli: '10' },
     { date: '2025-12-30', systemPin: SYSTEM },
     { toStationId: s.yavatmal, fromStationId: s.nagpur },
@@ -221,8 +214,6 @@ test('every validation refusal writes nothing at all', () => {
     ['to pay and paid', { toPay: '10', paid: '10' }],
     ['bad money', { hamali: 'abc' }],
     ['negative money', { wasuli: '-5' }],
-    ['bad tax', { staxPercent: '150' }],
-    ['bad option', { chargeOption: 'option9' as 'blank' }],
     ['future date', { date: '2026-10-30', systemPin: SYSTEM }],
     ['not a date', { date: '2026-02-30', systemPin: SYSTEM }],
     ['unknown station', { toStationId: 999 }],
@@ -268,15 +259,17 @@ test('a date other than today needs the System PIN; a wrong PIN or none writes n
   assert.equal(saved(save(s, { date: TODAY })).row.lrNo, 2);
 });
 
-test('preview = saved = lrAmounts, and the charge defaults come from the chosen option and quantity', () => {
+test('preview = saved = lrAmounts: freight + the hamali that was typed', () => {
   const s = setUp();
   const i = input(s, { qty: '3' });
-  const p = s.lrs.preview(s.db, i);
+  const p = s.lrs.preview(i);
   assert.ok(p.ok);
-  assert.deepEqual(p.value.defaults, { godownBhada: 500, godownInsurance: 500, deliveryCharges: 200, hamali: 3000 }, 'option 1: hamali Rs 10 per dag x 3');
   assert.deepEqual(p.value.fields, {});
-  // freight 1,800 -> 180000; charges 500+500+200+3000; tax 5% of freight = 9000
-  assert.deepEqual(p.value.amounts, { freight: 180000, charges: 3000 + 500 + 500 + 200, stax: 9000, total: 180000 + 4200 + 9000 });
+  // freight 1,800 -> 180000; hamali 30 -> 3000 as typed (it does not follow the quantity); no tax
+  assert.deepEqual(p.value.amounts, { freight: 180000, hamali: 3000, total: 183000 });
+  const nine = s.lrs.preview({ ...i, qty: '9' });
+  assert.ok(nine.ok);
+  assert.deepEqual(nine.value.amounts, p.value.amounts, 'the quantity does not change the hamali');
   const r = saved(s.lrs.create(s.db, 'seat-1', i));
   assert.deepEqual(r.amounts, p.value.amounts);
   const row = s.db.prepare('SELECT * FROM lrs WHERE id = ?').get(r.row.id) as Parameters<typeof lrAmounts>[0];
@@ -286,13 +279,12 @@ test('preview = saved = lrAmounts, and the charge defaults come from the chosen 
 test('preview writes nothing, answers on a half-filled form, and says what is malformed', () => {
   const s = setUp();
   const before = footprint(s);
-  const empty = s.lrs.preview(s.db, input(s, { qty: '', toPay: '', godownBhada: '', godownInsurance: '', deliveryCharges: '', hamali: '', staxPercent: '', chargeOption: 'blank' }));
+  const empty = s.lrs.preview(input(s, { qty: '', toPay: '', hamali: '' }));
   assert.ok(empty.ok);
-  assert.deepEqual(empty.value.amounts, { freight: 0, charges: 0, stax: 0, total: 0 });
-  assert.deepEqual(empty.value.defaults, { godownBhada: 0, godownInsurance: 0, deliveryCharges: 0, hamali: 0 });
-  const wrong = s.lrs.preview(s.db, input(s, { hamali: 'x', staxPercent: '200', toPay: '10', paid: '5' }));
+  assert.deepEqual(empty.value.amounts, { freight: 0, hamali: 0, total: 0 });
+  const wrong = s.lrs.preview(input(s, { hamali: 'x', toPay: '10', paid: '5' }));
   assert.ok(wrong.ok);
-  assert.deepEqual(wrong.value.fields, { hamali: 'amount', staxPercent: 'percent', paid: 'both' });
+  assert.deepEqual(wrong.value.fields, { hamali: 'amount', paid: 'both' });
   assert.deepEqual(footprint(s), before);
 });
 
@@ -332,23 +324,24 @@ test('each saved LR has one audit row with its values', () => {
   assert.equal((s.db.prepare('SELECT seat FROM lrs WHERE id = ?').get(r.row.id) as { seat: string }).seat, 'seat-7');
 });
 
-test('LR defaults: blank option, 0% and no station until the Admin PIN sets them; wrong PIN or bad values change nothing', () => {
+test('LR defaults: no station until the Admin PIN sets it; wrong PIN or a bad station change nothing', () => {
   const s = setUp();
-  assert.deepEqual(s.lrs.defaults(s.db, null), { today: TODAY, bookingStationId: null, chargeOption: 'blank', staxPercent: '0', nextNo: 1 });
-  const want = { bookingStationId: s.yavatmal, chargeOption: 'option2' as const, staxPercent: '2.5' };
+  assert.deepEqual(s.lrs.defaults(s.db, null), { today: TODAY, bookingStationId: null, nextNo: 1 });
+  const want = { bookingStationId: s.yavatmal };
   const before = footprint(s);
   const wrong = s.lrs.setDefaults(s.db, 'seat-1', want, SYSTEM);
   assert.equal(wrong.ok === false && wrong.code, 'wrong-pin', 'the System PIN is not enough');
-  const bad = s.lrs.setDefaults(s.db, 'seat-1', { ...want, staxPercent: '101' }, ADMIN);
-  assert.equal(bad.ok === false && bad.code, 'lr-invalid');
   const noStation = s.lrs.setDefaults(s.db, 'seat-1', { ...want, bookingStationId: 999 }, ADMIN);
   assert.equal(noStation.ok === false && noStation.code, 'lr-invalid');
   assert.deepEqual(footprint(s), before);
 
   const done = s.lrs.setDefaults(s.db, 'seat-1', want, ADMIN);
   assert.ok(done.ok);
-  assert.deepEqual(done.value, { today: TODAY, bookingStationId: s.yavatmal, chargeOption: 'option2', staxPercent: '2.5', nextNo: 1 });
+  assert.deepEqual(done.value, { today: TODAY, bookingStationId: s.yavatmal, nextNo: 1 });
   assert.equal(n(s, 'audit_log'), before.audit + 1);
+  const row = s.db.prepare("SELECT before_json AS before, after_json AS after FROM audit_log WHERE action = 'settings.lr-defaults'").get() as { before: string; after: string };
+  assert.deepEqual([JSON.parse(row.before), JSON.parse(row.after)], [{ bookingStationId: null }, { bookingStationId: s.yavatmal }], 'the audit row carries the booking station only');
+  assert.equal((s.db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key IN ('defaultChargeOption', 'defaultStaxBp')").get() as { n: number }).n, 0, 'nothing else is written to settings');
   assert.ok(s.lrs.setDefaults(s.db, 'seat-1', { ...want, bookingStationId: null }, ADMIN).ok);
   assert.equal(s.lrs.defaults(s.db, null).bookingStationId, null);
 });
@@ -388,8 +381,7 @@ test('get and find open an LR with everything the form needs; find is the curren
     {
       id: a.row.id, version: 1, status: 'booked', lrNo: 1, lrYear: 2026, date: TODAY, memoNo: null, memoId: null,
       fromStationId: s.yavatmal, toStationId: s.nagpur, consignorId: s.ganesh, consignor: 'Shree Ganesh Traders', consigneeId: null, consignee: 'Kale Brothers',
-      particular: 'Cloth bales', qty: 3, toPayPaise: 180000, paidPaise: 0, chargeOption: 'option1',
-      godownBhadaPaise: 500, godownInsurancePaise: 500, deliveryChargesPaise: 200, hamaliPaise: 3000, wasuliPaise: 0, staxPercent: '5', amounts: undefined,
+      particular: 'Cloth bales', qty: 3, toPayPaise: 180000, paidPaise: 0, hamaliPaise: 3000, wasuliPaise: 0, amounts: undefined,
     },
   );
   assert.deepEqual(lr.amounts, a.amounts);
@@ -411,7 +403,7 @@ test('edit: changes only what differs, keeps the number, bumps the version, audi
   assert.equal(r.lr.paidPaise, 180000);
   assert.equal(r.lr.toPayPaise, 0);
   assert.equal(r.lr.consignee, 'Patil Hardware');
-  assert.deepEqual(r.lr.amounts, lrAmounts({ topay_paise: 0, paid_paise: 180000, godown_bhada_paise: 500, godown_insurance_paise: 500, delivery_charges_paise: 200, hamali_paise: 3000, pf_paise: 0, stax_bp: 500 }));
+  assert.deepEqual(r.lr.amounts, lrAmounts({ topay_paise: 0, paid_paise: 180000, hamali_paise: 3000 }));
   const rows = s.db.prepare("SELECT seat, before_json AS before, after_json AS after FROM audit_log WHERE action = 'lrs.update'").all() as { seat: string; before: string; after: string }[];
   assert.equal(rows.length, 1);
   assert.equal(rows[0].seat, 'seat-9');
@@ -642,4 +634,57 @@ test('history: at most 50 entries, newest first', () => {
   assert.ok(h.ok);
   assert.equal(h.value.length, 50);
   assert.equal(h.value[0].changes[0].to, 64, 'the newest');
+});
+
+// ---- Session 4.5: the LR as the customer approved it (no charge option, godown, delivery or service tax) ----
+const OLD_COLUMNS = 'charge_option, godown_bhada_paise, godown_insurance_paise, delivery_charges_paise, pf_paise, stax_bp';
+const oldColumnsOf = (s: Set, id: number) => s.db.prepare(`SELECT ${OLD_COLUMNS} FROM lrs WHERE id = ?`).get(id);
+const NONE = { charge_option: 'blank', godown_bhada_paise: 0, godown_insurance_paise: 0, delivery_charges_paise: 0, pf_paise: 0, stax_bp: 0 };
+
+test('a saved LR and an edited LR leave the older charge and tax columns at 0 / blank', () => {
+  const s = setUp();
+  const a = saved(save(s, { qty: '3', toPay: '1,800', hamali: '30' }));
+  assert.deepEqual(oldColumnsOf(s, a.row.id), NONE);
+  assert.deepEqual(a.amounts, { freight: 180000, hamali: 3000, total: 183000 });
+  const lr = detailOf(s.lrs.get(s.db, a.row.id));
+  updatedOf(edit(s, lr, { hamali: '45', toPay: '', paid: '1,800' }));
+  assert.deepEqual(oldColumnsOf(s, a.row.id), NONE);
+  assert.deepEqual(detailOf(s.lrs.get(s.db, a.row.id)).amounts, { freight: 180000, hamali: 4500, total: 184500 });
+});
+
+test('an LR saved before 4.5 adds only freight + hamali; an edit leaves its old columns as they were and does not audit them', () => {
+  const s = setUp();
+  const a = saved(save(s, { uid: 'old-form', qty: '3', toPay: '1,800', hamali: '30' }));
+  // What the older program wrote: option 1, godown and delivery charges, PF, 5% service tax.
+  s.db.prepare("UPDATE lrs SET charge_option = 'option1', godown_bhada_paise = 500, godown_insurance_paise = 500, delivery_charges_paise = 200, pf_paise = 100, stax_bp = 500 WHERE id = ?").run(a.row.id);
+  const old = { charge_option: 'option1', godown_bhada_paise: 500, godown_insurance_paise: 500, delivery_charges_paise: 200, pf_paise: 100, stax_bp: 500 };
+  const lr = detailOf(s.lrs.get(s.db, a.row.id));
+  assert.deepEqual(lr.amounts, { freight: 180000, hamali: 3000, total: 183000 }, 'the old columns count for nothing');
+  const r = updatedOf(edit(s, lr, { hamali: '31' }));
+  assert.deepEqual(r.lr.amounts, { freight: 180000, hamali: 3100, total: 183100 });
+  assert.deepEqual(oldColumnsOf(s, a.row.id), old, 'the edit did not touch them');
+  const row = s.db.prepare("SELECT before_json AS before, after_json AS after FROM audit_log WHERE action = 'lrs.update'").get() as { before: string; after: string };
+  assert.deepEqual([JSON.parse(row.before), JSON.parse(row.after)], [{ hamali_paise: 3000 }, { hamali_paise: 3100 }]);
+  // A retry of the first save (O3) compares only the fields that remain: the old columns neither match nor mismatch.
+  assert.equal(failed(s.lrs.create(s.db, 'seat-1', input(s, { uid: 'old-form', qty: '3', toPay: '1,800', hamali: '30' }))).code, 'lr-already-saved', 'hamali was edited since');
+  const lr2 = detailOf(s.lrs.get(s.db, a.row.id));
+  assert.equal(saved(s.lrs.create(s.db, 'seat-1', input(s, { uid: 'old-form', qty: '3', toPay: '1,800', hamali: '31' }))).again, true);
+  assert.equal(lr2.version, r.lr.version);
+});
+
+test('the History of an edit written before 4.5 still reads: old fields come after the current ones, with old → new', () => {
+  const s = setUp();
+  const a = saved(save(s, { qty: '3', toPay: '1,800', hamali: '30' }));
+  s.db
+    .prepare("INSERT INTO audit_log (seat, action, entity, entity_id, before_json, after_json) VALUES ('PC01', 'lrs.update', 'lrs', ?, ?, ?)")
+    .run(String(a.row.id), JSON.stringify({ charge_option: 'blank', godown_bhada_paise: 0, stax_bp: 0, hamali_paise: 0 }), JSON.stringify({ charge_option: 'option1', godown_bhada_paise: 500, stax_bp: 250, hamali_paise: 3000 }));
+  const h = s.lrs.history(s.db, a.row.id);
+  assert.ok(h.ok);
+  const edited = h.value.find((e) => e.action === 'edited');
+  assert.deepEqual(edited?.changes, [
+    { field: 'hamali', from: 0, to: 3000 },
+    { field: 'chargeOption', from: 'blank', to: 'option1' },
+    { field: 'godownBhada', from: 0, to: 500 },
+    { field: 'staxPercent', from: '0', to: '2.5' },
+  ]);
 });
