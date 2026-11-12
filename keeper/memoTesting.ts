@@ -66,6 +66,8 @@ export const memoInput = (s: Set, lrIds: number[], over: Partial<MemoInput> = {}
   toStationId: s.nagpur,
   truckHire: '',
   loadingHamali: '',
+  hamaliRate: '0.40',
+  commission: '10',
   lrIds,
   ...over,
 });

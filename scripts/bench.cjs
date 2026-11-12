@@ -197,7 +197,7 @@ async function main() {
     const truck = masters.trucks[0];
     const driver = masters.drivers[0];
     await timed('Create memo with 100 LRs', 300, (i) =>
-      ok('/memos/create', { input: { uid: `bench-memo-${Date.now()}-${i}`, date: null, truckId: truck.id, driverId: driver.id, fromStationId: yavatmal.id, toStationId: towns[i % towns.length].id, truckHire: '9000', loadingHamali: '300', lrIds: batches[i % batches.length] } }),
+      ok('/memos/create', { input: { uid: `bench-memo-${Date.now()}-${i}`, date: null, truckId: truck.id, driverId: driver.id, fromStationId: yavatmal.id, toStationId: towns[i % towns.length].id, truckHire: '9000', loadingHamali: '300', hamaliRate: '0.40', commission: '10', lrIds: batches[i % batches.length] } }),
     batches.length);
 
     // ---- reports, one year ----

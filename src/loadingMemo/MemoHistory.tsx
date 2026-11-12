@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { MemoChange, MemoChangeField, MemoHistoryEntry } from '../../shared';
 import { isoToDisplay } from '../logic/lrOpen';
-import { formatPaise } from '../logic/rupees';
+import { percentText } from '../logic/memoDetails';
+import { formatFixed, formatPaise, formatWhole } from '../logic/rupees';
 import { strings } from '../strings';
 import Dialog from '../ui/Dialog';
 import { useToast } from '../ui/Toast';
@@ -9,12 +10,15 @@ import styles from './LoadingMemoPage.module.css';
 
 const t = strings.memo;
 // `charges` and `stax` only in the recalculations made before 4.5
-const MONEY: readonly MemoChangeField[] = ['truckHire', 'loadingHamali', 'toPay', 'paid', 'hamali', 'charges', 'stax'];
+const MONEY: readonly MemoChangeField[] = ['truckHire', 'loadingHamali', 'toPay', 'paid', 'hamali', 'wasuli', 'charges', 'stax'];
 
-/** One side of a change as a person reads it: rupees for money, a date as dd-mm-yyyy. */
+/** One side of a change as a person reads it: rupees for money, the rate with two decimals, the commission as a %, the round figure in whole rupees (it may be negative), a date as dd-mm-yyyy. */
 function show(field: MemoChangeField, v: MemoChange['from']): string {
   if (v === null) return strings.lr.none;
   if (MONEY.includes(field)) return `${strings.ui.rupee}${formatPaise(Number(v))}`;
+  if (field === 'hamaliRate') return `${strings.ui.rupee}${formatFixed(Number(v))}`;
+  if (field === 'commission') return t.details.commissionHow(percentText(Number(v)));
+  if (field === 'roundFigure') return `${Number(v) < 0 ? '-' : ''}${strings.ui.rupee}${formatWhole(Math.abs(Number(v)))}`;
   return field === 'date' ? isoToDisplay(String(v)) : String(v);
 }
 

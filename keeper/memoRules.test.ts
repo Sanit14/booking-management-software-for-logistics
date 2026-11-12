@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_MEMO_LRS, type MemoHeaderInput, type MemoInput } from '../shared';
-import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters, cleanHeader, cleanIds, cleanMemo } from './memoRules';
+import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters, cleanHeader, cleanIds, cleanMemo, cleanSettlement } from './memoRules';
 
 const TODAY = '2026-10-31';
 const good: MemoInput = {
@@ -13,6 +13,8 @@ const good: MemoInput = {
   toStationId: 4,
   truckHire: '1,200.50',
   loadingHamali: '',
+  hamaliRate: '0.40',
+  commission: '10',
   lrIds: [10, 11, 12],
 };
 
@@ -21,7 +23,38 @@ test('a memo input needs a uid; a value of the wrong type becomes an empty one t
   assert.equal(asMemoInput({}), null);
   assert.equal(asMemoInput({ uid: 'x'.repeat(65) }), null);
   const i = asMemoInput({ uid: 'u', date: 5, truckId: '1', driverId: 1.5, fromStationId: null, truckHire: 7, lrIds: 'all' });
-  assert.deepEqual(i, { uid: 'u', date: null, systemPin: '', truckId: null, driverId: null, fromStationId: null, toStationId: null, truckHire: '', loadingHamali: '', lrIds: [] });
+  assert.deepEqual(i, { uid: 'u', date: null, systemPin: '', truckId: null, driverId: null, fromStationId: null, toStationId: null, truckHire: '', loadingHamali: '', hamaliRate: '', commission: '', lrIds: [] });
+  assert.deepEqual([asMemoInput({ uid: 'u', hamaliRate: '0.40', commission: '10' })?.hamaliRate, asMemoInput({ uid: 'u', hamaliRate: '0.40', commission: '10' })?.commission], ['0.40', '10']);
+});
+
+test('the hamali rate and the commission: both must be typed (empty refused), 0 is allowed', () => {
+  assert.deepEqual(cleanSettlement({ hamaliRate: '', commission: '' }).errors, { hamaliRate: 'required', commission: 'required' });
+  assert.deepEqual(cleanSettlement({ hamaliRate: '   ', commission: ' ' }).errors, { hamaliRate: 'required', commission: 'required' });
+  const zero = cleanSettlement({ hamaliRate: '0', commission: '0' });
+  assert.deepEqual(zero.errors, {});
+  assert.deepEqual([zero.ratePaise, zero.commissionBp], [0, 0]);
+});
+
+test('the hamali rate is rupees with at most 2 decimals; the % is 0 to 100 with at most 2 decimals', () => {
+  const ok = cleanSettlement({ hamaliRate: ' 0.40 ', commission: '8.25' });
+  assert.deepEqual(ok.errors, {});
+  assert.deepEqual([ok.ratePaise, ok.commissionBp], [40, 825]);
+  assert.deepEqual(cleanSettlement({ hamaliRate: '2', commission: '100' }).commissionBp, 10000);
+  assert.deepEqual(cleanSettlement({ hamaliRate: '1,250.5', commission: '100.00' }).errors, {});
+  for (const bad of ['0.405', '-1', 'abc', '1e2', '.5', '5.', '1 2', '₹5']) assert.equal(cleanSettlement({ hamaliRate: bad, commission: '10' }).errors.hamaliRate, 'amount', `rate ${bad}`);
+  for (const bad of ['10.123', '-1', 'ten', '1e1', '.5', '5.', '1,0']) assert.equal(cleanSettlement({ hamaliRate: '1', commission: bad }).errors.commission, 'amount', `% ${bad}`);
+});
+
+test('a % over 100 is refused by name, a rate beyond the limit is an amount error', () => {
+  assert.equal(cleanSettlement({ hamaliRate: '1', commission: '100.01' }).errors.commission, 'percent');
+  assert.equal(cleanSettlement({ hamaliRate: '1', commission: '101' }).errors.commission, 'percent');
+  assert.equal(cleanSettlement({ hamaliRate: '99,99,99,99,99,999', commission: '1' }).errors.hamaliRate, 'amount');
+});
+
+test('a new memo carries the settlement: its errors join the header\'s, its values come back in paise and basis points', () => {
+  const c = cleanMemo(good, TODAY);
+  assert.deepEqual([c.errors, c.ratePaise, c.commissionBp], [{}, 40, 1000]);
+  assert.deepEqual(cleanMemo({ ...good, hamaliRate: '', commission: '120' }, TODAY).errors, { hamaliRate: 'required', commission: 'percent' });
 });
 
 test('an LR id that is not a whole number above 0 is kept as 0, so it is refused and never dropped', () => {

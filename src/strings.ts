@@ -129,8 +129,26 @@ export interface SayCtx {
   f: HistoryFacts;
   changes: HistoryChange[];
   rupees: (paise: number) => string;
+  /** paise as plain text without the rupee sign: "0.40", "1,800". */
+  amount: (paise: number) => string;
+  /** whole rupees, a minus sign for a negative figure: "10,241", "-121". */
+  whole: (rupees: number) => string;
   nos: (list: number[] | undefined) => string;
   date: (iso: string) => string;
+}
+
+/**
+ * The settlement fields of a memo's row in words: "hamali rate 0.40 → 0.50, commission 10 % → 8 %, round figure 10,241 → 10,180". A save has no "from" side
+ * (`both` false); a row written before 4.6 has none of the fields and gives an empty text.
+ */
+function settlementWords(c: SayCtx, both: boolean): string {
+  const side = (v: HistoryChange['from'], kind: 'paise' | 'percent' | 'rupees'): string =>
+    v === null || v === undefined || v === '' ? '–' : kind === 'paise' ? c.amount(Number(v)) : kind === 'percent' ? `${v} %` : c.whole(Number(v));
+  const bit = (label: string, field: string, kind: 'paise' | 'percent' | 'rupees'): string => {
+    const x = c.changes.find((ch) => ch.field === field);
+    return x ? `${label} ${both ? `${side(x.from, kind)} → ` : ''}${side(x.to, kind)}` : '';
+  };
+  return [bit('hamali rate', 'hamaliRate', 'paise'), bit('commission', 'commission', 'percent'), bit('round figure', 'roundFigure', 'rupees')].filter((x) => x !== '').join(', ');
 }
 
 export const strings = {
@@ -295,6 +313,7 @@ export const strings = {
     fieldError: {
       required: 'Required',
       amount: 'Enter an amount like 4500 or 4,500.50',
+      percent: 'A percentage from 0 to 100',
       same: 'Must differ from the From station',
       future: 'The date cannot be in the future',
       date: 'Not a valid date',
@@ -313,7 +332,60 @@ export const strings = {
     viewClose: 'Close',
     viewDetails: { truck: 'Truck', driver: 'Driver', from: 'From', to: 'To', truckHire: 'Truck hire', loadingHamali: 'Loading hamali' },
     frozenTitle: 'Totals when the memo was saved',
-    frozen: { lrs: 'LRs', qty: 'Qty', toPay: 'To pay', paid: 'Paid', hamali: 'Hamali' },
+    frozen: { lrs: 'LRs', qty: 'Qty', toPay: 'To pay', paid: 'Paid', hamali: 'Hamali', wasuli: 'Wasuli' },
+    // "Details of report" (4.6): the window before a memo is saved, and the card on a saved memo.
+    details: {
+      title: 'Details of report',
+      subtitle: (lrs: number, truck: string, route: string, date: string) => `New loading memo · ${lrs} ${lrs === 1 ? 'LR' : 'LRs'} · ${truck} · ${route} · ${date}`,
+      editSubtitle: (no: number, date: string, route: string) => `Challan ${no} · ${date} · ${route}`,
+      fromLrs: 'From the ticked LRs',
+      fromSaved: 'As saved with the memo',
+      typeHere: 'Type for this memo',
+      articles: 'Total articles',
+      paid: 'Paid',
+      toPay: 'To pay',
+      wasuli: 'Wasuli',
+      rate: 'Hamali rate per article (₹)',
+      ratePlaceholder: 'e.g. 0.40',
+      rateTimes: (n: number) => `× ${n} articles`,
+      commission: 'Commission %',
+      commissionPlaceholder: 'e.g. 10',
+      commissionOf: (base: string) => `of To pay + Paid = ₹ ${base}`,
+      noDefault: 'No default. Typed fresh for every memo. 0 is allowed, but type it.',
+      settlement: 'Settlement',
+      hamaliLess: '− Hamali less',
+      total: 'Total',
+      commissionLess: '− Commission less',
+      plusWasuli: '+ Wasuli',
+      net: 'Net amount',
+      round: 'Round figure',
+      roundHint: 'To the rupee; .50 rounds away from zero (as in DM)',
+      notAdded: 'Paid is not added. Truck hire and loading hamali stay in the memo header and are not in this net.',
+      hamaliHow: (articles: number, rate: string) => `${articles} × ${rate}`,
+      commissionHow: (percent: string) => `${percent} %`,
+      escHint: 'Back to the LRs. Nothing is saved yet.',
+      editEscHint: 'Back to the memo. Nothing is changed yet.',
+      esc: 'Esc',
+      saveOnly: 'Save only',
+      saveAndPrint: 'Save & print memo',
+      save: 'Save',
+      saveAndPrintEdit: 'Save & print',
+      fieldError: {
+        rate: { required: 'Type the hamali rate (0 is allowed)', amount: 'Type a smaller amount with at most 2 decimals, like 0.40' } as Record<string, string>,
+        commission: { required: 'Type the commission % (0 is allowed)', amount: 'Type a number with at most 2 decimals, like 10 or 8.25', percent: 'At most 100 %' } as Record<string, string>,
+      },
+      // the card on a saved memo
+      cardTitle: 'Details of report',
+      ratePill: (rate: string) => `Hamali ₹ ${rate} / article`,
+      commissionPill: (percent: string) => `Commission ${percent} %`,
+      none: 'No details of report yet',
+      noneText: 'This memo was saved before the hamali rate and commission were kept. Add them to see the net and the round figure.',
+      edit: 'Edit rate / commission',
+      editNote: 'Asks the System PIN. The change is kept in History.',
+      pinEdit: (no: number) => `System PIN to change the rate and commission of challan ${no}`,
+      edited: (no: number) => `Challan ${no}: rate and commission saved`,
+      editedNothing: 'Nothing was changed.',
+    },
     lrsLabel: 'LRs on this memo',
     // Saved memos: the second tab, and what can be done to a memo
     tabsLabel: 'Loading memo pages',
@@ -370,14 +442,15 @@ export const strings = {
     historyClose: 'Close',
     historyEmpty: 'Nothing recorded.',
     historyBy: (seat: string, at: string) => `${dateTime(at)} · ${seat}`,
-    historyAction: { created: 'Saved', edited: 'Edited', removed: 'LRs taken off', added: 'LRs added', 'moved-out': 'LRs moved out', 'moved-in': 'LRs moved in', recalculated: 'Recalculated', cancelled: 'Cancelled' } as Record<string, string>,
+    historyAction: { created: 'Saved', edited: 'Edited', removed: 'LRs taken off', added: 'LRs added', 'moved-out': 'LRs moved out', 'moved-in': 'LRs moved in', recalculated: 'Recalculated', cancelled: 'Cancelled', settlement: 'Rate / commission changed' } as Record<string, string>,
     historyLrs: (nos: number[]) => `LR ${nos.join(', ')}`,
     historyOther: (action: string, no: number) => (action === 'moved-out' ? `to challan ${no}` : `from challan ${no}`),
     historyReason: (reason: string) => `Reason: ${reason}`,
     historyChange: (field: string, from: string, to: string) => `${field}: ${from} → ${to}`,
     historyFields: {
       date: 'Date', truck: 'Truck', driver: 'Driver', fromStation: 'From', toStation: 'To', truckHire: 'Truck hire', loadingHamali: 'Loading hamali',
-      lrs: 'LRs', qty: 'Qty', toPay: 'To pay', paid: 'Paid', hamali: 'Hamali',
+      lrs: 'LRs', qty: 'Qty', toPay: 'To pay', paid: 'Paid', hamali: 'Hamali', wasuli: 'Wasuli',
+      hamaliRate: 'Hamali rate', commission: 'Commission', roundFigure: 'Round figure',
       charges: 'Charges', stax: 'Service tax', // the totals of a recalculation made before 4.5
     } as Record<string, string>,
   },
@@ -499,6 +572,7 @@ export const strings = {
       truckHire: 'Truck hire', loadingHamali: 'Loading hamali', lrs: 'LRs', charges: 'Charges', stax: 'Service tax', amount: 'Amount', remark: 'Remark',
       name: 'Name', number: 'Number', phone: 'Phone', station: 'Station', bookingStation: 'Booking station', address: 'Address', gstin: 'GSTIN',
       backupDir: 'Backup folder', seatName: 'Seat name', version: 'Version',
+      hamaliRate: 'Hamali rate', commission: 'Commission', roundFigure: 'Round figure',
     } as Record<string, string>,
     chargeOptions: { blank: 'Blank', option1: 'Option 1', option2: 'Option 2' } as Record<string, string>,
     nouns: { lr: 'LR', memo: 'Challan', wasuli: 'Wasuli', firm: 'Firm', station: 'Station', truck: 'Truck', driver: 'Driver', agent: 'Agent' } as Record<string, string>,
@@ -518,7 +592,8 @@ export const strings = {
       'lrs.memo-add': (c: SayCtx) => `${c.lr} added to ${c.f.challanNo ? `challan ${c.f.challanNo}` : 'a challan'}`,
       'lrs.memo-cancel': (c: SayCtx) => `${c.lr} back to booked: ${c.f.challanNo ? `challan ${c.f.challanNo}` : 'its challan'} was cancelled`,
       'memos.create': (c: SayCtx) =>
-        `${c.challan} made: ${c.f.lrCount ?? '?'} LRs${c.f.truck ? `, truck ${c.f.truck}` : ''}${c.f.fromStation && c.f.toStation ? `, ${c.f.fromStation} → ${c.f.toStation}` : ''}`,
+        `${c.challan} made: ${c.f.lrCount ?? '?'} LRs${c.f.truck ? `, truck ${c.f.truck}` : ''}${c.f.fromStation && c.f.toStation ? `, ${c.f.fromStation} → ${c.f.toStation}` : ''}${settlementWords(c, false) ? ` · ${settlementWords(c, false)}` : ''}`,
+      'memos.settlement': (c: SayCtx) => `${c.challan}: ${settlementWords(c, true) || 'hamali rate and commission changed'}`,
       'memos.edit': (c: SayCtx) => `${c.challan} edited`,
       'memos.remove-lrs': (c: SayCtx) => `${c.challan}: ${c.nos(c.f.lrNos)} taken off`,
       'memos.add-lrs': (c: SayCtx) => `${c.challan}: ${c.nos(c.f.lrNos)} added`,
@@ -597,7 +672,7 @@ export const strings = {
     walkIn: 'walk-in',
     columns: {
       date: 'Date', lrs: 'LRs', qty: 'Qty', toPay: 'To pay', paid: 'Paid', lrHamali: 'Hamali', total: 'Total', toStation: 'To station', wasuli: 'Wasuli',
-      consignor: 'Consignor', consignee: 'Consignee', memo: 'Memo', truck: 'Truck', hire: 'Truck hire', hamali: 'hamali', firm: 'Firm', asConsignor: 'As consignor', asConsignee: 'As consignee',
+      consignor: 'Consignor', consignee: 'Consignee', memo: 'Memo', truck: 'Truck', hire: 'Truck hire', hamali: 'hamali', round: 'Round figure', firm: 'Firm', asConsignor: 'As consignor', asConsignee: 'As consignee',
       agent: 'Agent', assigned: 'Assigned now', collected: 'Collected', amount: 'Amount',
     },
     // The LRs behind one row
@@ -1068,8 +1143,23 @@ export const strings = {
       to: 'To',
       truckHire: 'Truck hire (₹)',
       loadingHamali: 'Loading hamali (₹)',
-      columns: { sr: 'Sr', lr: 'LR No.', consignor: 'Consignor', consignee: 'Consignee', destination: 'Destination', particular: 'Particular', qty: 'Qty', toPay: 'To pay (₹)', paid: 'Paid (₹)' },
+      // The old software's table: Consignor, Consignee, LR No, Particulars, Pak, Paid, To pay, Wasuli.
+      columns: { lr: 'LR No', consignor: 'Consignor', consignee: 'Consignee', particular: 'Particulars', qty: 'Pak', paid: 'Paid (₹)', toPay: 'To pay (₹)', wasuli: 'Wasuli (₹)' },
       total: (lrs: number) => `Total · LRs: ${lrs}`,
+      // "Details of report" after the last row, in the old paper's order and words.
+      details: {
+        title: 'DETAILS OF REPORT',
+        articles: 'Total articles',
+        paid: 'Paid amount',
+        toPay: 'To pay amount',
+        hamaliLess: 'Hamali less amount',
+        total: 'Total',
+        commissionLess: 'Commission less amount',
+        wasuli: 'Wasuli amount',
+        net: 'Net amount Rs.',
+        round: 'Round figure Rs.',
+        how: (text: string) => `(${text})`,
+      },
       differs: 'LRs changed after saving — recalculate to update totals',
       none: 'No LRs on this memo',
       continued: (no: number) => `Loading memo ${no} (continued)`,
@@ -1154,8 +1244,8 @@ export const strings = {
         truckWise: {
           name: 'Truck-wise',
           heading: 'TRUCK-WISE REPORT',
-          columns: ['Memo date', 'Challan', 'Truck', 'To station', 'LRs', 'To pay (₹)', 'Paid (₹)', 'Truck hire (₹)', 'Hamali (₹)'],
-          totals: ['Memos', 'LRs', 'To pay', 'Paid', 'Truck hire', 'Loading hamali'],
+          columns: ['Memo date', 'Challan', 'Truck', 'To station', 'LRs', 'To pay (₹)', 'Paid (₹)', 'Wasuli (₹)', 'Round figure (₹)', 'Truck hire (₹)', 'Hamali (₹)'],
+          totals: ['Memos', 'LRs', 'To pay', 'Paid', 'Wasuli', 'Round figure', 'Truck hire', 'Loading hamali'],
         },
         firmWise: {
           name: 'Firm-wise',

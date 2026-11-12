@@ -170,7 +170,7 @@ test('a loaded LR keeps following its wasuli; a cancelled LR cannot be edited so
   const s = setUp();
   const lr = book(s, { wasuli: '500' });
   const memo = s.memos.create(s.db, 'seat-1', {
-    uid: 'm1', date: null, truckId: s.truck, driverId: s.driver, fromStationId: s.yavatmal, toStationId: s.nagpur, truckHire: '', loadingHamali: '', lrIds: [lr.id],
+    uid: 'm1', date: null, truckId: s.truck, driverId: s.driver, fromStationId: s.yavatmal, toStationId: s.nagpur, truckHire: '', loadingHamali: '', hamaliRate: '0.40', commission: '10', lrIds: [lr.id],
   });
   assert.ok(memo.ok);
   assert.equal(lrRow(s, lr.id).status, 'loaded');

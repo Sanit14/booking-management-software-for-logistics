@@ -213,11 +213,27 @@ function schemaV4(db: Db): void {
   db.exec("CREATE INDEX lrs_booked ON lrs (to_station_id, lr_date, qty) WHERE status = 'booked'");
 }
 
+// v5 (session 4.6): the settlement ("Details of report") of a loading memo: the hamali rate per article and the commission % typed with it, the memo's
+// wasuli frozen with its other totals, and the net and the round figure worked out when it was saved. A memo saved before 4.6 has NULL rate, %, net and
+// round figure (it has no settlement until Edit rate / commission gives it one); its frozen wasuli is backfilled from the LRs now on it (a cancelled memo has
+// none: its LRs left it). The net and the round figure may be negative, so they do not use the `paise()` helper, whose CHECK is >= 0.
+function schemaV5(db: Db): void {
+  db.exec(`
+    ALTER TABLE memos ADD COLUMN hamali_rate_paise INTEGER CHECK (hamali_rate_paise IS NULL OR hamali_rate_paise >= 0);
+    ALTER TABLE memos ADD COLUMN commission_bp INTEGER CHECK (commission_bp IS NULL OR commission_bp BETWEEN 0 AND 10000);
+    ALTER TABLE memos ADD COLUMN frozen_wasuli_paise INTEGER NOT NULL DEFAULT 0 CHECK (frozen_wasuli_paise >= 0);
+    ALTER TABLE memos ADD COLUMN frozen_net_paise INTEGER;
+    ALTER TABLE memos ADD COLUMN round_rupees INTEGER CHECK (round_rupees IS NULL OR (hamali_rate_paise IS NOT NULL AND commission_bp IS NOT NULL AND frozen_net_paise IS NOT NULL));
+    UPDATE memos SET frozen_wasuli_paise = COALESCE((SELECT SUM(wasuli_paise) FROM lrs WHERE lrs.memo_id = memos.id), 0);
+  `);
+}
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, up: schemaV1 },
   { version: 2, up: schemaV2 },
   { version: 3, up: schemaV3 },
   { version: 4, up: schemaV4 },
+  { version: 5, up: schemaV5 },
 ];
 
 /** The highest applied version; 0 for a file with no schema_version rows (e.g. a 1.2 database). */

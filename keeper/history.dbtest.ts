@@ -75,6 +75,7 @@ function world() {
   got(s.memos.addLrs(s.db, 'PC02', m2.id, [b.id], SYSTEM));
   got(s.memos.moveLrs(s.db, 'PC03', m2.id, [b.id], m1.id, SYSTEM));
   got(s.memos.recalculate(s.db, 'PC02', m1.id, got(s.memos.get(s.db, m1.id)).version, ADMIN));
+  got(s.memos.editSettlement(s.db, 'PC03', m1.id, got(s.memos.get(s.db, m1.id)).version, '0.50', '8', SYSTEM));
   got(s.memos.cancel(s.db, 'PC02', m2.id, got(s.memos.get(s.db, m2.id)).version, 'wrong truck', ADMIN));
 
   // The wasuli road of LR a, then a collection that comes and goes with LR d's amount.
@@ -127,7 +128,7 @@ test('every action the keeper writes is known to the filters, and no row breaks 
   assert.deepEqual(rows.filter((r) => r.kind === 'other' || r.verb === 'other').map((r) => r.action), [], 'a code the table does not know');
   for (const must of [
     'lrs.create', 'lrs.update', 'lrs.cancel', 'lrs.restore', 'lrs.memo-remove', 'lrs.memo-move', 'lrs.memo-add', 'lrs.memo-cancel',
-    'memos.create', 'memos.edit', 'memos.remove-lrs', 'memos.move-out', 'memos.move-in', 'memos.add-lrs', 'memos.recalculate', 'memos.cancel',
+    'memos.create', 'memos.edit', 'memos.remove-lrs', 'memos.move-out', 'memos.move-in', 'memos.add-lrs', 'memos.recalculate', 'memos.settlement', 'memos.cancel',
     'wasuli.create', 'wasuli.update', 'wasuli.remove', 'wasuli.assign', 'wasuli.reassign', 'wasuli.to-pool', 'wasuli.collect', 'wasuli.uncollect', 'wasuli.remark',
     'masters.create', 'masters.update', 'masters.activate', 'masters.deactivate', 'pins.setup', 'pins.change-system', 'pins.locked',
     'settings.lr-defaults', 'settings.company', 'settings.backup-dir', 'seat.rename', 'app.update', 'backup.restore',
@@ -175,6 +176,20 @@ test('memo rows: the challan, the truck / driver / stations by name, the LR numb
   assert.deepEqual(of(rows, 'memos.recalculate')[0].changes, [
     { field: 'qty', from: 6, to: 8 },
     { field: 'toPay', from: 270000, to: 290000, unit: 'paise' },
+    { field: 'roundFigure', from: 2928, to: 3107, unit: 'rupees' }, // the same rate and %, new totals
+  ]);
+  // The settlement (4.6): a save says what it was saved with, an edit says old -> new; the commission is its % text.
+  assert.deepEqual(made?.changes, [
+    { field: 'hamaliRate', from: null, to: 40, unit: 'paise' },
+    { field: 'commission', from: null, to: '10', unit: 'percent' },
+    { field: 'roundFigure', from: null, to: 2928, unit: 'rupees' },
+  ]);
+  const rated = of(rows, 'memos.settlement')[0];
+  assert.deepEqual([rated.kind, rated.verb, rated.record, rated.openId, rated.challanNo, rated.seat], ['memo', 'memoChange', 'memo', m1.id, m1.challanNo, 'PC03']);
+  assert.deepEqual(rated.changes, [
+    { field: 'hamaliRate', from: 40, to: 50, unit: 'paise' },
+    { field: 'commission', from: '10', to: '8', unit: 'percent' },
+    { field: 'roundFigure', from: 3107, to: got(s.memos.get(s.db, m1.id)).settlement?.roundRupees ?? null, unit: 'rupees' },
   ]);
   const cancel = of(rows, 'memos.cancel')[0];
   assert.deepEqual([cancel.challanNo, cancel.facts.reason, cancel.facts.lrNos], [m2.challanNo, 'wrong truck', [c.no]]);

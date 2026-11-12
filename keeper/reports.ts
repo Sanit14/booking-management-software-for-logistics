@@ -133,13 +133,13 @@ export const truckSql = (q: ReportQuery, afterCursor: boolean) => {
     args,
     rows: `WITH page AS (SELECT m.* FROM memos m WHERE ${where}${afterCursor ? ' AND (m.memo_date, m.challan_no) > (@k, @n)' : ''} ORDER BY m.memo_date, m.challan_no LIMIT ${PAGE + 1})
       SELECT m.id AS memoId, m.memo_date AS date, m.challan_year AS challanYear, m.challan_no AS challanNo, t.number AS truck, s.name AS toStation,
-        m.frozen_lr_count AS lrs, m.frozen_topay_paise AS toPayPaise, m.frozen_paid_paise AS paidPaise,
+        m.frozen_lr_count AS lrs, m.frozen_topay_paise AS toPayPaise, m.frozen_paid_paise AS paidPaise, m.frozen_wasuli_paise AS wasuliPaise, m.round_rupees AS roundRupees,
         m.truck_hire_paise AS truckHirePaise, m.loading_hamali_paise AS loadingHamaliPaise, ${DIFFERS_SQL} AS differs
       FROM page m JOIN trucks t ON t.id = m.truck_id JOIN stations s ON s.id = m.to_station_id
       LEFT JOIN (${memoSumsSql('SELECT id FROM page')}) c ON c.memo_id = m.id
       ORDER BY m.memo_date, m.challan_no`,
     totals: `SELECT COUNT(*) AS memos, COALESCE(SUM(m.frozen_lr_count), 0) AS lrs, COALESCE(SUM(m.frozen_topay_paise), 0) AS toPayPaise, COALESCE(SUM(m.frozen_paid_paise), 0) AS paidPaise,
-      COALESCE(SUM(m.truck_hire_paise), 0) AS truckHirePaise, COALESCE(SUM(m.loading_hamali_paise), 0) AS loadingHamaliPaise FROM memos m WHERE ${where}`,
+      COALESCE(SUM(m.frozen_wasuli_paise), 0) AS wasuliPaise, COALESCE(SUM(m.round_rupees), 0) AS roundRupees, COALESCE(SUM(m.truck_hire_paise), 0) AS truckHirePaise, COALESCE(SUM(m.loading_hamali_paise), 0) AS loadingHamaliPaise FROM memos m WHERE ${where}`,
   };
 };
 

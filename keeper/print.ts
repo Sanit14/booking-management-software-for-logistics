@@ -26,6 +26,7 @@ import type { Db } from './db';
 import type { makeFirmAccounts } from './firmAccounts';
 import { asRange, asRole } from './firmRules';
 import type { makeMemos } from './memos';
+import { percentText, signedInr, signedRupees } from './memoSettlement';
 import { inr, lrAmounts, type LrMoney } from './money';
 import type { makePins } from './pins';
 import type { makeReports } from './reports';
@@ -131,18 +132,20 @@ export function makePrint(
       })();
     },
 
-    /** A memo as printed: the header, its LRs by LR number (year, then number), the frozen totals, and whether its LRs still add up to them. */
+    /** A memo as printed: the header, its LRs by LR number (year, then number), the frozen totals, "Details of report" and whether its LRs still add up to them. */
     memo(db: Db, id: number): KeeperResult<PrintMemo> {
       const got = memos.get(db, id);
       if (!got.ok) return got;
       const m = got.value;
       const rows = db
         .prepare(
-          `SELECT l.lr_no AS lrNo, l.consignor_name AS consignor, l.consignee_name AS consignee, s.name AS destination, l.particular, l.qty,
-             l.topay_paise AS toPay, l.paid_paise AS paid
-           FROM lrs l JOIN stations s ON s.id = l.to_station_id WHERE l.memo_id = ? ORDER BY l.lr_year, l.lr_no LIMIT ${MAX_MEMO_LRS}`,
+          `SELECT l.lr_no AS lrNo, l.consignor_name AS consignor, l.consignee_name AS consignee, l.particular, l.qty,
+             l.topay_paise AS toPay, l.paid_paise AS paid, l.wasuli_paise AS wasuli
+           FROM lrs l WHERE l.memo_id = ? ORDER BY l.lr_year, l.lr_no LIMIT ${MAX_MEMO_LRS}`,
         )
-        .all(id) as { lrNo: number; consignor: string; consignee: string; destination: string; particular: string; qty: number; toPay: number; paid: number }[];
+        .all(id) as { lrNo: number; consignor: string; consignee: string; particular: string; qty: number; toPay: number; paid: number; wasuli: number }[];
+      // The settlement block comes from the memo's FROZEN totals and the rate and % it was saved with; a cancelled memo, and one saved before 4.6, print none.
+      const st = m.status === 'saved' ? m.settlement : null;
       return ok({
         company: company(db),
         challanNo: m.challanNo,
@@ -156,8 +159,22 @@ export function makePrint(
         loadingHamali: inr(m.loadingHamaliPaise),
         cancelled: m.status === 'cancelled',
         differs: m.differs,
-        rows: rows.map((r, i) => ({ ...r, sr: i + 1, toPay: dash(r.toPay), paid: dash(r.paid) })),
-        totals: { lrs: m.frozen.lrs, qty: m.frozen.qty, toPay: inr(m.frozen.toPayPaise), paid: inr(m.frozen.paidPaise) },
+        rows: rows.map((r) => ({ ...r, toPay: dash(r.toPay), paid: dash(r.paid), wasuli: dash(r.wasuli) })),
+        totals: { lrs: m.frozen.lrs, qty: m.frozen.qty, toPay: inr(m.frozen.toPayPaise), paid: inr(m.frozen.paidPaise), wasuli: inr(m.frozen.wasuliPaise) },
+        settlement: st && {
+          articles: st.articles,
+          paid: inr(st.paidPaise),
+          toPay: inr(st.toPayPaise),
+          hamaliLess: inr(st.hamaliLessPaise),
+          hamaliHow: `${st.articles} × ${inr(st.ratePaise)}`,
+          total1: signedInr(st.total1Paise),
+          commissionLess: inr(st.commissionLessPaise),
+          commissionHow: `${percentText(st.commissionBp)} %`,
+          total2: signedInr(st.total2Paise),
+          wasuli: inr(st.wasuliPaise),
+          net: signedInr(st.netPaise),
+          round: signedRupees(st.roundRupees),
+        },
       });
     },
 
@@ -285,8 +302,11 @@ export function makePrint(
           if (!all.ok) return all;
           const t = all.value.totals;
           return build(
-            all.value.rows.map((r) => [display(r.date), `${r.challanNo}${r.differs ? '*' : ''}`, r.truck, r.toStation, n(r.lrs), dash(r.toPayPaise), dash(r.paidPaise), dash(r.truckHirePaise), dash(r.loadingHamaliPaise)]),
-            [n(t.memos), n(t.lrs), inr(t.toPayPaise), inr(t.paidPaise), inr(t.truckHirePaise), inr(t.loadingHamaliPaise)],
+            all.value.rows.map((r) => [
+              display(r.date), `${r.challanNo}${r.differs ? '*' : ''}`, r.truck, r.toStation, n(r.lrs), dash(r.toPayPaise), dash(r.paidPaise), dash(r.wasuliPaise),
+              r.roundRupees === null ? '–' : signedRupees(r.roundRupees), dash(r.truckHirePaise), dash(r.loadingHamaliPaise),
+            ]),
+            [n(t.memos), n(t.lrs), inr(t.toPayPaise), inr(t.paidPaise), inr(t.wasuliPaise), signedRupees(t.roundRupees), inr(t.truckHirePaise), inr(t.loadingHamaliPaise)],
             all.value.rows.some((r) => r.differs),
           );
         }

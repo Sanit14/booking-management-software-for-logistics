@@ -12,14 +12,18 @@ export interface PageSpec {
   landscape: boolean;
 }
 export const A4: PageSpec = { size: 'A4', landscape: false };
+export const A4_LANDSCAPE: PageSpec = { size: 'A4', landscape: true };
 export const A5_LANDSCAPE: PageSpec = { size: 'A5', landscape: true };
+/** The sheet in mm, portrait: width, height. A landscape page turns it round. */
+const SHEET: Record<PageSpec['size'], [number, number]> = { A4: [210, 297], A5: [148, 210] };
 
 /** Text for an HTML body or attribute. Every name and number that is not ours goes through this. */
 export const esc = (v: string | number): string =>
   String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 const css = (spec: PageSpec): string => {
-  const [w, h] = spec.landscape ? [210, 148] : [210, 297];
+  const [portraitW, portraitH] = SHEET[spec.size];
+  const [w, h] = spec.landscape ? [portraitH, portraitW] : [portraitW, portraitH];
   return `
 @page{size:${spec.size} ${spec.landscape ? 'landscape' : 'portrait'};margin:0}
 *{box-sizing:border-box;margin:0;padding:0}

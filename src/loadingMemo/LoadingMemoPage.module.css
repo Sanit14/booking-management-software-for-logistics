@@ -275,6 +275,16 @@
 }
 
 /* ---- a saved memo, read-only (in a dialog) ---- */
+.viewGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 12px;
+  align-items: start;
+  margin: 0 0 8px;
+}
+.viewMain {
+  min-width: 0;
+}
 .viewTop {
   display: flex;
   align-items: center;

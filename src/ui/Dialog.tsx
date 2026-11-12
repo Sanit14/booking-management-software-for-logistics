@@ -19,6 +19,8 @@ interface Props {
   danger?: boolean;
   /** Wide enough for a whole form (Quick LR). */
   wide?: boolean;
+  /** No Cancel / Confirm row: the children carry their own buttons ("Details of report"). Esc still goes to onCancel. */
+  noActions?: boolean;
   children?: ReactNode;
 }
 
@@ -27,7 +29,7 @@ interface Props {
  * back to whatever opened it when it closes. Esc is routed to onCancel. Children are mounted only while open,
  * so their state starts fresh each time. Mark the control that should get focus first with data-autofocus.
  */
-export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel, cancelLabel, hideCancel, danger, wide, children }: Props) {
+export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel, cancelLabel, hideCancel, danger, wide, noActions, children }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -69,6 +71,7 @@ export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel,
             {title}
           </h2>
           <div className={styles.body}>{children}</div>
+          {!noActions && (
           <div className={styles.actions}>
             {!hideCancel && (
               <Button variant="outline" small onClick={onCancel} data-autofocus={danger || !onConfirm ? '' : undefined}>
@@ -81,6 +84,7 @@ export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel,
               </Button>
             )}
           </div>
+          )}
         </>
       )}
     </dialog>

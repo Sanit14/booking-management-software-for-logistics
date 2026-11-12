@@ -24,7 +24,7 @@ function memoOf(s: Set, count: number, over: Parameters<typeof create>[2] = {}, 
 /** Everything a change may write, as one string, to prove a refusal wrote nothing. */
 const footprint = (s: Set) =>
   JSON.stringify({
-    memos: s.db.prepare('SELECT id, status, version, memo_date, truck_id, driver_id, from_station_id, to_station_id, truck_hire_paise, loading_hamali_paise, frozen_lr_count, frozen_qty, frozen_topay_paise, frozen_paid_paise, frozen_charges_paise, frozen_stax_paise FROM memos ORDER BY id').all(),
+    memos: s.db.prepare('SELECT id, status, version, memo_date, truck_id, driver_id, from_station_id, to_station_id, truck_hire_paise, loading_hamali_paise, frozen_lr_count, frozen_qty, frozen_topay_paise, frozen_paid_paise, frozen_charges_paise, frozen_stax_paise, frozen_wasuli_paise, hamali_rate_paise, commission_bp, frozen_net_paise, round_rupees FROM memos ORDER BY id').all(),
     audit: n(s, 'audit_log'),
     counters: s.db.prepare('SELECT name, year, last FROM counters ORDER BY name, year').all(),
     lrs: s.db.prepare('SELECT id, status, memo_id, version FROM lrs ORDER BY id').all(),
@@ -377,8 +377,10 @@ test('recalculate: needs the Admin PIN, copies the totals now onto the memo, cle
   assert.equal(got(s.memos.list(s.db, none, null)).rows[0].differs, false);
   const [audit] = lastAudit(s);
   assert.deepEqual([audit.action, audit.seat], ['memos.recalculate', 'seat-2']);
-  assert.deepEqual(JSON.parse(audit.before ?? ''), d0.frozen);
-  assert.deepEqual(JSON.parse(audit.after ?? ''), d.now);
+  // the totals and, as the memo has a rate and a %, the net and the round figure they lead to (the same rate and %)
+  const steps = (m: MemoDetail) => ({ netPaise: m.settlement?.netPaise, roundRupees: m.settlement?.roundRupees });
+  assert.deepEqual(JSON.parse(audit.before ?? ''), { ...d0.frozen, ...steps(d0) });
+  assert.deepEqual(JSON.parse(audit.after ?? ''), { ...d.now, ...steps(r.memo) });
   // nothing differs now: a second Recalculate writes nothing
   const again = footprint(s);
   assert.equal(got(s.memos.recalculate(s.db, 'seat-1', m.id, r.memo.version, ADMIN)).changed, false);

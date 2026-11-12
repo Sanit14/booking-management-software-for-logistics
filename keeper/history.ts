@@ -11,6 +11,7 @@ import { classify, conditionsFor, utcBounds } from './historyRules';
 import { lrEntry } from './lrs';
 import { localDate } from './lrRules';
 import { memoEntry } from './memos';
+import { percentText } from './memoSettlement';
 
 const PAGE = 100;
 
@@ -92,8 +93,12 @@ const UNIT: Record<string, HistoryUnit> = {
   toPay: 'paise', paid: 'paise', hamali: 'paise', wasuli: 'paise', truckHire: 'paise', loadingHamali: 'paise', amount: 'paise', date: 'date',
   // Only the rows saved before 4.5 name these: the charges and service tax of an LR and of a memo recalculation, and the LR defaults.
   godownBhada: 'paise', godownInsurance: 'paise', deliveryCharges: 'paise', charges: 'paise', stax: 'paise', staxPercent: 'percent', chargeOption: 'option',
+  // The memo settlement (4.6): the rate per article in paise, the round figure in whole rupees; the commission is turned into its % text below.
+  hamaliRate: 'paise', roundFigure: 'rupees',
 };
-const change = (field: string, from: HistoryChange['from'], to: HistoryChange['to']): HistoryChange => (UNIT[field] ? { field, from, to, unit: UNIT[field] } : { field, from, to });
+const percentOf = (v: HistoryChange['from']): HistoryChange['from'] => (typeof v === 'number' ? percentText(v) : v);
+const change = (field: string, from: HistoryChange['from'], to: HistoryChange['to']): HistoryChange =>
+  field === 'commission' ? { field, from: percentOf(from), to: percentOf(to), unit: 'percent' } : UNIT[field] ? { field, from, to, unit: UNIT[field] } : { field, from, to };
 
 const MASTER_RECORD: Record<string, HistoryRecord> = { stations: 'station', firms: 'firm', trucks: 'truck', drivers: 'driver', agents: 'agent' };
 const NAME_COLUMN = { stations: 'name', firms: 'name', agents: 'name', drivers: 'name', trucks: 'number' } as const;
@@ -178,6 +183,8 @@ function describe(db: Db, r: Raw, { nameOf, challanNo, lrOf, lrOfWasuli }: Look)
       f.fromStation = nameOf('stations', after.fromStationId) ?? undefined;
       f.toStation = nameOf('stations', after.toStationId) ?? undefined;
       f.lrCount = Array.isArray(after.lrIds) ? after.lrIds.length : undefined;
+      // A memo saved from 4.6 says the rate, the % and the round figure it was saved with (an older row has none of them).
+      row.changes = (memoEntry(db, { at: r.at, seat: r.seat, action: r.action, before: r.before, after: r.after })?.changes ?? []).map((c) => change(c.field, c.from, c.to));
     } else if (r.action === 'print.memo') {
       f.how = text(after.how) ?? undefined;
     } else {

@@ -43,6 +43,15 @@ th{font-weight:bold}
 .lr .amt th{text-align:right;font-size:10pt}
 .lr .tot td{font-weight:bold;font-size:11pt;border-top:.5mm solid #000}
 .lr .sign{position:absolute;right:10mm;bottom:12mm;width:60mm;border-top:.3mm solid #000;text-align:center;padding-top:1mm}
+
+.set{width:112mm;margin:5mm auto 0;font-size:10pt}
+.set .h{text-align:center;font-weight:bold;font-size:11pt;letter-spacing:.4mm;text-decoration:underline;margin-bottom:2mm}
+.set .r{display:flex;justify-content:space-between;height:5.2mm;line-height:5.2mm;white-space:nowrap}
+.set .rule{border-bottom:.3mm solid #000}
+.set .sub{padding-left:14mm;font-weight:bold}
+.set .bold{font-weight:bold}
+.set .big{font-size:12pt;font-weight:bold;margin-top:1.5mm}
+.set .how{font-weight:normal}
 </style>
 </head>
 <body>
@@ -74,51 +83,95 @@ th{font-weight:bold}
 </div>
 <table>
 <colgroup>
-<col style="width:8mm">
-<col style="width:13mm">
-<col style="width:34mm">
-<col style="width:34mm">
-<col style="width:20mm">
+<col style="width:36mm">
+<col style="width:36mm">
+<col style="width:14mm">
 <col style="width:28mm">
-<col style="width:9mm">
+<col style="width:11mm">
+<col style="width:21mm">
 <col style="width:22mm">
 <col style="width:22mm">
 </colgroup>
 <thead>
 <tr>
-<th>Sr</th>
-<th>LR No.</th>
 <th>Consignor</th>
 <th>Consignee</th>
-<th>Destination</th>
-<th>Particular</th>
-<th class="n">Qty</th>
-<th class="n">To pay (₹)</th>
+<th>LR No</th>
+<th>Particulars</th>
+<th class="n">Pak</th>
 <th class="n">Paid (₹)</th>
+<th class="n">To pay (₹)</th>
+<th class="n">Wasuli (₹)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="n">1</td>
-<td class="n">1200</td>
 <td>Shree Ganesh Traders</td>
 <td>Kale Brothers</td>
-<td>Nagpur</td>
+<td>1200</td>
 <td>Cloth bales</td>
 <td class="n">3</td>
-<td class="n">1,800.00</td>
 <td class="n">–</td>
+<td class="n">1,800.00</td>
+<td class="n">1,200.00</td>
 </tr>
 </tbody>
 </table>
 <div class="tot">
 <span class="l">Total · LRs: 1</span>
-<span>Qty <b>3</b>
-</span>
-<span>To pay (₹) <b>1,23,456.00</b>
+<span>Pak <b>3</b>
 </span>
 <span>Paid (₹) <b>9,87,654.50</b>
 </span>
+<span>To pay (₹) <b>1,23,456.00</b>
+</span>
+<span>Wasuli (₹) <b>4,076.00</b>
+</span>
+</div>
+<div class="set">
+<div class="h">DETAILS OF REPORT</div>
+<div class="r">
+<span>Total articles</span>
+<span>177</span>
+</div>
+<div class="r">
+<span>Paid amount</span>
+<span>220.00</span>
+</div>
+<div class="r">
+<span>To pay amount</span>
+<span>6,953.00</span>
+</div>
+<div class="r rule">
+<span>Hamali less amount <span class="how">(177 × 0.40)</span>
+</span>
+<span>70.80</span>
+</div>
+<div class="r sub">
+<span>Total</span>
+<span>6,882.20</span>
+</div>
+<div class="r rule">
+<span>Commission less amount <span class="how">(10 %)</span>
+</span>
+<span>717.30</span>
+</div>
+<div class="r sub">
+<span>Total</span>
+<span>6,164.90</span>
+</div>
+<div class="r rule">
+<span>Wasuli amount</span>
+<span>4,076.00</span>
+</div>
+<div class="r rule bold">
+<span>Net amount Rs.</span>
+<span>10,240.90</span>
+</div>
+<div class="r big">
+<span>Round figure Rs.</span>
+<span>10,241</span>
+</div>
 </div>
 <div class="foot">Page 1 of 1</div>
 </section>

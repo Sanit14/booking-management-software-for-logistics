@@ -2,22 +2,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_REPORT_PRINT_ROWS, type ReportKind } from '../shared';
 import { strings } from '../src/strings';
-import { LAYOUT, REPORT_FIRST_ROWS, REPORT_NEXT_ROWS, REPORT_TOTALS_ROWS, paginateReport, reportFileName, reportHtml } from './report';
+import { LANDSCAPE_FIRST_ROWS, LANDSCAPE_NEXT_ROWS, LAYOUT, REPORT_FIRST_ROWS, REPORT_NEXT_ROWS, REPORT_TOTALS_ROWS, pageOf, paginateReport, reportFileName, reportHtml } from './report';
 import { matchSnapshot, sampleReport, smallestPt } from './testing';
 
 const KINDS = Object.keys(strings.paper.report.kinds) as ReportKind[];
 const count = (html: string, what: string | RegExp): number => html.split(what).length - 1;
 const sheetsOf = (html: string): string[] => html.split('<section').slice(1);
 
-test('the seven reports are all here, each with a layout whose widths fill the 190 mm between the margins', () => {
+test('the seven reports are all here, each with a layout whose widths fill the width between the margins (190 mm on A4 portrait, 277 mm on A4 landscape)', () => {
   assert.deepEqual([...KINDS].sort(), ['consigneeWise', 'consignorWise', 'dateWise', 'firmWise', 'stationWise', 'truckWise', 'wasuli']);
   for (const kind of KINDS) {
     const { widths, numbers } = LAYOUT[kind];
-    assert.equal(widths.reduce((a, b) => a + b, 0), 190, kind);
+    const landscape = pageOf(kind).landscape;
+    assert.equal(widths.reduce((a, b) => a + b, 0), landscape ? 277 : 190, kind);
     assert.equal(widths.length, strings.paper.report.kinds[kind].columns.length, `${kind}: a width for every column`);
-    assert.ok(widths.length <= 9, `${kind}: A4 portrait holds 9 columns`);
+    assert.ok(widths.length <= (landscape ? 11 : 9), `${kind}: A4 ${landscape ? 'landscape holds 11' : 'portrait holds 9'} columns`);
     assert.ok(numbers.every((i) => i < widths.length));
   }
+});
+
+test('only Truck-wise (11 columns) prints sideways; the other six reports stay on A4 portrait', () => {
+  assert.deepEqual(KINDS.filter((k) => pageOf(k).landscape), ['truckWise']);
+  for (const kind of KINDS) assert.equal(pageOf(kind).size, 'A4', kind);
 });
 
 test('a sample report has a cell for every column and a total for every label of its totals strip', () => {
@@ -36,6 +42,19 @@ test('paginate: no rows is one sheet; one row over the first sheet goes to a sec
   assert.deepEqual(paginateReport(over), [over - 1, 1]);
 });
 
+test('paginate: Truck-wise has its own, smaller capacities (a sideways sheet is shorter); the totals never sit alone there either', () => {
+  for (let n = 0; n <= MAX_REPORT_PRINT_ROWS; n++) {
+    const sizes = paginateReport(n, 'truckWise');
+    assert.equal(sizes.reduce((a, b) => a + b, 0), n, `rows ${n}`);
+    sizes.forEach((size, i) => {
+      const capacity = i === 0 ? LANDSCAPE_FIRST_ROWS : LANDSCAPE_NEXT_ROWS;
+      assert.ok(size <= capacity - (i === sizes.length - 1 ? REPORT_TOTALS_ROWS : 0), `rows ${n}, sheet ${i + 1} has ${size}`);
+      if (n > 0) assert.ok(size >= 1, `rows ${n}, sheet ${i + 1} is empty`);
+    });
+  }
+  assert.ok(LANDSCAPE_FIRST_ROWS < REPORT_FIRST_ROWS && LANDSCAPE_NEXT_ROWS < REPORT_NEXT_ROWS);
+});
+
 test('paginate: for any number of rows up to the print limit the sizes add up and every sheet is within its capacity', () => {
   for (let n = 0; n <= MAX_REPORT_PRINT_ROWS; n++) {
     const sizes = paginateReport(n);
@@ -52,7 +71,7 @@ test('reportHtml: 60 rows are two sheets, each with its own header row and "Page
   for (const kind of KINDS) {
     const html = reportHtml(sampleReport(kind, 60));
     const sheets = sheetsOf(html);
-    assert.equal(sheets.length, paginateReport(60).length, kind);
+    assert.equal(sheets.length, paginateReport(60, kind).length, kind);
     assert.ok(sheets.length >= 2, `${kind}: 60 rows need two sheets`);
     assert.equal(count(html, '<thead>'), sheets.length, `${kind}: the header row is repeated`);
     const first = strings.paper.report.kinds[kind].columns[0];
@@ -106,10 +125,11 @@ test('reportHtml: names, company lines and filters are escaped, so nothing typed
   assert.ok(!/<script|<img/i.test(html));
 });
 
-test('reportHtml: black and white, A4 portrait with no margin of its own, no @media print, nothing under 9 pt', () => {
+test('reportHtml: black and white, A4 (Truck-wise sideways) with no margin of its own, no @media print, nothing under 9 pt', () => {
   for (const kind of KINDS) {
     const html = reportHtml(sampleReport(kind, 2));
-    assert.match(html, /@page\{size:A4 portrait;margin:0\}/);
+    assert.match(html, kind === 'truckWise' ? /@page\{size:A4 landscape;margin:0\}/ : /@page\{size:A4 portrait;margin:0\}/);
+    assert.match(html, kind === 'truckWise' ? /\.page\{[^}]*width:297mm;height:209mm/ : /\.page\{[^}]*width:210mm;height:296mm/);
     assert.ok(!html.includes('@media'));
     assert.ok(!/#[0-9a-f]{3,6}\b/i.test(html.replace(/#fff\b|#000\b/gi, '')), 'only black and white');
     assert.ok(smallestPt(html) >= 9);

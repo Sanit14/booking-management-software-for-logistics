@@ -691,6 +691,7 @@ function main(): void {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
       const date = typeof body.date === 'string' ? body.date : null;
       const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+      const typed = (v: unknown): string => (typeof v === 'string' ? v : ''); // a typed box; the keeper's rules refuse an empty or wrong one by name
       const pin = typeof body.systemPin === 'string' ? body.systemPin : '';
       const adminPin = typeof body.adminPin === 'string' ? body.adminPin : '';
       let r: KeeperResult<unknown>;
@@ -699,6 +700,7 @@ function main(): void {
         else if (url === '/memos/by-date') r = memos.byDate(db, date);
         else if (url === '/memos/pending') r = memos.pending(db, asPendingFilters(body.filters), asCursor(body.cursor));
         else if (url === '/memos/totals') r = memos.totals(db, asIds(body.ids));
+        else if (url === '/memos/settlement') r = memos.settlement(db, asIds(body.ids), typed(body.hamaliRate), typed(body.commission), whole(body.memoId) ? body.memoId : null);
         else if (url === '/memos/list') r = memos.list(db, asSavedFilters(body.filters), asCursor(body.cursor));
         else if (url === '/memos/create') {
           const input = asMemoInput(body.input);
@@ -717,7 +719,8 @@ function main(): void {
           const input = asHeaderInput(body.input);
           if (!input) return send(res, 400, { error: 'input required' });
           r = memos.editHeader(db, seat, body.id, body.version, input, pin);
-        } else if (url === '/memos/recalculate') r = memos.recalculate(db, seat, body.id, body.version, adminPin);
+        } else if (url === '/memos/edit-settlement') r = memos.editSettlement(db, seat, body.id, body.version, typed(body.hamaliRate), typed(body.commission), pin);
+        else if (url === '/memos/recalculate') r = memos.recalculate(db, seat, body.id, body.version, adminPin);
         else r = memos.cancel(db, seat, body.id, body.version, typeof body.reason === 'string' ? body.reason : '', adminPin);
       } catch (e) {
         log('memos-failed', { url, seat, error: msg(e) });
@@ -730,10 +733,10 @@ function main(): void {
           log('memo-saved', { seat, id: done.id, no: done.challanNo, lrs: done.lrCount });
           events.publish(['memos', 'lrs'], [done.id]);
         }
-      } else if (r.ok && (url === '/memos/edit' || url === '/memos/recalculate')) {
+      } else if (r.ok && (url === '/memos/edit' || url === '/memos/edit-settlement' || url === '/memos/recalculate')) {
         const done = r.value as MemoChanged;
         if (done.changed) {
-          log(url === '/memos/edit' ? 'memo-edited' : 'memo-recalculated', { seat, id: done.memo.id, no: done.memo.challanNo });
+          log(url === '/memos/edit' ? 'memo-edited' : url === '/memos/edit-settlement' ? 'memo-settlement-edited' : 'memo-recalculated', { seat, id: done.memo.id, no: done.memo.challanNo });
           events.publish(['memos'], [done.memo.id]);
         }
       } else if (r.ok && (url === '/memos/remove-lrs' || url === '/memos/add-lrs' || url === '/memos/move-lrs' || url === '/memos/cancel')) {

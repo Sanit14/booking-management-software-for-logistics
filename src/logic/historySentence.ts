@@ -3,7 +3,7 @@
 import type { HistoryChange, HistoryRow } from '../../shared';
 import type { SayCtx, strings } from '../strings';
 import type { Jump } from './searchResults';
-import { formatPaise } from './rupees';
+import { formatPaise, formatWhole } from './rupees';
 
 type Words = typeof strings.history;
 const rupees = (paise: number) => `₹${formatPaise(paise)}`;
@@ -27,6 +27,8 @@ export function sentence(row: HistoryRow, t: Words): string {
     f: { ...row.facts, mode: row.facts.mode === undefined ? undefined : (t.modes[row.facts.mode] ?? row.facts.mode) },
     changes: row.changes,
     rupees,
+    amount: formatPaise,
+    whole: formatWhole,
     nos: (list) => (list && list.length > 0 ? `LR ${list.join(', ')}` : 'LRs'),
     date: isoToDisplay,
   };
@@ -44,6 +46,8 @@ export function changeValue(c: HistoryChange, side: 'from' | 'to', t: Words): st
       return isoToDisplay(String(v));
     case 'percent':
       return `${v}%`;
+    case 'rupees':
+      return `${Number(v) < 0 ? '-' : ''}₹${formatPaise(Math.abs(Number(v)) * 100)}`;
     case 'option':
       return t.chargeOptions[String(v)] ?? String(v);
     default:

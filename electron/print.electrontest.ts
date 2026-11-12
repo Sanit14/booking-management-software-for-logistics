@@ -1,6 +1,6 @@
 // Runs as a real Electron app (not as Node) via scripts/test-electron.cjs, as part of `npm run check`: the real print engine turns
 // real pages into real PDFs. The sheet count of each PDF must be the number of sheets the template made (a row that did not fit
-// would spill onto an extra sheet), and the paper size must be A4 portrait for a memo and A5 landscape for an LR. Not shipped.
+// would spill onto an extra sheet), and the paper size must be A4 portrait for a memo, A4 landscape for the Truck-wise report and A5 landscape for an LR. Not shipped.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -10,10 +10,10 @@ import path from 'node:path';
 import { BrowserWindow, app } from 'electron';
 import { MAX_REPORT_PRINT_ROWS, MAX_STATEMENT_PRINT_ROWS, type PrintReport, type ReportKind } from '../shared';
 import { lrHtml } from '../print/lr';
-import { FIRST_ROWS, NEXT_ROWS, TOTALS_ROWS, memoHtml, paginate } from '../print/memo';
-import { REPORT_FIRST_ROWS, REPORT_NEXT_ROWS, REPORT_TOTALS_ROWS, paginateReport, reportHtml } from '../print/report';
+import { FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS, TOTALS_ROWS, memoHtml, paginate } from '../print/memo';
+import { LANDSCAPE_FIRST_ROWS, LANDSCAPE_NEXT_ROWS, REPORT_FIRST_ROWS, REPORT_NEXT_ROWS, REPORT_TOTALS_ROWS, pageOf, paginateReport, reportHtml } from '../print/report';
 import { STATEMENT_FIRST_ROWS, STATEMENT_NEXT_ROWS, STATEMENT_TOTALS_ROWS, paginateStatement, statementHtml } from '../print/statement';
-import { A4, A5_LANDSCAPE, type PageSpec } from '../print/template';
+import { A4, A4_LANDSCAPE, A5_LANDSCAPE, type PageSpec } from '../print/template';
 import { sampleLr, sampleMemo, sampleReport, sampleStatement } from '../print/testing';
 import { renderPdf, withPage } from './print';
 
@@ -103,6 +103,28 @@ async function cutReportCells(html: string, texts: number[]): Promise<string[]> 
     win.destroy();
   }
 }
+/**
+ * The cells of a loading memo that were cut, and the lines of "Details of report" that run past their box. In a row only the three text columns
+ * (Consignor, Consignee, Particulars) may end in "…"; the LR number, Pak, Paid, To pay and Wasuli must show whole, and so must every heading and every figure of the block.
+ */
+async function cutMemoCells(html: string): Promise<string[]> {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    return (await win.webContents.executeJavaScript(`(() => {
+      const cut = (e) => e.scrollWidth > e.clientWidth + 0.5;
+      const heads = [...document.querySelectorAll('.memo thead th')].filter(cut).map((th) => 'heading:' + th.textContent);
+      const cells = [...document.querySelectorAll('.memo tbody tr')]
+        .flatMap((tr) => [...tr.children].map((td, i) => ({ td, i })))
+        .filter(({ td, i }) => ![0, 1, 3].includes(i) && !td.classList.contains('none') && cut(td))
+        .map(({ td, i }) => i + ':' + td.textContent);
+      const lines = [...document.querySelectorAll('.set .r')].filter(cut).map((r) => 'block:' + r.textContent);
+      return [...heads, ...cells, ...lines];
+    })()`)) as string[];
+  } finally {
+    win.destroy();
+  }
+}
 const noOverrun = async (name: string, html: string) => {
   const mm = await overrun(html);
   console.log(`# ${name}: ${mm <= 0 ? `${(-mm).toFixed(1)} mm to spare` : `${mm.toFixed(1)} mm too low`}`);
@@ -149,19 +171,41 @@ void app.whenReady().then(async () => {
     assert.equal(sheets(pdf), 2);
   });
 
-  // The edges of every sheet: a full sheet must not spill onto one more, one row over must start the next.
-  for (const n of [0, FIRST_ROWS - TOTALS_ROWS, FIRST_ROWS - TOTALS_ROWS + 1, FIRST_ROWS, FIRST_ROWS + 1, FIRST_ROWS + NEXT_ROWS - TOTALS_ROWS, FIRST_ROWS + NEXT_ROWS - TOTALS_ROWS + 1, FIRST_ROWS + NEXT_ROWS, FIRST_ROWS + NEXT_ROWS + 1, 150, 500]) {
-    await check(`a memo of ${n} LRs: the PDF has the ${paginate(n).length} sheet(s) the template made`, async () => {
-      const html = memoHtml(sampleMemo(n));
-      const pdf = await pdfOf(`memo-${n}`, html, A4);
-      assert.equal(sheets(pdf), paginate(n).length);
-      await noOverrun(`memo-${n}`, html);
-    });
+  // The edges of every sheet: a full sheet must not spill onto one more, one row over must start the next. A memo with "Details of report" keeps SETTLEMENT_ROWS
+  // free on its last sheet; one without (saved before 4.6, or cancelled) only the totals line.
+  const memoEdges = (last: number) => [0, FIRST_ROWS - last, FIRST_ROWS - last + 1, FIRST_ROWS, FIRST_ROWS + 1, FIRST_ROWS + NEXT_ROWS - last, FIRST_ROWS + NEXT_ROWS - last + 1, FIRST_ROWS + NEXT_ROWS, FIRST_ROWS + NEXT_ROWS + 1, 150, 500];
+  for (const [what, last, plain] of [['with Details of report', SETTLEMENT_ROWS, false], ['without it', TOTALS_ROWS, true]] as const) {
+    for (const n of memoEdges(last)) {
+      const sizes = paginate(n, FIRST_ROWS, NEXT_ROWS, last);
+      await check(`a memo of ${n} LRs ${what}: the PDF has the ${sizes.length} sheet(s) the template made, and nothing runs into the footer`, async () => {
+        const html = memoHtml(sampleMemo(n, plain ? { settlement: null } : {}));
+        const pdf = await pdfOf(`memo-${n}${plain ? '-plain' : ''}`, html, A4);
+        assert.equal(sheets(pdf), sizes.length);
+        await noOverrun(`memo-${n}${plain ? '-plain' : ''}`, html);
+      });
+    }
   }
 
+  await check('a memo shows a 6-digit LR number, a 5-digit Pak and amounts up to 9,99,999.99 whole, and so does every line of Details of report (a negative net too)', async () => {
+    const base = sampleMemo(12);
+    const wide = {
+      ...base,
+      rows: base.rows.map((r) => ({ ...r, lrNo: 109999, qty: 99999, paid: '9,99,999.99', toPay: '9,99,999.99', wasuli: '9,99,999.99' })),
+      totals: { lrs: 12, qty: 99999, toPay: '12,34,567.89', paid: '12,34,567.89', wasuli: '12,34,567.89' },
+      settlement: {
+        ...(base.settlement as NonNullable<typeof base.settlement>), articles: 999999, paid: '12,34,567.89', toPay: '12,34,567.89', hamaliLess: '12,34,567.89', total1: '-12,34,567.89',
+        commissionLess: '12,34,567.89', total2: '-12,34,567.89', wasuli: '12,34,567.89', net: '-12,34,567.89', round: '-12,34,568',
+      },
+    };
+    assert.deepEqual(await cutMemoCells(memoHtml(wide)), []);
+    // the check can see a cut: an 8 mm Pak column cuts a 5-digit quantity
+    const html = memoHtml(wide).replace('<col style="width:11mm">', '<col style="width:8mm">');
+    assert.ok((await cutMemoCells(html)).length > 0, 'an 8 mm Pak column is cut');
+  });
+
   await check('a cancelled memo with no rows is one sheet; a cancelled 60-LR memo keeps its two', async () => {
-    assert.equal(sheets(await pdfOf('memo-cancelled-0', memoHtml(sampleMemo(0, { cancelled: true, rows: [] })), A4)), 1);
-    assert.equal(sheets(await pdfOf('memo-cancelled-60', memoHtml(sampleMemo(60, { cancelled: true, differs: true })), A4)), 2);
+    assert.equal(sheets(await pdfOf('memo-cancelled-0', memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null })), A4)), 1);
+    assert.equal(sheets(await pdfOf('memo-cancelled-60', memoHtml(sampleMemo(60, { cancelled: true, differs: true, settlement: null })), A4)), 2);
   });
 
   await check('an LR is one A5 landscape sheet; a cancelled paid LR too', async () => {
@@ -179,10 +223,10 @@ void app.whenReady().then(async () => {
   // Long lines in the header: every one is cut to one line, so the sheets still fit (the company block, driver and stations, the continued-sheet title).
   const long = 'X'.repeat(100);
   const worst = { company: { name: long, address: long.toUpperCase(), phone: long, gstin: long }, driver: long, from: long, to: long, truck: long };
-  for (const n of [FIRST_ROWS - TOTALS_ROWS, FIRST_ROWS + 1, FIRST_ROWS + NEXT_ROWS + 1]) {
+  for (const n of [FIRST_ROWS - SETTLEMENT_ROWS, FIRST_ROWS + 1, FIRST_ROWS + NEXT_ROWS + 1]) {
     await check(`a memo of ${n} LRs with 100-character company, driver and station lines still fits its sheets`, async () => {
       const html = memoHtml(sampleMemo(n, { ...worst, differs: true }));
-      assert.equal(sheets(await pdfOf(`memo-long-${n}`, html, A4)), paginate(n).length);
+      assert.equal(sheets(await pdfOf(`memo-long-${n}`, html, A4)), paginate(n, FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS).length);
       await noOverrun(`memo-long-${n}`, html);
     });
   }
@@ -238,7 +282,7 @@ void app.whenReady().then(async () => {
     stationWise: ['Station', '99999', '9999999', MONEY, MONEY, MONEY],
     consignorWise: ['Name', 'Station', '99999', '9999999', MONEY, MONEY, MONEY],
     consigneeWise: ['Name', 'Station', '99999', '9999999', MONEY, MONEY, MONEY],
-    truckWise: ['31-12-2026', '99999*', 'Truck', 'Station', '999', '99,99,999.99', '99,99,999.99', '99,99,999.99', '99,99,999.99'],
+    truckWise: ['31-12-2026', '99999*', 'Truck', 'Station', '999', MONEY, MONEY, MONEY, '-12,34,567', MONEY, MONEY],
     firmWise: ['Firm', '99999', '99999', '9999999', MONEY, MONEY],
     wasuli: ['Agent', '99999', MONEY, '99999', MONEY],
   };
@@ -255,23 +299,24 @@ void app.whenReady().then(async () => {
   };
   const KINDS = Object.keys(TEXT_COLUMNS) as ReportKind[];
   for (const kind of KINDS) {
-    await check(`${kind}: the widest figures, a 5-digit LR count and every heading show whole; a 1-row report is one A4 portrait sheet; 60 rows are two`, async () => {
+    const spec = pageOf(kind);
+    const firstRows = spec.landscape ? LANDSCAPE_FIRST_ROWS : REPORT_FIRST_ROWS;
+    await check(`${kind}: the widest figures, a 5-digit LR count and every heading show whole; a 1-row report is one A4 ${spec.landscape ? 'landscape' : 'portrait'} sheet; 60 rows are ${paginateReport(60, kind).length}`, async () => {
       const wide = sampleReport(kind, 12);
       assert.deepEqual(await cutReportCells(reportHtml({ ...wide, rows: wide.rows.map(() => WIDEST[kind]) }), TEXT_COLUMNS[kind]), []);
       const one = reportHtml(sampleReport(kind, 1));
-      const pdf = await pdfOf(`report-${kind}-1`, one, A4);
+      const pdf = await pdfOf(`report-${kind}-1`, one, spec);
       assert.equal(sheets(pdf), 1);
       const [w, h] = size(pdf);
-      near(w, 595);
-      near(h, 842);
+      near(w, spec.landscape ? 842 : 595);
+      near(h, spec.landscape ? 595 : 842);
       await noOverrun(`report-${kind}-1`, one);
-      assert.equal(paginateReport(60).length, 2);
-      assert.equal(sheets(await pdfOf(`report-${kind}-60`, reportHtml(sampleReport(kind, 60)), A4)), 2);
+      assert.equal(sheets(await pdfOf(`report-${kind}-60`, reportHtml(sampleReport(kind, 60)), spec)), paginateReport(60, kind).length);
     });
     await check(`${kind}: a full sheet with its totals (the longest lines) stays one sheet, one row more starts the next`, async () => {
-      for (const n of [REPORT_FIRST_ROWS - REPORT_TOTALS_ROWS, REPORT_FIRST_ROWS - REPORT_TOTALS_ROWS + 1]) {
+      for (const n of [firstRows - REPORT_TOTALS_ROWS, firstRows - REPORT_TOTALS_ROWS + 1]) {
         const html = reportHtml(reportWorst(kind, n));
-        assert.equal(sheets(await pdfOf(`report-${kind}-${n}`, html, A4)), paginateReport(n).length);
+        assert.equal(sheets(await pdfOf(`report-${kind}-${n}`, html, spec)), paginateReport(n, kind).length);
         await noOverrun(`report-${kind}-${n}`, html);
       }
     });
@@ -281,12 +326,22 @@ void app.whenReady().then(async () => {
     const html = reportHtml(sampleReport('dateWise', 3)).replace('<col style="width:24mm">', '<col style="width:12mm">');
     assert.ok((await cutReportCells(html, [])).length > 0, 'a 12 mm Date column is cut');
   });
-  const R = { first: REPORT_FIRST_ROWS, next: REPORT_NEXT_ROWS, totals: REPORT_TOTALS_ROWS };
+  // Truck-wise prints sideways (11 columns): its own capacities, the same edges.
+  const R = { first: LANDSCAPE_FIRST_ROWS, next: LANDSCAPE_NEXT_ROWS, totals: REPORT_TOTALS_ROWS };
   for (const n of [0, R.first - R.totals, R.first - R.totals + 1, R.first, R.first + 1, R.first + R.next - R.totals, R.first + R.next - R.totals + 1, R.first + R.next, R.first + R.next + 1, 150, MAX_REPORT_PRINT_ROWS]) {
-    await check(`a Truck-wise report of ${n} rows (longest lines, footnote): the PDF has the ${paginateReport(n).length} sheet(s) the template made`, async () => {
+    await check(`a Truck-wise report of ${n} rows (longest lines, footnote): the PDF has the ${paginateReport(n, 'truckWise').length} A4 landscape sheet(s) the template made`, async () => {
       const html = reportHtml(reportWorst('truckWise', n));
-      assert.equal(sheets(await pdfOf(`report-truckWise-${n}`, html, A4)), paginateReport(n).length);
+      assert.equal(sheets(await pdfOf(`report-truckWise-${n}`, html, A4_LANDSCAPE)), paginateReport(n, 'truckWise').length);
       await noOverrun(`report-truckWise-${n}`, html);
+    });
+  }
+  // The portrait reports keep their own edges.
+  const P = { first: REPORT_FIRST_ROWS, next: REPORT_NEXT_ROWS, totals: REPORT_TOTALS_ROWS };
+  for (const n of [P.first - P.totals + 1, P.first + P.next - P.totals + 1]) {
+    await check(`a Date-wise report of ${n} rows is the ${paginateReport(n).length} A4 portrait sheet(s) the template made`, async () => {
+      const html = reportHtml(reportWorst('dateWise', n));
+      assert.equal(sheets(await pdfOf(`report-dateWise-${n}`, html, A4)), paginateReport(n).length);
+      await noOverrun(`report-dateWise-${n}`, html);
     });
   }
 

@@ -1,7 +1,9 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import type { KeeperResult, MastersAll, MemoDetail, MemoField, MemoHeaderInput, MemoListRow, MemoLrRow, MemoTaken, MemoTotals } from '../../shared';
 import { isoToDisplay } from '../logic/lrOpen';
+import { percentText, settlementRefusal } from '../logic/memoDetails';
 import type { Box, Ticks } from '../logic/memoPick';
+import { formatFixed } from '../logic/rupees';
 import { toggle } from '../logic/memoPick';
 import { matchKey } from '../logic/typeAhead';
 import { strings } from '../strings';
@@ -16,13 +18,17 @@ import TypeAhead, { type Option } from '../ui/TypeAhead';
 import { useKeeperData } from '../useKeeperData';
 import { usePrint } from '../usePrint';
 import { lrColumns, rupees } from './columns';
+import DetailsWindow from './DetailsWindow';
 import styles from './LoadingMemoPage.module.css';
 import MemoHistory from './MemoHistory';
 import PendingPicker from './PendingPicker';
+import SettlementCard from './SettlementCard';
 import TakenDialog from './TakenDialog';
 
 const t = strings.memo;
-type Step = null | 'edit' | 'editPin' | 'removePin' | 'move' | 'movePin' | 'add' | 'addPin' | 'recalculatePin' | 'reason' | 'cancelPin';
+type Step = null | 'edit' | 'editPin' | 'rate' | 'ratePin' | 'removePin' | 'move' | 'movePin' | 'add' | 'addPin' | 'recalculatePin' | 'reason' | 'cancelPin';
+/** "Edit rate / commission" works from the frozen totals, not from ticked LRs: the window is given no LR ids. */
+const NO_IDS: number[] = [];
 type Fail = Extract<KeeperResult<unknown>, { ok: false }>;
 
 /** The header boxes of the edit dialog. */
@@ -67,6 +73,9 @@ function Totals({ v }: { v: MemoTotals }) {
       <span>
         {t.frozen.hamali} <strong>{rupees(v.hamaliPaise)}</strong>
       </span>
+      <span>
+        {t.frozen.wasuli} <strong>{rupees(v.wasuliPaise)}</strong>
+      </span>
     </>
   );
 }
@@ -99,6 +108,7 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
   const [reasonError, setReasonError] = useState<string>();
   const [taken, setTaken] = useState<MemoTaken[] | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [rateDraft, setRateDraft] = useState<{ rate: string; commission: string; print: boolean } | null>(null); // typed in the window, waiting for the System PIN
 
   // The ticks that are still LRs of this memo (another seat may have taken one off).
   const onMemo = useMemo(() => new Set((memo?.lrs ?? []).map((l) => l.id)), [memo?.lrs]);
@@ -125,6 +135,7 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
     setErrors({});
     setTargetError(undefined);
     setReasonError(undefined);
+    setRateDraft(null);
   };
   // A refusal that is not a wrong PIN ends the step; a stale one says so (the memo on screen follows its own event).
   const refused = (r: Fail) => {
@@ -149,6 +160,12 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
       for (const [k, why] of Object.entries(r.memoFields ?? {})) fields[k as MemoField] = t.fieldError[why];
       setErrors(fields);
       setStep('edit');
+      return true;
+    }
+    if (r.code === 'memo-invalid' && step === 'ratePin') {
+      // the keeper found something in the rate or the % that the window did not: back to the window, whose figures now say what
+      toast.error(settlementRefusal(r.memoFields));
+      setStep('rate');
       return true;
     }
     refused(r);
@@ -190,6 +207,18 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
       (r) => (r.changed ? toast.success(t.edited(memo.challanNo)) : toast.info(t.editedNothing)),
     );
 
+  // ---- Edit rate / commission: the window, then the System PIN ----
+  const rateStart = { rate: memo.settlement ? formatFixed(memo.settlement.ratePaise) : '', commission: memo.settlement ? percentText(memo.settlement.commissionBp) : '' };
+  const editRate = async (pin: string) =>
+    attempt(
+      pin,
+      (p) => window.bm.keeper.memos.editSettlement(memo.id, memo.version, (rateDraft as NonNullable<typeof rateDraft>).rate, (rateDraft as NonNullable<typeof rateDraft>).commission, p),
+      (r) => {
+        toast[r.changed ? 'success' : 'info'](r.changed ? t.details.edited(memo.challanNo) : t.details.editedNothing);
+        if (rateDraft?.print) void print.memo(memo.id, memo.challanNo, 'print'); // asked for, changed or not
+      },
+    );
+
   // ---- Move LR ----
   const targets: Option[] = memos
     .filter((m) => m.status === 'saved' && m.id !== memo.id)
@@ -212,6 +241,8 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
   const lrRows: MemoLrRow[] = memo.lrs;
   return (
     <>
+      <div className={styles.viewGrid}>
+      <div className={styles.viewMain}>
       <div className={styles.viewTop}>
         <h3 className={styles.viewHead}>
           {t.viewHead(memo.challanNo, isoToDisplay(memo.date))}
@@ -290,6 +321,9 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
         </Button>
       </div>
       {!cancelled && <p className={styles.changeBar}>{t.pickToChange}</p>}
+      </div>
+      <SettlementCard memo={memo} onEdit={() => { setRateDraft(null); setStep('rate'); }} />
+      </div>
       <Table
         label={t.lrsLabel}
         columns={lrColumns}
@@ -297,7 +331,7 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
         rowKey={(r) => String(r.id)}
         ticked={tickedKeys}
         empty={t.noLrs}
-        maxHeight={200}
+        maxHeight={150}
         onRowActivate={cancelled ? undefined : (r) => setTicks((now) => toggle(now, r.id))}
         onRowToggle={cancelled ? undefined : (r) => setTicks((now) => toggle(now, r.id))}
       />
@@ -332,6 +366,23 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
         )}
       </Dialog>
       <PinDialog open={step === 'editPin'} title={t.pinEdit(memo.challanNo)} onCancel={() => setStep('edit')} onSubmit={editHeader} />
+
+      {/* Edit rate / commission: the same window as a new memo with the two values filled in, then the System PIN */}
+      <DetailsWindow
+        open={step === 'rate'}
+        subtitle={t.details.editSubtitle(memo.challanNo, isoToDisplay(memo.date), `${memo.fromStation} → ${memo.toStation}`)}
+        ids={NO_IDS}
+        memoId={memo.id}
+        initialRate={rateDraft?.rate ?? rateStart.rate}
+        initialCommission={rateDraft?.commission ?? rateStart.commission}
+        busy={false}
+        onSave={(rate, commission, print) => {
+          setRateDraft({ rate, commission, print });
+          setStep('ratePin');
+        }}
+        onBack={close}
+      />
+      <PinDialog open={step === 'ratePin'} title={t.details.pinEdit(memo.challanNo)} onCancel={() => setStep('rate')} onSubmit={editRate} />
 
       {/* Remove LR */}
       <PinDialog

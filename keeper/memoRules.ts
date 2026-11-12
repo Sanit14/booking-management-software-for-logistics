@@ -31,6 +31,8 @@ export function asMemoInput(v: unknown): MemoInput | null {
     toStationId: int(o, 'toStationId'),
     truckHire: text(o, 'truckHire'),
     loadingHamali: text(o, 'loadingHamali'),
+    hamaliRate: text(o, 'hamaliRate'),
+    commission: text(o, 'commission'),
     lrIds: asLrIds(o.lrIds),
   };
 }
@@ -84,9 +86,57 @@ export function cleanHeader(i: MemoHeaderInput, today: string): CleanHeader {
   return { errors, date, hirePaise, hamaliPaise };
 }
 
+export interface CleanSettlement {
+  errors: MemoErrors;
+  /** The hamali rate per article in paise, 0 when it is wrong. */
+  ratePaise: number;
+  /** The commission % × 100, 0 when it is wrong. */
+  commissionBp: number;
+}
+
+// 1 to 6 digits and at most 2 decimals: "10", "8.25", "100.00". A value over 100 is a `percent` error, not an `amount` one.
+const PERCENT = /^(\d{1,6})(?:\.(\d{1,2}))?$/;
+
+/**
+ * The two boxes of "Details of report": the hamali rate (rupees, at most 2 decimals) and the commission % (0 to 100, at most 2 decimals). Both must be
+ * typed: an empty box is `required`, never read as 0 (a 0 is allowed, but the clerk has to type it).
+ */
+export function cleanSettlement(i: { hamaliRate: string; commission: string }): CleanSettlement {
+  const errors: MemoErrors = {};
+  let ratePaise = 0;
+  let commissionBp = 0;
+
+  const rate = i.hamaliRate.trim();
+  if (rate === '') errors.hamaliRate = 'required';
+  else {
+    try {
+      ratePaise = parseRupees(rate);
+      if (ratePaise > MAX_PAISE) throw new Error('too big');
+    } catch {
+      errors.hamaliRate = 'amount';
+      ratePaise = 0;
+    }
+  }
+
+  const percent = i.commission.trim();
+  if (percent === '') errors.commission = 'required';
+  else {
+    const m = PERCENT.exec(percent);
+    if (!m) errors.commission = 'amount';
+    else {
+      const bp = Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
+      if (bp > 10000) errors.commission = 'percent';
+      else commissionBp = bp;
+    }
+  }
+  return { errors, ratePaise, commissionBp };
+}
+
 export interface CleanMemo extends CleanHeader {
   /** The ticked LRs, each once. */
   ids: number[];
+  ratePaise: number;
+  commissionBp: number;
 }
 
 /** The LR ids of a request, each once: 1 to MAX_MEMO_LRS whole numbers above 0, else the error to answer with. */
@@ -101,7 +151,9 @@ export function cleanMemo(i: MemoInput, today: string): CleanMemo {
   const h = cleanHeader(i, today);
   const { ids, error } = cleanIds(i.lrIds);
   if (error) h.errors.lrs = error;
-  return { ...h, ids };
+  const s = cleanSettlement(i);
+  Object.assign(h.errors, s.errors);
+  return { ...h, ids, ratePaise: s.ratePaise, commissionBp: s.commissionBp };
 }
 
 /** The request body as a header for an edit (a date left out keeps the memo's own). Null when it is not an object. */

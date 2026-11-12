@@ -316,7 +316,7 @@ test('a row carries its challan once the LR is loaded', () => {
   const w = owed(s, '100');
   assert.equal(w.challanNo, null);
   const m = s.memos.create(s.db, 'seat-1', {
-    uid: 'm1', date: null, truckId: s.truck, driverId: s.driver, fromStationId: s.yavatmal, toStationId: s.nagpur, truckHire: '', loadingHamali: '', lrIds: [w.lrId],
+    uid: 'm1', date: null, truckId: s.truck, driverId: s.driver, fromStationId: s.yavatmal, toStationId: s.nagpur, truckHire: '', loadingHamali: '', hamaliRate: '0.40', commission: '10', lrIds: [w.lrId],
   });
   assert.ok(m.ok);
   assert.equal(page(s).rows[0].challanNo, 1);

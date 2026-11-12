@@ -3,6 +3,7 @@ import { CalendarDays, Info, Undo2 } from 'lucide-react';
 import { MAX_MEMO_LRS, type KeeperResult, type LrDefaults, type MastersAll, type MemoDefaults, type MemoField, type MemoListRow, type MemoTaken, type PendingTotals } from '../../shared';
 import { errorSummary } from '../logic/errorSummary';
 import { keyLabel, matches } from '../logic/keymap';
+import { settlementRefusal } from '../logic/memoDetails';
 import { isoToDisplay } from '../logic/lrOpen';
 import type { Box, Ticks } from '../logic/memoPick';
 import { matchKey } from '../logic/typeAhead';
@@ -18,18 +19,22 @@ import { useKeeperData } from '../useKeeperData';
 import { useKeys } from '../useKeys';
 import { usePrint } from '../usePrint';
 import { rupees } from './columns';
+import DetailsWindow from './DetailsWindow';
 import styles from './LoadingMemoPage.module.css';
 import TakenDialog from './TakenDialog';
 
 const t = strings.memo;
 const lr = strings.lr;
-const ZERO: PendingTotals = { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0 };
+const ZERO: PendingTotals = { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, wasuliPaise: 0 };
 const TODAYS_SHOWN = 3;
 
 const noBox: Box = { text: '', id: null };
 type Errors = Partial<Record<MemoField, string>>;
 const labelOf = (field: string): string =>
-  ({ date: t.date, reason: t.cancelReason, truck: t.truck, driver: t.driver, fromStation: t.from2, toStation: t.to2, truckHire: t.truckHire, loadingHamali: t.loadingHamali, lrs: t.pendingTitle })[field as MemoField] ?? field;
+  ({
+    date: t.date, reason: t.cancelReason, truck: t.truck, driver: t.driver, fromStation: t.from2, toStation: t.to2, truckHire: t.truckHire, loadingHamali: t.loadingHamali, lrs: t.pendingTitle,
+    hamaliRate: t.details.rate, commission: t.details.commission,
+  })[field as MemoField] ?? field;
 
 interface Props {
   masters: MastersAll;
@@ -46,8 +51,9 @@ interface Props {
 
 /**
  * The new memo: truck, driver, From, To, truck hire and loading hamali for the ticked LRs, with the ticked LRs' totals as
- * the keeper adds them up. The keeper decides everything (the number, whether every LR can still be loaded); this only
- * collects the typed values and says what came back.
+ * the keeper adds them up. Pressing Create (or the save key) checks the boxes here and opens "Details of report"; nothing is
+ * sent until the clerk saves from that window. The keeper decides everything (the number, whether every LR can still be
+ * loaded, the settlement); this only collects the typed values and says what came back.
  */
 export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTaken, onOpen }: Props) {
   const toast = useToast();
@@ -68,6 +74,8 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
   const [focusError, setFocusError] = useState(0); // bumped when a refusal should put the cursor on the first box to fix
   const [busy, setBusy] = useState(false);
   const [taken, setTaken] = useState<MemoTaken[] | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false); // "Details of report": the step between the boxes and the save
+  const [recheck, setRecheck] = useState(0); // bumped when the keeper refused the rate or the % so the window asks for its figures again
   const inFlight = useRef(false); // two F4s before the first re-render must not send two saves
   // One uid per set of ticked LRs: a retry of the same save carries the same one (the keeper then returns the memo it already
   // saved), but other LRs ticked since are another memo and must not be mistaken for it.
@@ -127,6 +135,7 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
         // The first answer was lost and the clerk changed something before saving again: the memo exists, a second one is never made.
         // Show it (the typed values are dropped; the clerk edits the saved memo instead).
         if (!r.memo) return toast.error(strings.result(r.code, r.detail));
+        setDetailsOpen(false);
         toast.warning(t.alreadySaved(r.memo.challanNo));
         readyForNext();
         return onOpen(r.memo.id);
@@ -134,15 +143,24 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
         const fields: Errors = {};
         for (const [k, why] of Object.entries(r.memoFields ?? {})) fields[k as MemoField] = t.fieldError[why];
         if (fields.lrs) toast.error(fields.lrs);
+        const keys = Object.keys(fields);
+        if (keys.length > 0 && keys.every((k) => k === 'hamaliRate' || k === 'commission')) {
+          // Only the settlement was refused: the window stays and asks for its figures again, which now say what is wrong.
+          setRecheck((n) => n + 1);
+          return toast.error(settlementRefusal(r.memoFields));
+        }
+        setDetailsOpen(false); // the header is what is wrong: back to the boxes, marked
         return refuse(fields);
       }
       case 'memo-conflict':
+        setDetailsOpen(false);
         return setTaken(r.taken ?? []);
       case 'wrong-pin':
       case 'pin-locked':
         // The PIN that unlocked the date no longer works (it was changed, or locked): back to today.
         pin.current = '';
         setDate(null);
+        setDetailsOpen(false);
         toast.error(strings.result(r.code, r.detail));
         return;
       default:
@@ -150,10 +168,16 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
     }
   };
 
-  const save = async (): Promise<void> => {
-    if (inFlight.current) return;
-    if (ids.length === 0) return void toast.warning(t.noneTicked);
-    if (tooMany) return void toast.error(t.fieldError.many);
+  /** The boxes the clerk filled, resolved to master rows; null (with the boxes marked) when something is missing. Nothing is sent. */
+  const checked = (): { truckId: number; driverId: number; fromId: number; toId: number } | null => {
+    if (ids.length === 0) {
+      toast.warning(t.noneTicked);
+      return null;
+    }
+    if (tooMany) {
+      toast.error(t.fieldError.many);
+      return null;
+    }
     // A box typed but not in its list is the clerk's to fix before anything is sent.
     const truckId = resolve(truck, truckOptions);
     const driverId = resolve(driver, driverOptions);
@@ -167,8 +191,25 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
     need('driver', driver, driverId);
     need('fromStation', fromBox, fromId);
     need('toStation', toBox, toId);
-    if (Object.keys(local).length > 0) return refuse(local);
+    if (Object.keys(local).length > 0 || truckId === null || driverId === null || fromId === null || toId === null) {
+      refuse(local);
+      return null;
+    }
+    return { truckId, driverId, fromId, toId };
+  };
 
+  /** Create / the save key: check the boxes, then ask for the hamali rate and the commission. Nothing is saved yet. */
+  const openDetails = () => {
+    if (inFlight.current || !checked()) return;
+    setErrors({});
+    setDetailsOpen(true);
+  };
+
+  /** The window's two buttons and its key: ONE save with the typed rate and %; with Save & print the memo then goes to the printer. */
+  const save = async (hamaliRate: string, commission: string, printAfter: boolean): Promise<void> => {
+    if (inFlight.current) return;
+    const rows = checked();
+    if (!rows) return;
     setErrors({});
     const key = ids.join(',');
     if (attempt.current.key !== key) attempt.current = { key, uid: crypto.randomUUID() };
@@ -179,18 +220,26 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
         uid: attempt.current.uid,
         date,
         systemPin: date === null ? '' : pin.current,
-        truckId,
-        driverId,
-        fromStationId: fromId,
-        toStationId: toId,
+        truckId: rows.truckId,
+        driverId: rows.driverId,
+        fromStationId: rows.fromId,
+        toStationId: rows.toId,
         truckHire: hire,
         loadingHamali: hamali,
+        hamaliRate,
+        commission,
         lrIds: ids,
       });
       if (!r.ok) return handleRefusal(r);
       const { id, challanNo, lrCount, again } = r.value;
-      if (again) toast.info(t.savedAgain(challanNo));
-      else toast.success(t.saved(challanNo), t.savedDetail(lrCount), { label: strings.print.print, onClick: () => void print.memo(id, challanNo, 'print') });
+      setDetailsOpen(false);
+      if (again) {
+        toast.info(t.savedAgain(challanNo));
+        if (printAfter) void print.memo(id, challanNo, 'print'); // the answer to the first save was lost: the memo exists, and the print was asked for
+      } else if (printAfter) {
+        toast.success(t.saved(challanNo), t.savedDetail(lrCount));
+        void print.memo(id, challanNo, 'print');
+      } else toast.success(t.saved(challanNo), t.savedDetail(lrCount), { label: strings.print.print, onClick: () => void print.memo(id, challanNo, 'print') });
       readyForNext();
     } finally {
       inFlight.current = false;
@@ -198,11 +247,11 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
     }
   };
 
-  // The seat's save key saves from anywhere on the page, unless a dialog is open (Quick LR, a PIN, a saved memo).
-  const saveNow = useRef(save);
+  // The seat's save key opens "Details of report" from anywhere on the page, unless a dialog is open (Quick LR, a PIN, a saved memo, the window itself).
+  const saveNow = useRef(openDetails);
   const saveKey = useRef(keys.saveLr);
   useEffect(() => {
-    saveNow.current = save;
+    saveNow.current = openDetails;
     saveKey.current = keys.saveLr;
   });
   useEffect(() => {
@@ -210,7 +259,7 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
       // not while a dialog is open, nor while the other tab is showing
       if (e.repeat || document.querySelector('dialog[open]') || !form.current?.offsetParent || !matches(saveKey.current, e)) return;
       e.preventDefault();
-      void saveNow.current();
+      saveNow.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -237,7 +286,7 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    void save();
+    openDetails();
   };
   const clearError = (field: MemoField) => setErrors((e) => (e[field] === undefined ? e : { ...e, [field]: undefined }));
   const problem = errorSummary(errors, labelOf);
@@ -420,6 +469,15 @@ export default function MemoPanel({ masters, ticks, filterStation, onSaved, onTa
       </div>
 
       <PinDialog open={askingPin} title={lr.changeDateTitle} onCancel={() => setAskingPin(false)} onSubmit={checkPin} />
+      <DetailsWindow
+        open={detailsOpen}
+        subtitle={t.details.subtitle(ids.length, truck.text, `${fromBox.text} → ${toBox.text}`, isoToDisplay(date ?? today))}
+        ids={ids}
+        busy={busy}
+        refresh={recheck}
+        onSave={(rate, commission, printAfter) => void save(rate, commission, printAfter)}
+        onBack={() => setDetailsOpen(false)}
+      />
       <TakenDialog taken={taken} text={t.conflictText} onClose={closeTaken} />
     </Card>
   );

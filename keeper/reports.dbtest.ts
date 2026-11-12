@@ -207,28 +207,40 @@ test('Consignee-wise: the same on the other side, with the firm\'s station', () 
   assert.deepEqual(totals, { lrs: 8, qty: 19, toPayPaise: 283333, paidPaise: 211050, wasuliPaise: 65000 });
 });
 
-test('Truck-wise: saved memos of the period with their FROZEN figures, a Differs mark, cancelled and other months left out', () => {
+test('Truck-wise: saved memos of the period with their FROZEN figures (wasuli and round figure too), a Differs mark, cancelled and other months left out', () => {
   const w = world();
   const { rows, totals } = trucks(w, Q(OCT));
   assert.deepEqual(
-    rows.map((r) => [r.date, r.challanNo, r.truck, r.toStation, r.lrs, r.toPayPaise, r.paidPaise, r.truckHirePaise, r.loadingHamaliPaise, r.differs]),
+    rows.map((r) => [r.date, r.challanNo, r.truck, r.toStation, r.lrs, r.toPayPaise, r.paidPaise, r.wasuliPaise, r.roundRupees, r.truckHirePaise, r.loadingHamaliPaise, r.differs]),
     [
-      ['2026-10-12', 2, 'MH 29 AB 1', 'Nagpur', 2, 53433, 0, 300000, 10000, true],
-      ['2026-10-31', 1, 'MH 29 BE 1234', 'Nagpur', 2, 180000, 200050, 500000, 25050, false],
+      // 7 articles x 0.40 off 533.33, 10 % of it as commission, then the 600.00 of wasuli: net 1,077.20 -> 1,077
+      ['2026-10-12', 2, 'MH 29 AB 1', 'Nagpur', 2, 53433, 0, 60000, 1077, 300000, 10000, true],
+      // 5 articles x 0.40 off 1,800.00, 10 % of (1,800.00 + 2,000.50), no wasuli: net 1,417.95 -> 1,418
+      ['2026-10-31', 1, 'MH 29 BE 1234', 'Nagpur', 2, 180000, 200050, 0, 1418, 500000, 25050, false],
     ],
     'challan 3 is September, challan 4 is cancelled; challan 2 shows what was frozen (53,433), not what its LRs add up to now (53,333)',
   );
-  assert.deepEqual(totals, { memos: 2, lrs: 4, toPayPaise: 233433, paidPaise: 200050, truckHirePaise: 800000, loadingHamaliPaise: 35050 });
+  assert.deepEqual(totals, { memos: 2, lrs: 4, toPayPaise: 233433, paidPaise: 200050, wasuliPaise: 60000, roundRupees: 2495, truckHirePaise: 800000, loadingHamaliPaise: 35050 });
+  const sum = w.db.prepare("SELECT SUM(round_rupees) AS r, SUM(frozen_wasuli_paise) AS w FROM memos WHERE status = 'saved' AND memo_date BETWEEN ? AND ?").get(OCT.from, OCT.to) as { r: number; w: number };
+  assert.deepEqual([totals.roundRupees, totals.wasuliPaise], [sum.r, sum.w], 'the round-figure total is the sum of the round figures of the memos');
   assert.equal(rows[0].memoId, w.m2.id);
   // filters: a truck, a To station
   assert.deepEqual(trucks(w, Q(OCT, { truckId: w.truck2 })).rows.map((r) => r.challanNo), [2]);
   assert.deepEqual(trucks(w, Q(OCT, { toStationId: w.nagpur })).rows.map((r) => r.challanNo), [2, 1]);
   assert.deepEqual(trucks(w, Q(OCT, { toStationId: w.amravati })).rows, []);
-  assert.deepEqual(trucks(w, Q(OCT, { truckId: w.truck2, toStationId: w.amravati })).totals, { memos: 0, lrs: 0, toPayPaise: 0, paidPaise: 0, truckHirePaise: 0, loadingHamaliPaise: 0 });
-  // a recalculation makes it agree again
+  assert.deepEqual(trucks(w, Q(OCT, { truckId: w.truck2, toStationId: w.amravati })).totals, { memos: 0, lrs: 0, toPayPaise: 0, paidPaise: 0, wasuliPaise: 0, roundRupees: 0, truckHirePaise: 0, loadingHamaliPaise: 0 });
+  // a recalculation makes it agree again (the same rate and %, so the round figure stays)
   ok(w.memos.recalculate(w.db, 'seat-1', w.m2.id, ok(w.memos.get(w.db, w.m2.id)).version, ADMIN));
   const again = trucks(w, Q(OCT)).rows[0];
-  assert.deepEqual([again.toPayPaise, again.differs], [53333, false]);
+  assert.deepEqual([again.toPayPaise, again.differs, again.roundRupees], [53333, false, 1077]);
+});
+
+test('Truck-wise: a memo saved before 4.6 has no round figure (null, and not in the total); its wasuli is the one backfilled', () => {
+  const w = world();
+  w.db.prepare('UPDATE memos SET hamali_rate_paise = NULL, commission_bp = NULL, frozen_net_paise = NULL, round_rupees = NULL WHERE id = ?').run(w.m1.id);
+  const { rows, totals } = trucks(w, Q(OCT));
+  assert.deepEqual(rows.map((r) => r.roundRupees), [1077, null]);
+  assert.deepEqual([totals.roundRupees, totals.wasuliPaise], [1077, 60000]);
 });
 
 test('Firm-wise: firms with an LR in the period, LRs per side, and each LR once in qty / to pay / paid — the same as the firm\'s own account', () => {
@@ -653,9 +665,9 @@ test('print.report: the whole report as formatted text — the screen\'s rows an
   assert.deepEqual(p('consigneeWise').rows[1], ['Kale Brothers', 'Nagpur', '1', '2', '–', '2,000.50', '–']);
 
   const t = p('truckWise');
-  assert.deepEqual(t.rows[0], ['12-10-2026', '2*', 'MH 29 AB 1', 'Nagpur', '2', '534.33', '–', '3,000.00', '100.00'], 'a differing memo carries a *');
-  assert.deepEqual(t.rows[1], ['31-10-2026', '1', 'MH 29 BE 1234', 'Nagpur', '2', '1,800.00', '2,000.50', '5,000.00', '250.50']);
-  assert.deepEqual(t.totals, ['2', '4', '2,334.33', '2,000.50', '8,000.00', '350.50']);
+  assert.deepEqual(t.rows[0], ['12-10-2026', '2*', 'MH 29 AB 1', 'Nagpur', '2', '534.33', '–', '600.00', '1,077', '3,000.00', '100.00'], 'a differing memo carries a *');
+  assert.deepEqual(t.rows[1], ['31-10-2026', '1', 'MH 29 BE 1234', 'Nagpur', '2', '1,800.00', '2,000.50', '–', '1,418', '5,000.00', '250.50']);
+  assert.deepEqual(t.totals, ['2', '4', '2,334.33', '2,000.50', '600.00', '2,495', '8,000.00', '350.50']);
   assert.equal(t.anyDiffers, true);
 
   assert.deepEqual(p('firmWise').rows[2], ['Shree Ganesh Traders', '5', '2', '16', '2,633.33', '2,050.50']);

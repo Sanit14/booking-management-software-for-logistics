@@ -161,13 +161,13 @@ test('totals: only the ticked LRs that are still booked, added up by the keeper'
   saved(create(s, [gone.id]));
   const t = s.memos.totals(s.db, [a.id, b.id, gone.id, 99999]);
   assert.ok(t.ok);
-  assert.deepEqual(t.value, { lrs: 2, qty: 5, toPayPaise: 10000, paidPaise: 25050 });
+  assert.deepEqual(t.value, { lrs: 2, qty: 5, toPayPaise: 10000, paidPaise: 25050, wasuliPaise: 0 });
   const all = s.memos.totals(s.db, [a.id, b.id, c.id]);
   assert.ok(all.ok);
   assert.equal(all.value.qty, 10);
   const nothing = s.memos.totals(s.db, []);
   assert.ok(nothing.ok);
-  assert.deepEqual(nothing.value, { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0 });
+  assert.deepEqual(nothing.value, { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, wasuliPaise: 0 });
 });
 
 // ---- saving a memo ----
@@ -200,7 +200,7 @@ test('a memo takes the next challan number, loads its LRs and freezes totals equ
   assert.equal(row.frozen_stax_paise, 0, 'service tax is gone: a new memo keeps the column at its default');
   assert.deepEqual([row.truck_hire_paise, row.loading_hamali_paise, row.seat, row.version], [450000, 25075, 'seat-1', 1]);
   assert.deepEqual(s.db.prepare(FROZEN_SQL).get(memo.id), {
-    lrs: 3, qty: row.frozen_qty, toPayPaise: row.frozen_topay_paise, paidPaise: row.frozen_paid_paise, hamaliPaise: row.frozen_charges_paise,
+    lrs: 3, qty: row.frozen_qty, toPayPaise: row.frozen_topay_paise, paidPaise: row.frozen_paid_paise, hamaliPaise: row.frozen_charges_paise, wasuliPaise: row.frozen_wasuli_paise,
   });
 
   const audit = s.db.prepare("SELECT seat, entity, entity_id AS entityId, after_json AS after FROM audit_log WHERE action = 'memos.create'").all() as { seat: string; entity: string; entityId: string; after: string }[];
@@ -394,7 +394,7 @@ test('get: header with names, the frozen totals and its LRs in (date, number) or
   assert.ok(got.ok);
   const m = got.value;
   assert.deepEqual([m.challanNo, m.truck, m.driver, m.fromStation, m.toStation, m.truckHirePaise, m.loadingHamaliPaise, m.version, m.status], [1, 'MH 29 BE 1234', 'Ramesh Pawar', 'Yavatmal', 'Amravati', 100000, 5000, 1, 'saved']);
-  assert.deepEqual(m.frozen, { lrs: 2, qty: 5, toPayPaise: 20000, paidPaise: 5000, hamaliPaise: 0 });
+  assert.deepEqual(m.frozen, { lrs: 2, qty: 5, toPayPaise: 20000, paidPaise: 5000, hamaliPaise: 0, wasuliPaise: 0 });
   assert.deepEqual(m.lrs.map((r) => r.lrNo), [early.no, late.no]);
   const missing = s.memos.get(s.db, 12345);
   assert.deepEqual([missing.ok, !missing.ok && missing.code], [false, 'memo-missing']);

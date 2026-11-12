@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FIRST_ROWS, NEXT_ROWS, TOTALS_ROWS, memoFileName, memoHtml, paginate } from './memo';
+import { FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS, TOTALS_ROWS, memoFileName, memoHtml, paginate } from './memo';
 import { matchSnapshot, sampleMemo, smallestPt } from './testing';
 
 const count = (html: string, what: string | RegExp): number => html.split(what).length - 1;
@@ -42,12 +42,46 @@ test('memoHtml: every sheet has its own header row and "Page n of m"; the totals
   assert.equal(count(html, '<thead>'), 2, 'the header row is repeated');
   sheets.forEach((s, i) => {
     assert.match(s, new RegExp(`Page ${i + 1} of 2`));
-    assert.match(s, /<th>Sr<\/th><th>LR No\.<\/th><th>Consignor<\/th>/);
+    assert.match(s, /<th>Consignor<\/th><th>Consignee<\/th><th>LR No<\/th><th>Particulars<\/th><th class="n">Pak<\/th><th class="n">Paid \(₹\)<\/th><th class="n">To pay \(₹\)<\/th><th class="n">Wasuli \(₹\)<\/th>/);
     assert.equal(count(s, 'class="tot"'), i === 1 ? 1 : 0, `sheet ${i + 1}`);
   });
   assert.match(sheets[1], /Total · LRs: 60/);
   assert.match(sheets[1], /To pay \(₹\) <b>1,23,456\.00<\/b>/);
-  assert.equal(count(html, /<tr><td class="n">\d+<\/td><td class="n">\d+<\/td>/g), 60, 'every LR once');
+  assert.match(sheets[1], /Wasuli \(₹\) <b>4,076\.00<\/b>/);
+  assert.equal(count(html, /<tr><td(?! class="none")/g), 60, 'every LR once');
+});
+
+const BLOCK = ['DETAILS OF REPORT', 'Total articles', 'Paid amount', 'To pay amount', 'Hamali less amount', 'Commission less amount', 'Wasuli amount', 'Net amount Rs.', 'Round figure Rs.'];
+
+test('memoHtml: "Details of report" follows the last row, on the last sheet only, with the two notes next to their amounts', () => {
+  const [first, second] = sheetsOf(memoHtml(sampleMemo(60)));
+  for (const t of BLOCK) assert.ok(!first.includes(t), `not on the first sheet: ${t}`);
+  for (const t of BLOCK) assert.ok(second.includes(t), t);
+  assert.ok(second.includes('(177 × 0.40)') && second.includes('(10 %)'), 'hamali and commission say how they were worked out');
+  assert.ok(second.indexOf('DETAILS OF REPORT') > second.indexOf('</table>'), 'after the last row');
+  assert.ok(second.indexOf('Total articles') < second.indexOf('Net amount Rs.') && second.indexOf('Net amount Rs.') < second.indexOf('Round figure Rs.'), 'in the order of the old paper');
+  assert.match(second, /Round figure Rs\.<\/span><span>10,241</);
+});
+
+test('memoHtml: a negative total and net are printed as sent, with their minus signs', () => {
+  const html = memoHtml(sampleMemo(3, { settlement: { ...sampleMemo(1).settlement!, total1: '-10.00', total2: '-10.00', net: '-10.00', round: '-10' } }));
+  assert.match(html, /Net amount Rs\.<\/span><span>-10\.00</);
+  assert.match(html, /Round figure Rs\.<\/span><span>-10</);
+});
+
+test('memoHtml: a memo with no settlement (saved before 4.6, or cancelled) has no block and keeps its totals row', () => {
+  const html = memoHtml(sampleMemo(5, { settlement: null }));
+  for (const t of BLOCK) assert.ok(!html.includes(t), t);
+  assert.equal(count(html, 'class="tot"'), 1);
+});
+
+test('memoHtml: the block needs room, so it never sits alone on a sheet: one row over the first sheet moves a row with it', () => {
+  assert.equal(sheetsOf(memoHtml(sampleMemo(FIRST_ROWS - SETTLEMENT_ROWS))).length, 1, 'the most that fits with the block');
+  const sheets = sheetsOf(memoHtml(sampleMemo(FIRST_ROWS - SETTLEMENT_ROWS + 1)));
+  assert.equal(sheets.length, 2);
+  assert.ok(count(sheets[1], /<tr><td(?! class="none")/g) >= 1, 'the last sheet has a row of its own');
+  assert.ok(sheets[1].includes('DETAILS OF REPORT'));
+  assert.equal(sheetsOf(memoHtml(sampleMemo(FIRST_ROWS - TOTALS_ROWS, { settlement: null }))).length, 1, 'without the block only the totals row has to fit');
 });
 
 test('memoHtml: the first sheet carries the company, LOADING MEMO and the header; later sheets only say which memo they continue', () => {
@@ -81,7 +115,7 @@ test('memoHtml: a cancelled memo has the CANCELLED mark on every sheet; one that
 });
 
 test('memoHtml: a memo with no rows (a cancelled one) says so and still prints its frozen totals', () => {
-  const html = memoHtml(sampleMemo(0, { cancelled: true, rows: [], totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00' } }));
+  const html = memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null, totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00', wasuli: '0.00' } }));
   assert.equal(sheetsOf(html).length, 1);
   assert.match(html, /No LRs on this memo/);
   assert.match(html, /Total · LRs: 3/);
@@ -112,5 +146,5 @@ test('memoFileName: Challan-<number>-<year>.pdf', () => {
 test('memoHtml: snapshots', () => {
   matchSnapshot('memo-1', memoHtml(sampleMemo(1)));
   matchSnapshot('memo-40', memoHtml(sampleMemo(40, { differs: true })));
-  matchSnapshot('memo-cancelled', memoHtml(sampleMemo(0, { cancelled: true, rows: [], totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00' } })));
+  matchSnapshot('memo-cancelled', memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null, totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00', wasuli: '0.00' } })));
 });

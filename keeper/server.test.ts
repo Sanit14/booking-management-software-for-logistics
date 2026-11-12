@@ -1043,7 +1043,7 @@ test('keeper: two seats make memos with an overlapping LR in the same instant - 
   const ids: number[] = [];
   for (let i = 0; i < 6; i++) ids.push((await lrCall(port, '/lrs/create', { input: input() })).value.row.id);
   const memo = (lrIds: number[], truckId: number, seat: string, uid: string) =>
-    lrCall(port, '/memos/create', { input: { uid, date: null, truckId, driverId: driver, fromStationId: from, toStationId: to, truckHire: '1,000', loadingHamali: '', lrIds } }, seat);
+    lrCall(port, '/memos/create', { input: { uid, date: null, truckId, driverId: driver, fromStationId: from, toStationId: to, truckHire: '1,000', loadingHamali: '', hamaliRate: '0.40', commission: '10', lrIds } }, seat);
 
   const a = listen(port, 'counter-1');
   const b = listen(port, 'counter-2');
@@ -1104,12 +1104,12 @@ test('keeper: two seats make memos with an overlapping LR in the same instant - 
     assert.equal((await lrCall(port, '/memos/create', { input: { lrIds: [1] } })).status, 400, 'no uid');
     assert.equal((await lrCall(port, '/memos/get', { id: 'x' })).status, 400);
     assert.equal((await lrCall(port, '/memos/get', { id: 99999 })).code, 'memo-missing');
-    assert.equal((await lrCall(port, '/memos/create', { input: { uid: 'u9', date: '2020-01-01', truckId: truck1, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', lrIds: [1] } })).code, 'wrong-pin', 'another day needs the System PIN');
+    assert.equal((await lrCall(port, '/memos/create', { input: { uid: 'u9', date: '2020-01-01', truckId: truck1, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', hamaliRate: '0.40', commission: '10', lrIds: [1] } })).code, 'wrong-pin', 'another day needs the System PIN');
 
     // Reads: today's memos, the live totals of the ticked LRs, the Dashboard, and a challan found by its number.
     const list = (await lrCall(port, '/memos/by-date', { date: null })).value;
     assert.deepEqual(list.map((m: { challanNo: number }) => m.challanNo), [2, 1]);
-    assert.deepEqual((await lrCall(port, '/memos/totals', { ids })).value, { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0 }, 'every ticked LR is loaded now, so none is counted');
+    assert.deepEqual((await lrCall(port, '/memos/totals', { ids })).value, { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, wasuliPaise: 0 }, 'every ticked LR is loaded now, so none is counted');
     const summary = (await lrCall(port, '/dashboard/summary', { date: null })).value;
     assert.deepEqual([summary.memos, summary.trucksOut, summary.loaded, summary.pending], [2, 2, 6, 0]);
     const found = (await lrCall(port, '/search', { text: '2' })).value;
@@ -1146,7 +1146,7 @@ test('keeper: one seat takes an LR off a memo while another adds it to a differe
   const ids: number[] = [];
   for (let i = 0; i < 5; i++) ids.push((await lrCall(port, '/lrs/create', { input: input() })).value.row.id);
   const memo = async (lrIds: number[], truckId: number, uid: string) =>
-    (await lrCall(port, '/memos/create', { input: { uid, date: null, truckId, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', lrIds } })).value;
+    (await lrCall(port, '/memos/create', { input: { uid, date: null, truckId, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', hamaliRate: '0.40', commission: '10', lrIds } })).value;
   const memoA = await memo(ids.slice(0, 3), truck1, 'memo-a');
   const memoB = await memo(ids.slice(3, 4), truck2, 'memo-b');
   const SYSTEM = '7295';
@@ -1195,6 +1195,19 @@ test('keeper: one seat takes an LR off a memo while another adds it to a differe
     assert.deepEqual(list.rows.map((r: { challanNo: number }) => r.challanNo), [2, 1]);
     assert.equal((await call('/memos/history', { id: memoB.id })).value[0].action, 'edited');
 
+    // The hamali rate and commission over HTTP (4.6): the live figures need no PIN, the change does; a typed value is read as text, a missing id or version is a 400.
+    const live = (await call('/memos/settlement', { ids: [], hamaliRate: '', commission: '10' })).value;
+    assert.deepEqual([live.errors, live.settlement], [{ hamaliRate: 'required' }, null]);
+    const atNow = (await call('/memos/get', { id: memoB.id })).value;
+    const rateBody = { id: memoB.id, version: atNow.version, hamaliRate: '0.50', commission: '8' };
+    assert.equal((await call('/memos/edit-settlement', { ...rateBody, systemPin: '0000' })).code, 'wrong-pin');
+    assert.equal((await call('/memos/edit-settlement', { ...rateBody, version: 'x' })).status, 400);
+    assert.equal((await call('/memos/edit-settlement', { ...rateBody, version: atNow.version - 1, systemPin: SYSTEM })).code, 'memo-stale');
+    assert.equal((await call('/memos/edit-settlement', { ...rateBody, hamaliRate: 5, systemPin: SYSTEM })).code, 'memo-invalid', 'a number is not typed text: refused by name');
+    const rated = await call('/memos/edit-settlement', { ...rateBody, systemPin: SYSTEM }, 'counter-2');
+    assert.deepEqual([rated.ok, rated.value.changed, rated.value.memo.hamaliRatePaise, rated.value.memo.commissionBp], [true, true, 50, 800]);
+    assert.equal((await call('/memos/history', { id: memoB.id })).value[0].action, 'settlement');
+
     const gone = await call('/memos/cancel', { id: memoA.id, version: (await call('/memos/get', { id: memoA.id })).value.version, reason: 'Wrong truck', adminPin: ADMIN });
     assert.deepEqual([gone.ok, gone.value.status, gone.value.lrs.length], [true, 'cancelled', 0]);
     const pending = (await call('/memos/pending', { filters: {}, cursor: null })).value;
@@ -1202,8 +1215,8 @@ test('keeper: one seat takes an LR off a memo while another adds it to a differe
     assert.equal((await call('/memos/cancel', { id: memoA.id, version: gone.value.version, reason: 'again', adminPin: ADMIN })).code, 'memo-cancelled');
 
     await sleep(400);
-    // take-off, (add), edit, cancel: each committed change announced once on both seats, the refusals not at all
-    const expected = 1 + Number(answers[1].ok) + 1 + 1;
+    // take-off, (add), edit, rate / commission, cancel: each committed change announced once on both seats, the refusals (and the live figures) not at all
+    const expected = 1 + Number(answers[1].ok) + 1 + 1 + 1;
     assert.equal(a.got.length, expected);
     assert.equal(b.got.length, expected);
   } finally {
@@ -1231,7 +1244,7 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
   const driver = (await masters(port, 'create', { kind: 'drivers', fields: { name: 'Ramesh Pawar' } })).value.id as number;
   const lrIds: number[] = [];
   for (let i = 0; i < 2; i++) lrIds.push((await lrCall(port, '/lrs/create', { input: input() })).value.row.id);
-  const memo = (await lrCall(port, '/memos/create', { input: { uid: 'print-memo', date: null, truckId: truck, driverId: driver, fromStationId: from, toStationId: to, truckHire: '4,500', loadingHamali: '', lrIds } })).value;
+  const memo = (await lrCall(port, '/memos/create', { input: { uid: 'print-memo', date: null, truckId: truck, driverId: driver, fromStationId: from, toStationId: to, truckHire: '4,500', loadingHamali: '', hamaliRate: '0.40', commission: '10', lrIds } })).value;
   const call = (url: string, body: Record<string, unknown>, seat = 'counter-1') => lrCall(port, url, body, seat);
   const COMPANY = { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal', phone: '07232 245678', gstin: '' };
 
@@ -1243,7 +1256,7 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
     b.got.length = 0;
 
     const printed = await call('/print/memo', { id: memo.id });
-    assert.deepEqual([printed.ok, printed.value.rows.length, printed.value.totals, printed.value.truckHire, printed.value.company.name], [true, 2, { lrs: 2, qty: 6, toPay: '3,600.00', paid: '0.00' }, '4,500.00', 'Sundeep Freight Movers']);
+    assert.deepEqual([printed.ok, printed.value.rows.length, printed.value.totals, printed.value.truckHire, printed.value.company.name], [true, 2, { lrs: 2, qty: 6, toPay: '3,600.00', paid: '0.00', wasuli: '0.00' }, '4,500.00', 'Sundeep Freight Movers']);
     const lr = await call('/print/lr', { id: lrIds[0] });
     // 1,800 freight + 30 hamali = 1,830; the paper has no charge or tax line
     assert.deepEqual([lr.value.mode, lr.value.freight, lr.value.hamali, lr.value.total, lr.value.consignee], ['topay', '1,800.00', '30.00', '1,830.00', 'Kale Brothers']);
@@ -1431,7 +1444,7 @@ test('keeper: Reports over the real routes - every report, the LRs behind a row,
     assert.deepEqual(consignors.rows.map((r: { name: string; firmId: number | null; lrs: number }) => [r.name, r.firmId, r.lrs]), [['Shree Ganesh Traders', firm, 2]]);
     const consignees = await read('/reports/party-wise', { side: 'consignee', query, cursor: null });
     assert.deepEqual(consignees.rows.map((r: { name: string; firmId: number | null; lrs: number }) => [r.name, r.firmId, r.lrs]), [['Kale Brothers', null, 2]], 'a walk-in is a party by its name');
-    assert.deepEqual((await read('/reports/truck-wise', { query, cursor: null })).totals, { memos: 0, lrs: 0, toPayPaise: 0, paidPaise: 0, truckHirePaise: 0, loadingHamaliPaise: 0 });
+    assert.deepEqual((await read('/reports/truck-wise', { query, cursor: null })).totals, { memos: 0, lrs: 0, toPayPaise: 0, paidPaise: 0, wasuliPaise: 0, roundRupees: 0, truckHirePaise: 0, loadingHamaliPaise: 0 });
     const firms = await read('/reports/firm-wise', { query, cursor: null });
     assert.deepEqual([firms.rows.map((r: { name: string; asConsignor: number }) => [r.name, r.asConsignor]), firms.totals], [[['Shree Ganesh Traders', 2]], { firms: 1, asConsignor: 2, asConsignee: 0, walkInConsignor: 0, walkInConsignee: 2 }]);
     assert.deepEqual((await read('/reports/wasuli', { query, cursor: null })).totals, { assignedCount: 0, assignedPaise: 0, collectedCount: 0, collectedPaise: 0, poolCount: 0, poolPaise: 0 });
@@ -1529,7 +1542,7 @@ const NO_PIN_ROUTES = [
   '/masters/all', '/masters/create',
   '/lrs/defaults', '/lrs/preview', '/lrs/by-date', '/lrs/get', '/lrs/find', '/lrs/history',
   '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
-  '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/get', '/memos/by-date', '/memos/list', '/memos/history',
+  '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/settlement', '/memos/get', '/memos/by-date', '/memos/list', '/memos/history',
   '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/firm-statement', '/print/report',
   '/wasuli/list', '/wasuli/find', '/wasuli/agent-stats', '/wasuli/assign', '/wasuli/reassign', '/wasuli/to-pool', '/wasuli/collect',
   '/firms/accounts', '/firms/statement', '/firms/top', '/firms/kpis', '/firms/months',
@@ -1572,7 +1585,7 @@ test('keeper: PIN coverage - every route that checks a PIN writes its audit row 
   const agent = await create('agents', { name: 'Suresh' });
   const book = async (over: Record<string, unknown> = {}) => (await good('/lrs/create', { input: input(over) })).row as { id: number; lrNo: number };
   const [l1, l2, l3, l4, l5, l6, l7, lw] = [await book(), await book(), await book(), await book(), await book(), await book(), await book(), await book({ wasuli: '500' })];
-  const header = (over: object = {}) => ({ uid: `memo-${++uidSerial}`, date: null, truckId: truck, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', ...over });
+  const header = (over: object = {}) => ({ uid: `memo-${++uidSerial}`, date: null, truckId: truck, driverId: driver, fromStationId: from, toStationId: to, truckHire: '', loadingHamali: '', hamaliRate: '0.40', commission: '10', ...over });
   const m1 = (await good('/memos/create', { input: header({ lrIds: [l3.id, l4.id] }) })).id as number;
   const m2 = (await good('/memos/create', { input: header({ lrIds: [l6.id] }) })).id as number;
   const m3 = (await good('/memos/create', { input: header({ lrIds: [l7.id] }) })).id as number;
@@ -1613,6 +1626,9 @@ test('keeper: PIN coverage - every route that checks a PIN writes its audit row 
         const m = await memo(m1);
         return { id: m1, version: m.version, input: { date: m.date, truckId: m.truckId, driverId: m.driverId, fromStationId: m.fromStationId, toStationId: m.toStationId, truckHire: '100', loadingHamali: '0' }, systemPin: pin.system };
       } },
+    { url: '/memos/edit-settlement', kind: 'system', audit: 'memos.settlement',
+      wrong: () => ({ id: m1, version: 1, hamaliRate: '0.50', commission: '8', systemPin: WRONG }),
+      right: async () => ({ id: m1, version: (await memo(m1)).version, hamaliRate: '0.50', commission: '8', systemPin: pin.system }) },
     { url: '/memos/remove-lrs', kind: 'system', audit: 'memos.remove-lrs', wrong: () => ({ id: m1, lrIds: [l4.id], systemPin: WRONG }), right: () => ({ id: m1, lrIds: [l4.id], systemPin: pin.system }) },
     { url: '/memos/add-lrs', kind: 'system', audit: 'memos.add-lrs', wrong: () => ({ id: m1, lrIds: [l4.id], systemPin: WRONG }), right: () => ({ id: m1, lrIds: [l4.id], systemPin: pin.system }) },
     { url: '/memos/move-lrs', kind: 'system', audit: 'memos.move-out', wrong: () => ({ id: m1, lrIds: [l4.id], targetId: m2, systemPin: WRONG }),

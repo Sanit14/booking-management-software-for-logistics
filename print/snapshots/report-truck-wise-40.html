@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <title>Truck-wise report</title>
 <style>
-@page{size:A4 portrait;margin:0}
+@page{size:A4 landscape;margin:0}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:#fff;color:#000}
 body{font:9pt/1.25 "Times New Roman",Times,serif}
-.page{position:relative;width:210mm;height:296mm;padding:10mm;break-after:page;page-break-after:always}
+.page{position:relative;width:297mm;height:209mm;padding:10mm;break-after:page;page-break-after:always}
 .page:last-child{break-after:auto;page-break-after:auto}
 .co{text-align:center}
 .co .name{font-size:14pt;font-weight:bold;line-height:1.2}
@@ -66,15 +66,17 @@ th{font-weight:bold}
 </div>
 <table>
 <colgroup>
-<col style="width:20mm">
-<col style="width:14mm">
-<col style="width:28mm">
+<col style="width:22mm">
+<col style="width:16mm">
+<col style="width:36mm">
+<col style="width:32mm">
+<col style="width:12mm">
 <col style="width:26mm">
-<col style="width:10mm">
+<col style="width:26mm">
 <col style="width:24mm">
-<col style="width:24mm">
-<col style="width:22mm">
-<col style="width:22mm">
+<col style="width:28mm">
+<col style="width:29mm">
+<col style="width:26mm">
 </colgroup>
 <thead>
 <tr>
@@ -85,6 +87,8 @@ th{font-weight:bold}
 <th class="n">LRs</th>
 <th class="n">To pay (₹)</th>
 <th class="n">Paid (₹)</th>
+<th class="n">Wasuli (₹)</th>
+<th class="n">Round figure (₹)</th>
 <th class="n">Truck hire (₹)</th>
 <th class="n">Hamali (₹)</th>
 </tr>
@@ -98,6 +102,8 @@ th{font-weight:bold}
 <td class="n">20</td>
 <td class="n">–</td>
 <td class="n">12,345.00</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -109,6 +115,8 @@ th{font-weight:bold}
 <td class="n">21</td>
 <td class="n">12,345.00</td>
 <td class="n">–</td>
+<td class="n">12,345.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">12,345.00</td>
 </tr>
@@ -120,6 +128,8 @@ th{font-weight:bold}
 <td class="n">22</td>
 <td class="n">–</td>
 <td class="n">56.00</td>
+<td class="n">9,99,999.99</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">9,99,999.99</td>
 </tr>
@@ -131,6 +141,8 @@ th{font-weight:bold}
 <td class="n">23</td>
 <td class="n">56.00</td>
 <td class="n">–</td>
+<td class="n">56.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -142,6 +154,8 @@ th{font-weight:bold}
 <td class="n">24</td>
 <td class="n">–</td>
 <td class="n">1,23,456.78</td>
+<td class="n">–</td>
+<td class="n">–</td>
 <td class="n">5,000.00</td>
 <td class="n">4,500.25</td>
 </tr>
@@ -153,6 +167,8 @@ th{font-weight:bold}
 <td class="n">25</td>
 <td class="n">1,23,456.78</td>
 <td class="n">–</td>
+<td class="n">1,23,456.78</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">1,23,456.78</td>
 </tr>
@@ -164,6 +180,8 @@ th{font-weight:bold}
 <td class="n">26</td>
 <td class="n">–</td>
 <td class="n">2,00,000.00</td>
+<td class="n">780.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -175,6 +193,8 @@ th{font-weight:bold}
 <td class="n">27</td>
 <td class="n">2,00,000.00</td>
 <td class="n">–</td>
+<td class="n">2,00,000.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">2,00,000.00</td>
 </tr>
@@ -186,6 +206,8 @@ th{font-weight:bold}
 <td class="n">28</td>
 <td class="n">–</td>
 <td class="n">1,234.50</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">99.99</td>
 </tr>
@@ -195,6 +217,8 @@ th{font-weight:bold}
 <td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
 <td>Amravati</td>
 <td class="n">29</td>
+<td class="n">1,234.50</td>
+<td class="n">–</td>
 <td class="n">1,234.50</td>
 <td class="n">–</td>
 <td class="n">5,000.00</td>
@@ -208,6 +232,8 @@ th{font-weight:bold}
 <td class="n">30</td>
 <td class="n">–</td>
 <td class="n">9,99,999.99</td>
+<td class="n">12,345.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">12,345.00</td>
 </tr>
@@ -219,6 +245,8 @@ th{font-weight:bold}
 <td class="n">31</td>
 <td class="n">9,99,999.99</td>
 <td class="n">–</td>
+<td class="n">9,99,999.99</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">9,99,999.99</td>
 </tr>
@@ -230,6 +258,8 @@ th{font-weight:bold}
 <td class="n">32</td>
 <td class="n">–</td>
 <td class="n">4,500.25</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -241,6 +271,8 @@ th{font-weight:bold}
 <td class="n">33</td>
 <td class="n">4,500.25</td>
 <td class="n">–</td>
+<td class="n">4,500.25</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">4,500.25</td>
 </tr>
@@ -252,6 +284,8 @@ th{font-weight:bold}
 <td class="n">34</td>
 <td class="n">–</td>
 <td class="n">780.00</td>
+<td class="n">1,23,456.78</td>
+<td class="n">–</td>
 <td class="n">5,000.00</td>
 <td class="n">1,23,456.78</td>
 </tr>
@@ -263,6 +297,8 @@ th{font-weight:bold}
 <td class="n">35</td>
 <td class="n">780.00</td>
 <td class="n">–</td>
+<td class="n">780.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -274,6 +310,8 @@ th{font-weight:bold}
 <td class="n">36</td>
 <td class="n">–</td>
 <td class="n">99.99</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">2,00,000.00</td>
 </tr>
@@ -285,6 +323,8 @@ th{font-weight:bold}
 <td class="n">37</td>
 <td class="n">99.99</td>
 <td class="n">–</td>
+<td class="n">99.99</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">99.99</td>
 </tr>
@@ -296,6 +336,8 @@ th{font-weight:bold}
 <td class="n">38</td>
 <td class="n">–</td>
 <td class="n">12,345.00</td>
+<td class="n">1,234.50</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -305,6 +347,8 @@ th{font-weight:bold}
 <td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
 <td>Amravati</td>
 <td class="n">39</td>
+<td class="n">12,345.00</td>
+<td class="n">–</td>
 <td class="n">12,345.00</td>
 <td class="n">–</td>
 <td class="n">5,000.00</td>
@@ -318,6 +362,8 @@ th{font-weight:bold}
 <td class="n">40</td>
 <td class="n">–</td>
 <td class="n">56.00</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">9,99,999.99</td>
 </tr>
@@ -329,9 +375,47 @@ th{font-weight:bold}
 <td class="n">41</td>
 <td class="n">56.00</td>
 <td class="n">–</td>
+<td class="n">56.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
+</tbody>
+</table>
+<div class="foot">Page 1 of 2</div>
+</section>
+<section class="page memo rep">
+<div class="cont">Truck-wise report (continued)</div>
+<table>
+<colgroup>
+<col style="width:22mm">
+<col style="width:16mm">
+<col style="width:36mm">
+<col style="width:32mm">
+<col style="width:12mm">
+<col style="width:26mm">
+<col style="width:26mm">
+<col style="width:24mm">
+<col style="width:28mm">
+<col style="width:29mm">
+<col style="width:26mm">
+</colgroup>
+<thead>
+<tr>
+<th>Memo date</th>
+<th class="n">Challan</th>
+<th>Truck</th>
+<th>To station</th>
+<th class="n">LRs</th>
+<th class="n">To pay (₹)</th>
+<th class="n">Paid (₹)</th>
+<th class="n">Wasuli (₹)</th>
+<th class="n">Round figure (₹)</th>
+<th class="n">Truck hire (₹)</th>
+<th class="n">Hamali (₹)</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td>23-10-2026</td>
 <td class="n">1222</td>
@@ -340,6 +424,8 @@ th{font-weight:bold}
 <td class="n">42</td>
 <td class="n">–</td>
 <td class="n">1,23,456.78</td>
+<td class="n">4,500.25</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">4,500.25</td>
 </tr>
@@ -351,6 +437,8 @@ th{font-weight:bold}
 <td class="n">43</td>
 <td class="n">1,23,456.78</td>
 <td class="n">–</td>
+<td class="n">1,23,456.78</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">1,23,456.78</td>
 </tr>
@@ -362,6 +450,8 @@ th{font-weight:bold}
 <td class="n">44</td>
 <td class="n">–</td>
 <td class="n">2,00,000.00</td>
+<td class="n">–</td>
+<td class="n">–</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -373,6 +463,8 @@ th{font-weight:bold}
 <td class="n">45</td>
 <td class="n">2,00,000.00</td>
 <td class="n">–</td>
+<td class="n">2,00,000.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">2,00,000.00</td>
 </tr>
@@ -384,6 +476,8 @@ th{font-weight:bold}
 <td class="n">46</td>
 <td class="n">–</td>
 <td class="n">1,234.50</td>
+<td class="n">99.99</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">99.99</td>
 </tr>
@@ -395,6 +489,8 @@ th{font-weight:bold}
 <td class="n">47</td>
 <td class="n">1,234.50</td>
 <td class="n">–</td>
+<td class="n">1,234.50</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -406,6 +502,8 @@ th{font-weight:bold}
 <td class="n">48</td>
 <td class="n">–</td>
 <td class="n">9,99,999.99</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">12,345.00</td>
 </tr>
@@ -415,6 +513,8 @@ th{font-weight:bold}
 <td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
 <td>Amravati</td>
 <td class="n">49</td>
+<td class="n">9,99,999.99</td>
+<td class="n">–</td>
 <td class="n">9,99,999.99</td>
 <td class="n">–</td>
 <td class="n">5,000.00</td>
@@ -428,6 +528,8 @@ th{font-weight:bold}
 <td class="n">50</td>
 <td class="n">–</td>
 <td class="n">4,500.25</td>
+<td class="n">56.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -439,6 +541,8 @@ th{font-weight:bold}
 <td class="n">51</td>
 <td class="n">4,500.25</td>
 <td class="n">–</td>
+<td class="n">4,500.25</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">4,500.25</td>
 </tr>
@@ -450,6 +554,8 @@ th{font-weight:bold}
 <td class="n">52</td>
 <td class="n">–</td>
 <td class="n">780.00</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">1,23,456.78</td>
 </tr>
@@ -461,6 +567,8 @@ th{font-weight:bold}
 <td class="n">53</td>
 <td class="n">780.00</td>
 <td class="n">–</td>
+<td class="n">780.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -472,6 +580,8 @@ th{font-weight:bold}
 <td class="n">54</td>
 <td class="n">–</td>
 <td class="n">99.99</td>
+<td class="n">2,00,000.00</td>
+<td class="n">–</td>
 <td class="n">5,000.00</td>
 <td class="n">2,00,000.00</td>
 </tr>
@@ -483,41 +593,11 @@ th{font-weight:bold}
 <td class="n">55</td>
 <td class="n">99.99</td>
 <td class="n">–</td>
+<td class="n">99.99</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">99.99</td>
 </tr>
-</tbody>
-</table>
-<div class="foot">Page 1 of 2</div>
-</section>
-<section class="page memo rep">
-<div class="cont">Truck-wise report (continued)</div>
-<table>
-<colgroup>
-<col style="width:20mm">
-<col style="width:14mm">
-<col style="width:28mm">
-<col style="width:26mm">
-<col style="width:10mm">
-<col style="width:24mm">
-<col style="width:24mm">
-<col style="width:22mm">
-<col style="width:22mm">
-</colgroup>
-<thead>
-<tr>
-<th>Memo date</th>
-<th class="n">Challan</th>
-<th>Truck</th>
-<th>To station</th>
-<th class="n">LRs</th>
-<th class="n">To pay (₹)</th>
-<th class="n">Paid (₹)</th>
-<th class="n">Truck hire (₹)</th>
-<th class="n">Hamali (₹)</th>
-</tr>
-</thead>
-<tbody>
 <tr>
 <td>09-10-2026</td>
 <td class="n">1236</td>
@@ -526,6 +606,8 @@ th{font-weight:bold}
 <td class="n">56</td>
 <td class="n">–</td>
 <td class="n">12,345.00</td>
+<td class="n">–</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">–</td>
 </tr>
@@ -537,6 +619,8 @@ th{font-weight:bold}
 <td class="n">57</td>
 <td class="n">12,345.00</td>
 <td class="n">–</td>
+<td class="n">12,345.00</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">12,345.00</td>
 </tr>
@@ -548,6 +632,8 @@ th{font-weight:bold}
 <td class="n">58</td>
 <td class="n">–</td>
 <td class="n">56.00</td>
+<td class="n">9,99,999.99</td>
+<td class="n">12,345</td>
 <td class="n">5,000.00</td>
 <td class="n">9,99,999.99</td>
 </tr>
@@ -557,6 +643,8 @@ th{font-weight:bold}
 <td>Maharashtra State Cooperative Marketing Federation Limited, Yavatmal</td>
 <td>Amravati</td>
 <td class="n">59</td>
+<td class="n">56.00</td>
+<td class="n">–</td>
 <td class="n">56.00</td>
 <td class="n">–</td>
 <td class="n">5,000.00</td>
@@ -573,6 +661,10 @@ th{font-weight:bold}
 <span>To pay <b>12,34,567.89</b>
 </span>
 <span>Paid <b>9,87,654.50</b>
+</span>
+<span>Wasuli <b>4,076.00</b>
+</span>
+<span>Round figure <b>12,345</b>
 </span>
 <span>Truck hire <b>3,00,000.00</b>
 </span>

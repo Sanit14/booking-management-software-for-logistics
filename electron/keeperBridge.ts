@@ -36,6 +36,7 @@ import {
   type PendingPage,
   type PendingStation,
   type PendingTotals,
+  type SettlementPreview,
   type PrintCompany,
   type RecentLr,
   type ReportAgentRow,
@@ -326,6 +327,9 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:memos-defaults', (_e, date: unknown) => call<MemoDefaults>('POST', '/memos/defaults', { date: dateOrNull(date) }));
   ipcMain.handle('keeper:memos-pending', (_e, filters: unknown, cursor: unknown) => call<PendingPage>('POST', '/memos/pending', { filters, cursor }));
   ipcMain.handle('keeper:memos-totals', (_e, ids: unknown) => call<PendingTotals>('POST', '/memos/totals', { ids }));
+  ipcMain.handle('keeper:memos-settlement', (_e, ids: unknown, hamaliRate: unknown, commission: unknown, memoId: unknown) =>
+    call<SettlementPreview>('POST', '/memos/settlement', { ids, hamaliRate: text(hamaliRate), commission: text(commission), memoId }),
+  );
   ipcMain.handle('keeper:memos-create', (_e, input: unknown) => call<MemoSaved>('POST', '/memos/create', { input }));
   ipcMain.handle('keeper:memos-get', (_e, id: unknown) => call<MemoDetail>('POST', '/memos/get', { id }));
   ipcMain.handle('keeper:memos-by-date', (_e, date: unknown) => call<MemoListRow[]>('POST', '/memos/by-date', { date: dateOrNull(date) }));
@@ -333,6 +337,9 @@ export function initKeeperBridge(userDataDir: string) {
   ipcMain.handle('keeper:memos-list', (_e, filters: unknown, cursor: unknown) => call<SavedMemoPage>('POST', '/memos/list', { filters, cursor }));
   ipcMain.handle('keeper:memos-edit', (_e, id: unknown, version: unknown, input: unknown, pin: unknown) =>
     call<MemoChanged>('POST', '/memos/edit', { id, version, input, systemPin: text(pin) }),
+  );
+  ipcMain.handle('keeper:memos-edit-settlement', (_e, id: unknown, version: unknown, hamaliRate: unknown, commission: unknown, pin: unknown) =>
+    call<MemoChanged>('POST', '/memos/edit-settlement', { id, version, hamaliRate: text(hamaliRate), commission: text(commission), systemPin: text(pin) }),
   );
   ipcMain.handle('keeper:memos-remove-lrs', (_e, id: unknown, lrIds: unknown, pin: unknown) => call<MemoDetail>('POST', '/memos/remove-lrs', { id, lrIds, systemPin: text(pin) }));
   ipcMain.handle('keeper:memos-move-lrs', (_e, id: unknown, lrIds: unknown, targetId: unknown, pin: unknown) =>

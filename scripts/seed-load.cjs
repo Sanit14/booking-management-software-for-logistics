@@ -232,7 +232,7 @@ function seed(o) {
           const memo = must(
             memos.create(db, pick(SEATS), {
               uid: `seed-memo-${counts.memos + 1}`, date: null, truckId: pick(truckIds), driverId: pick(driverIds), fromStationId: from, toStationId: station,
-              truckHire: String(3000 + int(27000)), loadingHamali: String(100 + int(700)), lrIds: chunk.map((c) => c.id),
+              truckHire: String(3000 + int(27000)), loadingHamali: String(100 + int(700)), hamaliRate: '0.40', commission: '10', lrIds: chunk.map((c) => c.id),
             }),
             `memo ${counts.memos + 1}`,
           );

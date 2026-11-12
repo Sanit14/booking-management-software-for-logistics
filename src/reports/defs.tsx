@@ -6,6 +6,7 @@ import type {
   ReportQuery, ReportStationRow, ReportTruckRow, ReportTruckTotals, ReportWithWasuli,
 } from '../../shared';
 import { isoToDisplay } from '../logic/lrOpen';
+import { formatSigned } from '../logic/rupees';
 import type { Jump } from '../logic/searchResults';
 import { rupees } from '../loadingMemo/columns';
 import { strings } from '../strings';
@@ -96,7 +97,7 @@ export const DEFS: Record<ReportKind, Def> = {
       {
         key: 'memo',
         header: c.memo,
-        width: 124,
+        width: 116,
         render: (r) => (
           <>
             <span className={styles.memoNo}>
@@ -108,13 +109,16 @@ export const DEFS: Record<ReportKind, Def> = {
         ),
       },
       { key: 'truck', header: c.truck, render: (r) => two(r.truck, `→ ${r.toStation}`) },
-      { key: 'lrs', header: c.lrs, width: 56, num: true, render: (r) => r.lrs },
-      { key: 'toPay', header: c.toPay, width: 122, num: true, render: (r) => money(r.toPayPaise) },
-      { key: 'paid', header: c.paid, width: 122, num: true, render: (r) => money(r.paidPaise) },
-      { key: 'hire', header: c.hire, width: 140, num: true, render: (r) => two(money(r.truckHirePaise), `${c.hamali} ${money(r.loadingHamaliPaise)}`) },
+      { key: 'lrs', header: c.lrs, width: 48, num: true, render: (r) => r.lrs },
+      // To pay and Paid share a cell (Paid under To pay): with Wasuli and the round figure there are eleven columns, and the Truck column must stay wide enough for a truck number.
+      { key: 'toPay', header: c.toPay, width: 116, num: true, render: (r) => two(money(r.toPayPaise), `${c.paid} ${money(r.paidPaise)}`) },
+      { key: 'wasuli', header: c.wasuli, width: 104, num: true, render: (r) => money(r.wasuliPaise) },
+      // The round figure is a whole number of rupees and may be below zero; a memo saved before 4.6 has none.
+      { key: 'round', header: c.round, width: 114, num: true, render: (r) => (r.roundRupees === null ? '–' : formatSigned(r.roundRupees * 100)) },
+      { key: 'hire', header: c.hire, width: 112, num: true, render: (r) => two(money(r.truckHirePaise), `${c.hamali} ${money(r.loadingHamaliPaise)}`) },
     ],
     rowKey: (r) => String(r.memoId),
-    totals: (t) => [String(t.memos), String(t.lrs), rupees(t.toPayPaise), rupees(t.paidPaise), rupees(t.truckHirePaise), rupees(t.loadingHamaliPaise)],
+    totals: (t) => [String(t.memos), String(t.lrs), rupees(t.toPayPaise), rupees(t.paidPaise), rupees(t.wasuliPaise), formatSigned(t.roundRupees * 100), rupees(t.truckHirePaise), rupees(t.loadingHamaliPaise)],
     open: (r) => ({ jump: { to: 'memo', id: r.memoId } }),
   }),
 

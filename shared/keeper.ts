@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 21;
+export const KEEPER_VERSION = 22;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -396,10 +396,13 @@ export interface MemoInput extends MemoHeaderInput {
   uid: string;
   systemPin?: string;
   lrIds: number[];
+  /** "Details of report" (4.6), typed text like the money above: the hamali rate per article in rupees and the commission %. Both must be typed (0 is allowed, empty is refused). */
+  hamaliRate: string;
+  commission: string;
 }
-export type MemoField = 'date' | 'reason' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs';
-/** required · amount (not a rupee amount) · same (from = to) · future / date (the date) · year (an edit moved the date out of the challan's year) · missing (no such, or inactive, truck / driver / station; an LR id that does not exist) · many (over 500 LRs). */
-export type MemoFieldError = 'required' | 'amount' | 'same' | 'future' | 'date' | 'year' | 'missing' | 'many';
+export type MemoField = 'date' | 'reason' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs' | 'hamaliRate' | 'commission';
+/** required · amount (not a rupee amount / not a % with at most 2 decimals) · percent (a % over 100) · same (from = to) · future / date (the date) · year (an edit moved the date out of the challan's year) · missing (no such, or inactive, truck / driver / station; an LR id that does not exist) · many (over 500 LRs). */
+export type MemoFieldError = 'required' | 'amount' | 'percent' | 'same' | 'future' | 'date' | 'year' | 'missing' | 'many';
 
 /** A firm picked for a pending-LR filter, or text typed: any part of the name an LR was booked with (a walk-in's or a firm's). */
 export interface PartyFilter {
@@ -444,6 +447,8 @@ export interface PendingTotals {
   qty: number;
   toPayPaise: number;
   paidPaise: number;
+  /** The LRs' own wasuli added up (what the memo will freeze). */
+  wasuliPaise: number;
 }
 export interface MemoDefaults {
   today: string;
@@ -471,6 +476,37 @@ export interface MemoTotals {
   toPayPaise: number;
   paidPaise: number;
   hamaliPaise: number;
+  /** The LRs' own wasuli added up (4.6). */
+  wasuliPaise: number;
+}
+/**
+ * "Details of report" (4.6): every step of a memo's settlement, in whole paise, worked out by the keeper (`keeper/memoSettlement.ts`) and only shown
+ * by the screen and the print. Any of the totals and the net may be negative (shown with a minus sign); `roundRupees` is the net to the rupee,
+ * .50 away from zero.
+ */
+export interface MemoSettlement {
+  articles: number;
+  paidPaise: number;
+  toPayPaise: number;
+  wasuliPaise: number;
+  /** Hamali rate per article. */
+  ratePaise: number;
+  /** Commission % × 100. */
+  commissionBp: number;
+  /** To pay + paid: what the commission is a % of. */
+  commissionBasePaise: number;
+  hamaliLessPaise: number;
+  total1Paise: number;
+  commissionLessPaise: number;
+  total2Paise: number;
+  netPaise: number;
+  roundRupees: number;
+}
+/** The window's live figures: the ticked LRs that are still booked, added up, and the steps for the typed rate and %, or what is wrong with them. */
+export interface SettlementPreview {
+  totals: PendingTotals;
+  errors: Partial<Record<'hamaliRate' | 'commission', MemoFieldError>>;
+  settlement: MemoSettlement | null;
 }
 /** A saved memo: its header, the totals frozen when it was saved, the totals of its LRs now, and its LRs. */
 export interface MemoDetail extends MemoListRow {
@@ -483,6 +519,11 @@ export interface MemoDetail extends MemoListRow {
   toStationId: number;
   truckHirePaise: number;
   loadingHamaliPaise: number;
+  /** Hamali rate per article and commission % × 100 typed with the memo; null for a memo saved before 4.6 until Edit rate / commission gives it one. */
+  hamaliRatePaise: number | null;
+  commissionBp: number | null;
+  /** The steps from the FROZEN totals and the rate and %; null when the memo has none. */
+  settlement: MemoSettlement | null;
   frozen: MemoTotals;
   /** The LRs on the memo now, added up in SQL the way they were at the save (all 0 for a cancelled memo). */
   now: MemoTotals;
@@ -518,7 +559,9 @@ export interface MemoChanged {
   changed: boolean;
 }
 /** `hamali` is the LRs' hamali added up (a recalculation); `charges` and `stax` only come from the audit rows of recalculations made before 4.5. */
-export type MemoChangeField = 'date' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs' | 'qty' | 'toPay' | 'paid' | 'hamali' | 'charges' | 'stax';
+export type MemoChangeField =
+  | 'date' | 'truck' | 'driver' | 'fromStation' | 'toStation' | 'truckHire' | 'loadingHamali' | 'lrs' | 'qty' | 'toPay' | 'paid' | 'hamali' | 'charges' | 'stax'
+  | 'wasuli' | 'hamaliRate' | 'commission' | 'roundFigure';
 /** A changed field: names (not ids) for truck, driver and stations, paise for money, text otherwise. */
 export interface MemoChange {
   field: MemoChangeField;
@@ -528,7 +571,7 @@ export interface MemoChange {
 export interface MemoHistoryEntry {
   at: string; // ISO
   seat: string;
-  action: 'created' | 'edited' | 'removed' | 'added' | 'moved-out' | 'moved-in' | 'recalculated' | 'cancelled';
+  action: 'created' | 'edited' | 'removed' | 'added' | 'moved-out' | 'moved-in' | 'recalculated' | 'cancelled' | 'settlement';
   reason?: string;
   /** edited: the header fields; recalculated: the totals. */
   changes: MemoChange[];
@@ -564,17 +607,34 @@ export interface PrintCompany {
   phone: string;
   gstin: string;
 }
-/** One LR line of a printed memo. Amounts are text, already formatted by the keeper ('–' = nothing). */
+/** One LR line of a printed memo (the old software's table: no serial number, no destination). Amounts are text, already formatted by the keeper ('–' = nothing). */
 export interface PrintMemoRow {
-  sr: number;
   lrNo: number;
   consignor: string;
   consignee: string;
-  destination: string;
   particular: string;
   qty: number;
   toPay: string;
   paid: string;
+  wasuli: string;
+}
+/**
+ * "Details of report" as printed after the last row (4.6): every line as text from the keeper's `memoSettlement`, so the template does no maths. Amounts
+ * keep their minus sign; `round` is whole rupees. `hamaliHow` is "177 × 0.40" and `commissionHow` is "10 %": the template puts them in brackets next to the amounts.
+ */
+export interface PrintSettlement {
+  articles: number;
+  paid: string;
+  toPay: string;
+  hamaliLess: string;
+  hamaliHow: string;
+  total1: string;
+  commissionLess: string;
+  commissionHow: string;
+  total2: string;
+  wasuli: string;
+  net: string;
+  round: string;
 }
 /** Exactly what a loading memo prints: text only, so the template does no maths. Totals are the ones frozen when the memo was saved. */
 export interface PrintMemo {
@@ -594,7 +654,9 @@ export interface PrintMemo {
   differs: boolean;
   /** By LR number. */
   rows: PrintMemoRow[];
-  totals: { lrs: number; qty: number; toPay: string; paid: string };
+  totals: { lrs: number; qty: number; toPay: string; paid: string; wasuli: string };
+  /** null for a memo saved before 4.6 and for a cancelled memo: no block is printed. */
+  settlement: PrintSettlement | null;
 }
 /** Exactly what an LR prints. `mode` says which of To pay / Paid the freight is; every amount is formatted text. */
 export interface PrintLr {
@@ -1002,6 +1064,10 @@ export interface ReportTruckRow {
   lrs: number;
   toPayPaise: number;
   paidPaise: number;
+  /** The wasuli frozen with the memo (4.6). */
+  wasuliPaise: number;
+  /** The round figure of the memo's settlement in whole rupees (it may be negative); null for a memo saved before 4.6. */
+  roundRupees: number | null;
   truckHirePaise: number;
   loadingHamaliPaise: number;
   differs: boolean;
@@ -1011,6 +1077,9 @@ export interface ReportTruckTotals {
   lrs: number;
   toPayPaise: number;
   paidPaise: number;
+  wasuliPaise: number;
+  /** The sum of the memos' round figures (a memo saved before 4.6 has none and adds nothing). */
+  roundRupees: number;
   truckHirePaise: number;
   loadingHamaliPaise: number;
 }
@@ -1121,6 +1190,7 @@ export const HISTORY_ACTIONS: Readonly<Record<string, { kind: Exclude<HistoryKin
   'memos.move-in': { kind: 'memo', verb: 'memoChange' },
   'memos.add-lrs': { kind: 'memo', verb: 'memoChange' },
   'memos.recalculate': { kind: 'memo', verb: 'memoChange' },
+  'memos.settlement': { kind: 'memo', verb: 'memoChange' },
   'memos.cancel': { kind: 'memo', verb: 'cancelled' },
   'wasuli.create': { kind: 'wasuli', verb: 'created' },
   'wasuli.update': { kind: 'wasuli', verb: 'edited' },
@@ -1190,7 +1260,7 @@ export interface HistoryCursor {
   id: number;
 }
 /** How a changed value is written: rupees, a date, a percentage, a charge option's name, or as it is. */
-export type HistoryUnit = 'paise' | 'date' | 'percent' | 'option';
+export type HistoryUnit = 'paise' | 'date' | 'percent' | 'option' | 'rupees';
 /** One changed field: names (not ids) for stations, trucks, drivers, agents and firms; paise for money. */
 export interface HistoryChange {
   field: string;
@@ -1385,6 +1455,11 @@ export interface KeeperApi {
     /** Booked LRs by (date, number), 100 a page: pass the previous page's `next` for the following one. */
     pending(filters: MemoFilters, cursor: MemoCursor | null): Promise<KeeperResult<PendingPage>>;
     totals(ids: number[]): Promise<KeeperResult<PendingTotals>>;
+    /**
+     * "Details of report" live: the ticked LRs that are still booked, added up, and the steps for the typed rate and %, or the field errors. With `memoId`
+     * (Edit rate / commission) the figures are the saved memo's frozen ones and `ids` is ignored. Reads only.
+     */
+    settlement(ids: number[], hamaliRate: string, commission: string, memoId: number | null): Promise<KeeperResult<SettlementPreview>>;
     /** All or nothing: an LR another seat loaded first is refused with `memo-conflict` and nothing is saved. A date other than today needs the System PIN. */
     create(input: MemoInput): Promise<KeeperResult<MemoSaved>>;
     get(id: number): Promise<KeeperResult<MemoDetail>>;
@@ -1400,7 +1475,9 @@ export interface KeeperApi {
     moveLrs(id: number, lrIds: number[], targetId: number, systemPin: string): Promise<KeeperResult<MemoDetail>>;
     /** System PIN. The same claim guard as a new memo: all or nothing. */
     addLrs(id: number, lrIds: number[], systemPin: string): Promise<KeeperResult<MemoDetail>>;
-    /** Admin PIN: the frozen totals become the totals of the LRs now. */
+    /** System PIN. Changes the hamali rate and the commission %; the figures are worked out again from the memo's FROZEN totals. A stale `version` is refused with the current memo. */
+    editSettlement(id: number, version: number, hamaliRate: string, commission: string, systemPin: string): Promise<KeeperResult<MemoChanged>>;
+    /** Admin PIN: the frozen totals become the totals of the LRs now (net and round figure follow, with the same rate and %). */
     recalculate(id: number, version: number, adminPin: string): Promise<KeeperResult<MemoChanged>>;
     /** Admin PIN and a reason: the LRs go back to booked. There is no restore. */
     cancel(id: number, version: number, reason: string, adminPin: string): Promise<KeeperResult<MemoDetail>>;

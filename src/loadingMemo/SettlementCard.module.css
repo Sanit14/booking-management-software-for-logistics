@@ -1,0 +1,126 @@
+/* The steps of a settlement (the window and the card on a saved memo) and the card itself. */
+.steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-family: var(--font-num);
+  font-size: var(--fs-16);
+  font-variant-numeric: tabular-nums;
+}
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+}
+.line dt {
+  margin: 0;
+  color: var(--text-nav);
+}
+.line dd {
+  margin: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rule {
+  border-bottom: 1px solid var(--border);
+}
+.total {
+  font-weight: 700;
+}
+.total dt {
+  color: var(--text);
+}
+.total dd {
+  font-weight: 800;
+}
+.how {
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 500;
+}
+
+.card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+.title {
+  margin: 0;
+  color: var(--teal-dark);
+  font-size: var(--fs-16);
+  font-weight: 800;
+}
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--info-tint);
+  color: var(--info);
+  font-size: var(--fs-14);
+  font-weight: 700;
+}
+.round {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: var(--r-lg);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+.round strong {
+  font-size: var(--fs-15);
+}
+.round output {
+  font-family: var(--font-num);
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.none {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+}
+.none strong {
+  color: var(--text);
+  font-size: var(--fs-15);
+}
+.note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+}
+
+/* On a saved memo the card shares the dialog with the LR list, so its lines are tighter than in the window. */
+.card .steps {
+  font-size: var(--fs-15);
+}
+.card .line {
+  padding: 2px 0;
+}
+.card .line dt {
+  white-space: nowrap;
+}
+.card .round {
+  padding: 6px 12px;
+}
+.card .round output {
+  font-size: 24px;
+  white-space: nowrap;
+}

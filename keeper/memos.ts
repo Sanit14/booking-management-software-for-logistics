@@ -9,13 +9,14 @@ import {
   MAX_MEMO_LRS,
   type KeeperResult, type MemoChange, type MemoChanged, type MemoCursor, type MemoDefaults, type MemoDetail, type MemoFilters, type MemoHeaderInput, type MemoHistoryEntry,
   type MemoInput, type MemoListRow, type MemoLrRow, type MemoSaved, type MemoTaken, type MemoTotals, type PendingPage, type PendingTotals, type ResultCode,
-  type SavedMemoCursor, type SavedMemoFilters, type SavedMemoPage, type SavedMemoRow,
+  type SavedMemoCursor, type SavedMemoFilters, type SavedMemoPage, type SavedMemoRow, type SettlementPreview,
 } from '../shared';
 import { parseJson, writeAudit, type AuditRow } from './audit';
 import type { Db } from './db';
 import { cleanReason, isDate, localDate } from './lrRules';
 import { lrSumsSql } from './lrSql';
-import { cleanHeader, cleanIds, cleanMemo, type MemoErrors } from './memoRules';
+import { cleanHeader, cleanIds, cleanMemo, cleanSettlement, type MemoErrors } from './memoRules';
+import { memoSettlement } from './memoSettlement';
 import { nextNumber } from './numbering';
 import type { makePins } from './pins';
 
@@ -44,11 +45,11 @@ const MEMO_ROW = `SELECT m.id, m.challan_year AS challanYear, m.challan_no AS ch
 const DETAIL = `SELECT m.id, m.challan_year AS challanYear, m.challan_no AS challanNo, m.memo_date AS date, m.status, m.frozen_lr_count AS lrCount, m.version,
   m.truck_id AS truckId, t.number AS truck, m.driver_id AS driverId, d.name AS driver,
   m.from_station_id AS fromStationId, fs.name AS fromStation, m.to_station_id AS toStationId, ts.name AS toStation,
-  m.truck_hire_paise AS truckHirePaise, m.loading_hamali_paise AS loadingHamaliPaise,
-  m.frozen_qty AS fQty, m.frozen_topay_paise AS fToPay, m.frozen_paid_paise AS fPaid, m.frozen_charges_paise AS fHamali
+  m.truck_hire_paise AS truckHirePaise, m.loading_hamali_paise AS loadingHamaliPaise, m.hamali_rate_paise AS hamaliRatePaise, m.commission_bp AS commissionBp,
+  m.frozen_qty AS fQty, m.frozen_topay_paise AS fToPay, m.frozen_paid_paise AS fPaid, m.frozen_charges_paise AS fHamali, m.frozen_wasuli_paise AS fWasuli
   FROM memos m JOIN trucks t ON t.id = m.truck_id JOIN drivers d ON d.id = m.driver_id
   JOIN stations fs ON fs.id = m.from_station_id JOIN stations ts ON ts.id = m.to_station_id`;
-type DetailRow = Omit<MemoDetail, 'frozen' | 'now' | 'differs' | 'lrs'> & { fQty: number; fToPay: number; fPaid: number; fHamali: number };
+type DetailRow = Omit<MemoDetail, 'frozen' | 'now' | 'differs' | 'lrs' | 'settlement'> & { fQty: number; fToPay: number; fPaid: number; fHamali: number; fWasuli: number };
 
 /**
  * The pending list's SQL, built from fixed pieces: only values are bound, a column name never comes from the request.
@@ -90,12 +91,15 @@ export function pendingSql(f: MemoFilters, afterCursor: boolean) {
   };
 }
 
-/** What the LRs of a memo add up to (`lrSql.ts`). The hamali sum is frozen in the column `frozen_charges_paise`; `frozen_stax_paise` is no longer written (a new memo keeps its default 0) or compared. */
-const SUMS = lrSumsSql();
+/**
+ * What the LRs of a memo add up to (`lrSql.ts`) plus their own wasuli (4.6; it is not part of an LR's total, so it is added here and not in `lrSql.ts`). The hamali sum is
+ * frozen in the column `frozen_charges_paise`; `frozen_stax_paise` is no longer written (a new memo keeps its default 0) or compared.
+ */
+const SUMS = `${lrSumsSql()}, COALESCE(SUM(wasuli_paise), 0) AS wasuliPaise`;
 /** The totals frozen onto a memo, from the LRs now on it. */
 export const FROZEN_SQL = `SELECT ${SUMS} FROM lrs WHERE memo_id = ?`;
 
-const TOTAL_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'hamaliPaise'] as const;
+const TOTAL_KEYS = ['lrs', 'qty', 'toPayPaise', 'paidPaise', 'hamaliPaise', 'wasuliPaise'] as const;
 /** A saved memo differs when its LRs no longer add up to the totals frozen on it; a cancelled memo never does. The same rule is in `savedSql` (for a page of memos): keep the two together. */
 const differs = (status: string, now: MemoTotals, frozen: MemoTotals): boolean => status === 'saved' && TOTAL_KEYS.some((k) => now[k] !== frozen[k]);
 
@@ -104,7 +108,7 @@ const differs = (status: string, now: MemoTotals, frozen: MemoTotals): boolean =
  * columns. The saved-memos list and the Truck-wise report both use this one text; `differs()` above is its twin for one memo.
  */
 export const DIFFERS_SQL = `m.status = 'saved' AND (COALESCE(c.lrs, 0) != m.frozen_lr_count OR COALESCE(c.qty, 0) != m.frozen_qty OR COALESCE(c.toPayPaise, 0) != m.frozen_topay_paise
-        OR COALESCE(c.paidPaise, 0) != m.frozen_paid_paise OR COALESCE(c.hamaliPaise, 0) != m.frozen_charges_paise)`;
+        OR COALESCE(c.paidPaise, 0) != m.frozen_paid_paise OR COALESCE(c.hamaliPaise, 0) != m.frozen_charges_paise OR COALESCE(c.wasuliPaise, 0) != m.frozen_wasuli_paise)`;
 
 /** The SUMS grouped by memo for these memo ids (a `SELECT id FROM page`-style subquery), as the `c` that `DIFFERS_SQL` reads. Used with `lrs_by_memo`. */
 export const memoSumsSql = (ids: string): string => `SELECT memo_id, ${SUMS} FROM lrs WHERE memo_id IN (${ids}) GROUP BY memo_id`;
@@ -158,9 +162,12 @@ interface MemoRow {
   toStationId: number;
   truckHirePaise: number;
   loadingHamaliPaise: number;
+  hamaliRatePaise: number | null;
+  commissionBp: number | null;
 }
 const MEMO_COLUMNS = `id, status, version, challan_year AS challanYear, challan_no AS challanNo, memo_date AS date, truck_id AS truckId, driver_id AS driverId,
-  from_station_id AS fromStationId, to_station_id AS toStationId, truck_hire_paise AS truckHirePaise, loading_hamali_paise AS loadingHamaliPaise`;
+  from_station_id AS fromStationId, to_station_id AS toStationId, truck_hire_paise AS truckHirePaise, loading_hamali_paise AS loadingHamaliPaise,
+  hamali_rate_paise AS hamaliRatePaise, commission_bp AS commissionBp`;
 /** The header fields an edit can change, in form order: the name in the audit row and the column. Fixed, never from the request. */
 const HEADER_COLUMNS = [
   ['date', 'memo_date'], ['truckId', 'truck_id'], ['driverId', 'driver_id'], ['fromStationId', 'from_station_id'], ['toStationId', 'to_station_id'],
@@ -168,17 +175,33 @@ const HEADER_COLUMNS = [
 ] as const;
 type HeaderKey = (typeof HEADER_COLUMNS)[number][0];
 const HEADER_FIELD = { date: 'date', truckId: 'truck', driverId: 'driver', fromStationId: 'fromStation', toStationId: 'toStation', truckHirePaise: 'truckHire', loadingHamaliPaise: 'loadingHamali' } as const;
-const TOTAL_FIELD = { lrs: 'lrs', qty: 'qty', toPayPaise: 'toPay', paidPaise: 'paid', hamaliPaise: 'hamali' } as const;
+const TOTAL_FIELD = { lrs: 'lrs', qty: 'qty', toPayPaise: 'toPay', paidPaise: 'paid', hamaliPaise: 'hamali', wasuliPaise: 'wasuli' } as const;
 /** The totals of a recalculation made before 4.5 also had charges and service tax: History still reads them. */
 const OLD_TOTAL_FIELD = { chargesPaise: 'charges', staxPaise: 'stax' } as const;
 
-const TOTALS_SQL = `SELECT COUNT(*) AS lrs, COALESCE(SUM(qty), 0) AS qty, COALESCE(SUM(topay_paise), 0) AS toPayPaise, COALESCE(SUM(paid_paise), 0) AS paidPaise
+const TOTALS_SQL = `SELECT COUNT(*) AS lrs, COALESCE(SUM(qty), 0) AS qty, COALESCE(SUM(topay_paise), 0) AS toPayPaise, COALESCE(SUM(paid_paise), 0) AS paidPaise,
+  COALESCE(SUM(wasuli_paise), 0) AS wasuliPaise
   FROM lrs WHERE status = 'booked' AND id IN`;
 
 const MEMO_ACTION: Record<string, MemoHistoryEntry['action']> = {
   'memos.create': 'created', 'memos.edit': 'edited', 'memos.remove-lrs': 'removed', 'memos.add-lrs': 'added',
-  'memos.move-out': 'moved-out', 'memos.move-in': 'moved-in', 'memos.recalculate': 'recalculated', 'memos.cancel': 'cancelled',
+  'memos.move-out': 'moved-out', 'memos.move-in': 'moved-in', 'memos.recalculate': 'recalculated', 'memos.cancel': 'cancelled', 'memos.settlement': 'settlement',
 };
+
+/**
+ * The settlement fields an audit row carries (rate in paise, % × 100, round figure in rupees) as changed fields, old → new: a save has none before it (null),
+ * an edit has both. A row written before 4.6 has none of the keys and says nothing.
+ */
+function settlementChanges(before: Record<string, unknown>, after: Record<string, unknown>): MemoChange[] {
+  const pairs = [['hamaliRate', 'hamaliRatePaise'], ['commission', 'commissionBp'], ['roundFigure', 'roundRupees']] as const;
+  const out: MemoChange[] = [];
+  for (const [field, key] of pairs) {
+    const to = typeof after[key] === 'number' ? (after[key] as number) : null;
+    const from = typeof before[key] === 'number' ? (before[key] as number) : null;
+    if (to !== null && from !== to) out.push({ field, from, to });
+  }
+  return out;
+}
 
 /**
  * One audit row of a memo as a history line (truck, driver and stations by name, money in paise); null for any other row (a print). A name
@@ -201,7 +224,10 @@ export function memoEntry(db: Db, r: AuditRow): MemoHistoryEntry | null {
   } else if (action === 'recalculated') {
     for (const k of TOTAL_KEYS) if (before[k] !== after[k]) entry.changes.push({ field: TOTAL_FIELD[k], from: before[k] as number, to: after[k] as number });
     for (const [k, field] of Object.entries(OLD_TOTAL_FIELD)) if (before[k] !== after[k]) entry.changes.push({ field, from: before[k] as number, to: after[k] as number });
-  } else if (action === 'cancelled') entry.reason = String(after.reason ?? '');
+    entry.changes.push(...settlementChanges(before, after)); // a recalculation's rows carry only the round figure of these (the rate and % do not change)
+  } else if (action === 'created') entry.changes.push(...settlementChanges({}, after));
+  else if (action === 'settlement') entry.changes.push(...settlementChanges(before, after));
+  else if (action === 'cancelled') entry.reason = String(after.reason ?? '');
   else if (action === 'moved-out') entry.otherNo = Number(after.toChallanNo);
   else if (action === 'moved-in') entry.otherNo = Number(after.fromChallanNo);
   return entry;
@@ -223,11 +249,12 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
       )
       .all(memoId, ...ids) as MemoTaken[];
 
+  const totalsOf = (db: Db, ids: number[]): PendingTotals => db.prepare(`${TOTALS_SQL} (${marks(ids)})`).get(...ids) as PendingTotals;
   const memoRow = (db: Db, id: number): MemoRow | undefined => db.prepare(`SELECT ${MEMO_COLUMNS} FROM memos WHERE id = ?`).get(id) as MemoRow | undefined;
   const lrNosOf = (db: Db, ids: number[]) => db.prepare(`SELECT id, lr_no AS no FROM lrs WHERE id IN (${marks(ids)}) ORDER BY lr_date, lr_no`).all(...ids) as { id: number; no: number }[];
   const bump = (db: Db, id: number) => db.prepare(`UPDATE memos SET version = version + 1, updated_at = ${NOW} WHERE id = ?`).run(id);
 
-  /** A retry (a uid that was saved) is the same save when it carries what the memo holds now: header and the LRs on it. A date counts only when one was sent. */
+  /** A retry (a uid that was saved) is the same save when it carries what the memo holds now: header, the rate and %, and the LRs on it. A date counts only when one was sent. */
   function sameAsSaved(db: Db, id: number, input: MemoInput, today: string): boolean {
     const c = cleanMemo(input, today);
     const m = memoRow(db, id);
@@ -238,6 +265,7 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
       (input.date === null || c.date === m.date) &&
       input.truckId === m.truckId && input.driverId === m.driverId && input.fromStationId === m.fromStationId && input.toStationId === m.toStationId &&
       c.hirePaise === m.truckHirePaise && c.hamaliPaise === m.loadingHamaliPaise &&
+      c.ratePaise === m.hamaliRatePaise && c.commissionBp === m.commissionBp &&
       onIt.length === sent.length && onIt.every((lrId, i) => lrId === sent[i])
     );
   }
@@ -249,10 +277,12 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
     const lrs = db
       .prepare(`SELECT ${LR_COLUMNS} FROM lrs l JOIN stations s ON s.id = l.to_station_id WHERE l.memo_id = ? ORDER BY l.lr_date, l.lr_no LIMIT ${MAX_MEMO_LRS}`)
       .all(id) as MemoLrRow[];
-    const { fQty, fToPay, fPaid, fHamali, ...head } = m;
-    const frozen: MemoTotals = { lrs: m.lrCount, qty: fQty, toPayPaise: fToPay, paidPaise: fPaid, hamaliPaise: fHamali };
+    const { fQty, fToPay, fPaid, fHamali, fWasuli, ...head } = m;
+    const frozen: MemoTotals = { lrs: m.lrCount, qty: fQty, toPayPaise: fToPay, paidPaise: fPaid, hamaliPaise: fHamali, wasuliPaise: fWasuli };
     const current = db.prepare(FROZEN_SQL).get(id) as MemoTotals;
-    return { ...head, frozen, now: current, differs: differs(m.status, current, frozen), lrs };
+    // The steps come from the FROZEN totals (what was printed) and the rate and % kept with the memo; a memo saved before 4.6 has none.
+    const settlement = m.hamaliRatePaise !== null && m.commissionBp !== null ? memoSettlement(frozen, m.hamaliRatePaise, m.commissionBp) : null;
+    return { ...head, settlement, frozen, now: current, differs: differs(m.status, current, frozen), lrs };
   }
   const detail = (db: Db, id: number): MemoDetail => detailOf(db, id) as MemoDetail;
 
@@ -305,7 +335,32 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
 
     /** The ticked LRs that are still booked, added up in SQL. */
     totals(db: Db, ids: number[]): KeeperResult<PendingTotals> {
-      return ok(db.prepare(`${TOTALS_SQL} (${marks(ids)})`).get(...ids) as PendingTotals);
+      return ok(totalsOf(db, ids));
+    },
+
+    /**
+     * "Details of report" while the clerk types: the ticked LRs that are still booked, added up, and the steps for the typed rate and % (the same
+     * `memoSettlement` the save uses), or what is wrong with a box. With `memoId` (Edit rate / commission of a saved memo) the figures are those frozen
+     * on that memo, what was printed, not its LRs now. Reads only: nothing is written and nothing is announced.
+     */
+    settlement(db: Db, ids: number[], hamaliRate: string, commission: string, memoId: number | null = null): KeeperResult<SettlementPreview> {
+      let totals: PendingTotals;
+      if (memoId === null) totals = totalsOf(db, ids);
+      else {
+        // only the five frozen columns are needed, not the memo's LRs (this runs on every keystroke of the window)
+        const f = db
+          .prepare('SELECT frozen_lr_count AS lrs, frozen_qty AS qty, frozen_topay_paise AS toPayPaise, frozen_paid_paise AS paidPaise, frozen_wasuli_paise AS wasuliPaise FROM memos WHERE id = ?')
+          .get(memoId) as PendingTotals | undefined;
+        if (!f) return refuse('memo-missing');
+        totals = f;
+      }
+      const c = cleanSettlement({ hamaliRate, commission });
+      const errors: SettlementPreview['errors'] = {};
+      if (c.errors.hamaliRate) errors.hamaliRate = c.errors.hamaliRate;
+      if (c.errors.commission) errors.commission = c.errors.commission;
+      const settlement = Object.keys(errors).length === 0 ? memoSettlement(totals, c.ratePaise, c.commissionBp) : null;
+      if (Object.keys(errors).length === 0 && !settlement) errors.hamaliRate = 'amount';
+      return ok({ totals, errors, settlement });
     },
 
     /**
@@ -354,16 +409,21 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
           .run(memoId, ...c.ids);
         if (claimed.changes !== c.ids.length) throw new Stop(refuse('memo-conflict', { taken: takenOf(db, c.ids, memoId) }));
 
+        // The totals are frozen, and the settlement is worked out from them, in this same transaction: what was typed and what was added up cannot part.
         const frozen = db.prepare(FROZEN_SQL).get(memoId) as MemoTotals;
+        const settled = memoSettlement(frozen, c.ratePaise, c.commissionBp);
+        if (!settled) throw new Stop(refuse('memo-invalid', { memoFields: { hamaliRate: 'amount' } })); // more than 500 LRs can add up to: refused, never stored
         db.prepare(
-          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ? WHERE id = ?`,
-        ).run(frozen.lrs, frozen.qty, frozen.toPayPaise, frozen.paidPaise, frozen.hamaliPaise, memoId);
+          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ?, frozen_wasuli_paise = ?,
+             hamali_rate_paise = ?, commission_bp = ?, frozen_net_paise = ?, round_rupees = ? WHERE id = ?`,
+        ).run(frozen.lrs, frozen.qty, frozen.toPayPaise, frozen.paidPaise, frozen.hamaliPaise, frozen.wasuliPaise, settled.ratePaise, settled.commissionBp, settled.netPaise, settled.roundRupees, memoId);
 
         writeAudit(db, {
           seat, action: 'memos.create', entity: 'memos', entityId: memoId,
           after: {
             challanYear: year, challanNo: no, date: c.date, truckId: input.truckId, driverId: input.driverId,
             fromStationId: input.fromStationId, toStationId: input.toStationId, truckHirePaise: c.hirePaise, loadingHamaliPaise: c.hamaliPaise,
+            hamaliRatePaise: settled.ratePaise, commissionBp: settled.commissionBp, netPaise: settled.netPaise, roundRupees: settled.roundRupees,
             lrIds: c.ids, frozen,
           },
         });
@@ -548,11 +608,48 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
         const before = detail(db, id);
         if (!before.differs) return ok({ memo: before, changed: false });
         const n = before.now;
+        // Net and round figure follow the new totals with the SAME rate and % (a memo saved before 4.6 has none and keeps none).
+        const settled = row.hamaliRatePaise !== null && row.commissionBp !== null ? memoSettlement(n, row.hamaliRatePaise, row.commissionBp) : null;
+        if (row.hamaliRatePaise !== null && !settled) throw new Stop(refuse('memo-invalid', { memoFields: { hamaliRate: 'amount' } }));
         db.prepare(
-          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ?,
-             version = version + 1, updated_at = ${NOW} WHERE id = ?`,
-        ).run(n.lrs, n.qty, n.toPayPaise, n.paidPaise, n.hamaliPaise, id);
-        writeAudit(db, { seat, action: 'memos.recalculate', entity: 'memos', entityId: id, before: before.frozen, after: n });
+          `UPDATE memos SET frozen_lr_count = ?, frozen_qty = ?, frozen_topay_paise = ?, frozen_paid_paise = ?, frozen_charges_paise = ?, frozen_wasuli_paise = ?,
+             frozen_net_paise = ?, round_rupees = ?, version = version + 1, updated_at = ${NOW} WHERE id = ?`,
+        ).run(n.lrs, n.qty, n.toPayPaise, n.paidPaise, n.hamaliPaise, n.wasuliPaise, settled?.netPaise ?? null, settled?.roundRupees ?? null, id);
+        writeAudit(db, {
+          seat, action: 'memos.recalculate', entity: 'memos', entityId: id,
+          before: { ...before.frozen, ...(before.settlement ? { netPaise: before.settlement.netPaise, roundRupees: before.settlement.roundRupees } : {}) },
+          after: { ...n, ...(settled ? { netPaise: settled.netPaise, roundRupees: settled.roundRupees } : {}) },
+        });
+        return ok({ memo: detail(db, id), changed: true });
+      });
+    },
+
+    /**
+     * Change the hamali rate and the commission % of a saved memo (System PIN, like Edit header). The figures are worked out again from the memo's FROZEN
+     * totals (what was printed), not from the LRs now; the stale `version` is refused with the current memo; the same values write nothing. A memo saved
+     * before 4.6 gets its first settlement here. One audit row, old → new.
+     */
+    editSettlement(db: Db, seat: string, id: number, version: number, hamaliRate: string, commission: string, systemPin: string): KeeperResult<MemoChanged> {
+      const gate = pins.verify(db, 'system', systemPin);
+      if (!gate.ok) return gate;
+      return change(db, (): KeeperResult<MemoChanged> => {
+        const row = memoRow(db, id);
+        if (!row) return refuse('memo-missing');
+        if (row.version !== version) return refuse('memo-stale', { memo: detail(db, id) });
+        if (row.status === 'cancelled') return refuse('memo-cancelled');
+        const c = cleanSettlement({ hamaliRate, commission });
+        if (Object.keys(c.errors).length > 0) return refuse('memo-invalid', { memoFields: c.errors });
+
+        const before = detail(db, id);
+        const settled = memoSettlement(before.frozen, c.ratePaise, c.commissionBp);
+        if (!settled) return refuse('memo-invalid', { memoFields: { hamaliRate: 'amount' } });
+        if (row.hamaliRatePaise === c.ratePaise && row.commissionBp === c.commissionBp) return ok({ memo: before, changed: false });
+
+        db.prepare(
+          `UPDATE memos SET hamali_rate_paise = ?, commission_bp = ?, frozen_net_paise = ?, round_rupees = ?, version = version + 1, updated_at = ${NOW} WHERE id = ? AND version = ?`,
+        ).run(settled.ratePaise, settled.commissionBp, settled.netPaise, settled.roundRupees, id, version);
+        const facts = (s: typeof settled | null) => ({ hamaliRatePaise: s?.ratePaise ?? null, commissionBp: s?.commissionBp ?? null, netPaise: s?.netPaise ?? null, roundRupees: s?.roundRupees ?? null });
+        writeAudit(db, { seat, action: 'memos.settlement', entity: 'memos', entityId: id, before: facts(before.settlement), after: facts(settled) });
         return ok({ memo: detail(db, id), changed: true });
       });
     },

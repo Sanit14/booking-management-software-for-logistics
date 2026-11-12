@@ -9,15 +9,14 @@ const NAMES = ['Shree Ganesh Traders', 'Patil Hardware', 'Kale Brothers', 'Jain 
 /** A memo of `count` LRs. Every tenth LR has a name too long for its column, so the one-line rule is exercised. */
 export function sampleMemo(count: number, over: Partial<PrintMemo> = {}): PrintMemo {
   const rows: PrintMemoRow[] = Array.from({ length: count }, (_, i) => ({
-    sr: i + 1,
     lrNo: 1200 + i,
     consignor: NAMES[i % NAMES.length],
     consignee: i % 10 === 9 ? 'Maharashtra State Cooperative Marketing Federation Limited, Yavatmal' : NAMES[(i + 2) % NAMES.length],
-    destination: 'Nagpur',
     particular: i % 3 === 0 ? 'Cloth bales' : 'Hardware & fittings',
     qty: 3 + (i % 5),
     toPay: i % 2 === 0 ? '1,800.00' : '–',
     paid: i % 2 === 0 ? '–' : '2,500.50',
+    wasuli: i % 4 === 0 ? '1,200.00' : '–',
   }));
   return {
     company: { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5' },
@@ -33,7 +32,12 @@ export function sampleMemo(count: number, over: Partial<PrintMemo> = {}): PrintM
     cancelled: false,
     differs: false,
     rows,
-    totals: { lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50' },
+    totals: { lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', wasuli: '4,076.00' },
+    // the old paper's own example: 177 articles at 0.40 and 10 % -> net 10,240.90, round figure 10,241
+    settlement: {
+      articles: 177, paid: '220.00', toPay: '6,953.00', hamaliLess: '70.80', hamaliHow: '177 × 0.40', total1: '6,882.20', commissionLess: '717.30', commissionHow: '10 %',
+      total2: '6,164.90', wasuli: '4,076.00', net: '10,240.90', round: '10,241',
+    },
     ...over,
   };
 }
@@ -110,8 +114,11 @@ const REPORT_SAMPLES: Record<ReportKind, { row: (i: number) => string[]; totals:
     totals: ['1,234', '5,678', '12,34,567.89', '9,87,654.50', '1,000.00'],
   },
   truckWise: {
-    row: (i) => [`${String(1 + (i % 28)).padStart(2, '0')}-10-2026`, `${1200 + i}${i % 7 === 6 ? '*' : ''}`, i % 10 === 9 ? longName : 'MH 29 BE 1234', i % 4 === 0 ? 'Nagpur' : 'Amravati', String(20 + (i % 60)), amt(i, 2), amt(i + 1, 2), '5,000.00', amt(i, 3)],
-    totals: ['60', '1,234', '12,34,567.89', '9,87,654.50', '3,00,000.00', '12,000.00'],
+    row: (i) => [
+      `${String(1 + (i % 28)).padStart(2, '0')}-10-2026`, `${1200 + i}${i % 7 === 6 ? '*' : ''}`, i % 10 === 9 ? longName : 'MH 29 BE 1234', i % 4 === 0 ? 'Nagpur' : 'Amravati', String(20 + (i % 60)),
+      amt(i, 2), amt(i + 1, 2), amt(i, 4), i % 5 === 4 ? '–' : '12,345', '5,000.00', amt(i, 3),
+    ],
+    totals: ['60', '1,234', '12,34,567.89', '9,87,654.50', '4,076.00', '12,345', '3,00,000.00', '12,000.00'],
   },
   firmWise: {
     row: (i) => [i % 10 === 9 ? longName : NAMES[i % NAMES.length], String(i % 50), String((i * 3) % 50), String(10 + (i % 90)), amt(i, 2), amt(i + 1, 2)],

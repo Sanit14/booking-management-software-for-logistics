@@ -29,8 +29,8 @@ const audits = (s: Set, action: string) =>
 test('print.memo: the header, the rows in LR-number order and the totals frozen at the save, all as formatted text', () => {
   const { s, print } = setup();
   const a = book(s, { qty: '4', toPay: '1,800', paid: '', particular: 'Cloth bales' });
-  const b = book(s, { qty: '2', toPay: '', paid: '2,500.50', particular: 'Steel pipes', consignor: { firmId: s.patil, name: '', addToFirms: false } });
-  const m = saved(create(s, [b.id, a.id], { truckHire: '4,500', loadingHamali: '250.75' }));
+  const b = book(s, { qty: '2', toPay: '', paid: '2,500.50', wasuli: '100', particular: 'Steel pipes', consignor: { firmId: s.patil, name: '', addToFirms: false } });
+  const m = saved(create(s, [b.id, a.id], { truckHire: '4,500', loadingHamali: '250.75', hamaliRate: '0.40', commission: '10' }));
   const p = got(print.memo(s.db, m.id));
 
   assert.equal(p.challanNo, m.challanNo);
@@ -39,12 +39,36 @@ test('print.memo: the header, the rows in LR-number order and the totals frozen 
   assert.deepEqual([p.truck, p.driver, p.from, p.to], ['MH 29 BE 1234', 'Ramesh Pawar', 'Yavatmal', 'Nagpur']);
   assert.deepEqual([p.truckHire, p.loadingHamali], ['4,500.00', '250.75']);
   assert.deepEqual([p.cancelled, p.differs], [false, false]);
-  assert.deepEqual(p.rows.map((r) => [r.sr, r.lrNo]), [[1, a.no], [2, b.no]]);
-  assert.deepEqual(p.rows[0], {
-    sr: 1, lrNo: a.no, consignor: 'Shree Ganesh Traders', consignee: 'Patil Hardware', destination: 'Nagpur', particular: 'Cloth bales', qty: 4, toPay: '1,800.00', paid: '–',
+  assert.deepEqual(p.rows.map((r) => r.lrNo), [a.no, b.no]);
+  assert.deepEqual(p.rows[0], { lrNo: a.no, consignor: 'Shree Ganesh Traders', consignee: 'Patil Hardware', particular: 'Cloth bales', qty: 4, paid: '–', toPay: '1,800.00', wasuli: '–' });
+  assert.deepEqual([p.rows[1].toPay, p.rows[1].paid, p.rows[1].wasuli, p.rows[1].consignor], ['–', '2,500.50', '100.00', 'Patil Hardware']);
+  assert.deepEqual(p.totals, { lrs: 2, qty: 6, toPay: '1,800.00', paid: '2,500.50', wasuli: '100.00' });
+  // "Details of report" (4.6): 6 articles x 0.40 = 2.40 off a to pay of 1,800; commission 10 % of to pay + paid (4,300.50) = 430.05; then the wasuli is added.
+  assert.deepEqual(p.settlement, {
+    articles: 6, paid: '2,500.50', toPay: '1,800.00', hamaliLess: '2.40', hamaliHow: '6 × 0.40', total1: '1,797.60', commissionLess: '430.05', commissionHow: '10 %',
+    total2: '1,367.55', wasuli: '100.00', net: '1,467.55', round: '1,468',
   });
-  assert.deepEqual([p.rows[1].toPay, p.rows[1].paid, p.rows[1].consignor], ['–', '2,500.50', 'Patil Hardware']);
-  assert.deepEqual(p.totals, { lrs: 2, qty: 6, toPay: '1,800.00', paid: '2,500.50' });
+});
+
+test('print.memo: a negative total or net prints with a minus sign, and the round figure goes .50 away from zero', () => {
+  const { s, print } = setup();
+  const a = book(s, { qty: '100', toPay: '10' });
+  const m = saved(create(s, [a.id], { hamaliRate: '0.20', commission: '0' })); // 100 x 0.20 = 20.00 off a to pay of 10.00
+  const p = got(print.memo(s.db, m.id)).settlement;
+  assert.deepEqual([p?.total1, p?.total2, p?.net, p?.round, p?.hamaliLess, p?.commissionHow], ['-10.00', '-10.00', '-10.00', '-10', '20.00', '0 %']);
+  const b = book(s, { qty: '1', toPay: '1' });
+  const half = got(print.memo(s.db, saved(create(s, [b.id], { hamaliRate: '1.50', commission: '0' })).id)).settlement; // 1.00 - 1.50 = -0.50 -> -1
+  assert.deepEqual([half?.net, half?.round], ['-0.50', '-1']);
+});
+
+test('print.memo: a memo saved before 4.6 has no settlement block (its figures were never worked out)', () => {
+  const { s, print } = setup();
+  const a = book(s, { toPay: '1,000' });
+  const m = saved(create(s, [a.id]));
+  s.db.prepare('UPDATE memos SET hamali_rate_paise = NULL, commission_bp = NULL, frozen_net_paise = NULL, round_rupees = NULL WHERE id = ?').run(m.id);
+  const p = got(print.memo(s.db, m.id));
+  assert.equal(p.settlement, null);
+  assert.equal(p.totals.toPay, '1,000.00');
 });
 
 test('print.memo: rows go by LR number (year, then number), not by date or by the order the memo was ticked', () => {
@@ -81,7 +105,8 @@ test('print.memo: a cancelled memo prints with its frozen totals, no rows (its L
   assert.equal(p.cancelled, true);
   assert.equal(p.differs, false);
   assert.deepEqual(p.rows, []);
-  assert.deepEqual(p.totals, { lrs: 1, qty: 3, toPay: '1,000.00', paid: '0.00' });
+  assert.deepEqual(p.totals, { lrs: 1, qty: 3, toPay: '1,000.00', paid: '0.00', wasuli: '0.00' });
+  assert.equal(p.settlement, null, 'a cancelled memo prints its frozen totals, not a settlement');
 });
 
 test('print.memo: a memo that is not there is refused and writes nothing', () => {

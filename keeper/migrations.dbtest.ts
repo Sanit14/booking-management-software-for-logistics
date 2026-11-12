@@ -135,7 +135,7 @@ const wasuliRows = (db: Db) => db.prepare('SELECT lr_id AS lrId, amount_paise AS
 test('v2 makes an unassigned wasuli row for every LR that is not cancelled and has an amount, and loses nothing', () => {
   const { db, ids } = v1WithLrs();
   const before = JSON.stringify([db.prepare('SELECT * FROM lrs ORDER BY id').all(), db.prepare('SELECT * FROM memos ORDER BY id').all(), db.prepare('SELECT * FROM stations ORDER BY id').all()]);
-  assert.equal(migrate(db), LATEST);
+  assert.equal(migrate(db, MIGRATIONS.slice(0, 2)), 2); // v2 alone: a later version (v5 adds columns to memos) is tested by its own test
   assert.deepEqual(wasuliRows(db), [
     { lrId: ids.booked, amount: 5000, status: 'unassigned', agent: null, assigned: null, collected: null, seat: 'PC01' },
     { lrId: ids.loaded, amount: 1200, status: 'unassigned', agent: null, assigned: null, collected: null, seat: 'PC02' },
@@ -179,6 +179,61 @@ test('v4 adds only an index on the booked LRs: no row of a v3 file changes, and 
   assert.match(sql, /WHERE status = 'booked'/, 'a partial index: only booked LRs are in it');
   assert.equal(migrate(db), LATEST);
   assert.equal(names(db, 'index').filter((n) => n === 'lrs_booked').length, 1);
+});
+
+const memoCols = (db: Db): string[] => (db.pragma('table_info(memos)') as { name: string }[]).map((c) => c.name);
+
+test('v5 adds the settlement columns to memos: wasuli is backfilled from each memo\'s LRs, everything else stays NULL, and a second run changes nothing', () => {
+  const db = openDatabase(path.join(tempDir(), 'booking.db'));
+  assert.equal(migrate(db, MIGRATIONS.slice(0, 4)), 4);
+  const cols4 = memoCols(db);
+  for (const c of ['hamali_rate_paise', 'commission_bp', 'frozen_wasuli_paise', 'frozen_net_paise', 'round_rupees']) assert.ok(!cols4.includes(c), `${c} is not in a v4 book`);
+
+  const a = insertMemo(db);
+  const b = insertMemo(db);
+  const empty = insertMemo(db); // a memo with no LRs left on it (cancelled memos have none)
+  insertLr(db, { status: 'loaded', memo_id: a, wasuli_paise: 4000 });
+  insertLr(db, { status: 'loaded', memo_id: a, wasuli_paise: 76 });
+  insertLr(db, { status: 'loaded', memo_id: b, wasuli_paise: 0 });
+  insertLr(db, { status: 'booked', wasuli_paise: 9999 }); // not on any memo: counted nowhere
+  const others = (id: number) => db.prepare('SELECT * FROM memos WHERE id = ?').get(id) as Record<string, unknown>;
+  const before = [a, b, empty].map(others);
+
+  assert.equal(migrate(db), LATEST);
+  assert.ok(LATEST >= 5);
+  const row = (id: number) => db.prepare('SELECT hamali_rate_paise AS rate, commission_bp AS bp, frozen_wasuli_paise AS wasuli, frozen_net_paise AS net, round_rupees AS round FROM memos WHERE id = ?').get(id);
+  assert.deepEqual(row(a), { rate: null, bp: null, wasuli: 4076, net: null, round: null });
+  assert.deepEqual(row(b), { rate: null, bp: null, wasuli: 0, net: null, round: null });
+  assert.deepEqual(row(empty), { rate: null, bp: null, wasuli: 0, net: null, round: null });
+  for (const [i, id] of [a, b, empty].entries()) {
+    const now = others(id);
+    for (const k of Object.keys(before[i])) assert.deepEqual(now[k], before[i][k], `memo ${id}: ${k} is as it was`);
+  }
+  assert.equal(migrate(db), LATEST);
+  assert.deepEqual(row(a), { rate: null, bp: null, wasuli: 4076, net: null, round: null }, 'a second run does not touch it');
+});
+
+test('v5: the net and the round figure may be negative; the rate, the basis points and the wasuli are checked', () => {
+  const db = openDatabase(path.join(tempDir(), 'booking.db'));
+  migrate(db);
+  const memo = insertMemo(db, { hamali_rate_paise: 40, commission_bp: 1000, frozen_wasuli_paise: 100, frozen_net_paise: -12050, round_rupees: -121 });
+  assert.deepEqual(db.prepare('SELECT frozen_net_paise AS net, round_rupees AS round FROM memos WHERE id = ?').get(memo), { net: -12050, round: -121 });
+  assert.throws(() => insertMemo(db, { hamali_rate_paise: -1 }), /CHECK/);
+  assert.throws(() => insertMemo(db, { commission_bp: 10001 }), /CHECK/);
+  assert.throws(() => insertMemo(db, { commission_bp: -1 }), /CHECK/);
+  assert.throws(() => insertMemo(db, { frozen_wasuli_paise: -1 }), /CHECK/);
+  assert.throws(() => insertMemo(db, { frozen_net_paise: 1.5 }), /./, 'STRICT: whole paise only');
+});
+
+test('a v5 that throws leaves the book at v4, not half-changed (the keeper then stops cleanly)', () => {
+  const db = openDatabase(path.join(tempDir(), 'booking.db'));
+  migrate(db, MIGRATIONS.slice(0, 4));
+  const real = MIGRATIONS[4];
+  const broken = [...MIGRATIONS.slice(0, 4), { version: 5, up: (d: Db) => { real.up(d); throw new Error('boom'); } }];
+  assert.throws(() => migrate(db, broken), /boom/);
+  assert.equal(currentVersion(db), 4);
+  assert.ok(!memoCols(db).includes('hamali_rate_paise'), 'the columns it added are gone with it');
+  assert.equal(migrate(db), LATEST, 'the real v5 still applies afterwards');
 });
 
 test('v2 from an empty v1 database makes empty tables', () => {

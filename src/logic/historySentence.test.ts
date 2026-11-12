@@ -24,6 +24,19 @@ const SAID: [string, Partial<HistoryRow>, string][] = [
   ['lrs.memo-add', { ...lr, facts: { challanNo: 13 } }, 'LR 1248 added to challan 13'],
   ['lrs.memo-cancel', { ...lr, facts: { challanNo: 13 } }, 'LR 1248 back to booked: challan 13 was cancelled'],
   ['memos.create', { ...memo, facts: { lrCount: 12, truck: 'MH 29 AB 1', fromStation: 'Yavatmal', toStation: 'Nagpur' } }, 'Challan 13 made: 12 LRs, truck MH 29 AB 1, Yavatmal → Nagpur'],
+  ['memos.create', {
+    ...memo,
+    facts: { lrCount: 12, truck: 'MH 29 AB 1', fromStation: 'Yavatmal', toStation: 'Nagpur' },
+    changes: [{ field: 'hamaliRate', from: null, to: 40, unit: 'paise' }, { field: 'commission', from: null, to: '10', unit: 'percent' }, { field: 'roundFigure', from: null, to: 10241, unit: 'rupees' }],
+  }, 'Challan 13 made: 12 LRs, truck MH 29 AB 1, Yavatmal → Nagpur · hamali rate 0.40, commission 10 %, round figure 10,241'],
+  ['memos.settlement', {
+    ...memo,
+    changes: [{ field: 'hamaliRate', from: 40, to: 50, unit: 'paise' }, { field: 'commission', from: '10', to: '8', unit: 'percent' }, { field: 'roundFigure', from: 10241, to: 10180, unit: 'rupees' }],
+  }, 'Challan 13: hamali rate 0.40 → 0.50, commission 10 % → 8 %, round figure 10,241 → 10,180'],
+  ['memos.settlement', {
+    ...memo,
+    changes: [{ field: 'hamaliRate', from: null, to: 40, unit: 'paise' }, { field: 'commission', from: null, to: '10', unit: 'percent' }, { field: 'roundFigure', from: null, to: -121, unit: 'rupees' }],
+  }, 'Challan 13: hamali rate – → 0.40, commission – → 10 %, round figure – → -121'],
   ['memos.edit', memo, 'Challan 13 edited'],
   ['memos.remove-lrs', { ...memo, facts: { lrNos: [245] } }, 'Challan 13: LR 245 taken off'],
   ['memos.add-lrs', { ...memo, facts: { lrNos: [245, 246] } }, 'Challan 13: LR 245, 246 added'],
@@ -107,6 +120,9 @@ test('a changed field in words: rupees, dates, percentages, a charge option\'s n
   assert.equal(changeLine({ field: 'remark', from: '', to: 'paid' }, t), 'Remark: — → paid');
   assert.equal(changeLine({ field: 'somethingNew', from: 1, to: 2 }, t), 'somethingNew: 1 → 2', 'a field without a label shows its code');
   assert.equal(changeValue({ field: 'x', from: 0, to: 5, unit: 'paise' }, 'from', t), '₹0');
+  assert.equal(changeLine({ field: 'roundFigure', from: 10241, to: -121, unit: 'rupees' }, t), 'Round figure: ₹10,241 → -₹121');
+  assert.equal(changeLine({ field: 'hamaliRate', from: 40, to: 50, unit: 'paise' }, t), 'Hamali rate: ₹0.40 → ₹0.50');
+  assert.equal(changeLine({ field: 'commission', from: '10', to: '8', unit: 'percent' }, t), 'Commission: 10% → 8%');
 });
 
 test('where a row leads, and the button\'s words', () => {

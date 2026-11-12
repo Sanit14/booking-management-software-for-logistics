@@ -1,0 +1,127 @@
+/* "Details of report": two panels, the figures and the two boxes on the left, the settlement and the round figure on the right. Fits 1024 x 768. */
+.window {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.subtitle {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+  line-height: 20px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+}
+.left {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+.kicker {
+  margin: 0 0 6px;
+  color: var(--text-label);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.figures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0;
+}
+.figures div {
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: var(--r-lg);
+  background: var(--readonly-bg);
+}
+.figures dt {
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+  line-height: 18px;
+}
+.figures dd {
+  margin: 0;
+  font-family: var(--font-num);
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.typeBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 2px solid var(--tint-edge);
+  border-radius: var(--r-xl);
+  background: var(--zebra);
+}
+.note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  line-height: 18px;
+}
+.right {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+}
+.round {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 10px 14px;
+  border-radius: var(--r-xl);
+  background: var(--teal-dark);
+  color: #ffffff;
+}
+.round div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.round strong {
+  font-size: var(--fs-15);
+}
+.round span {
+  color: var(--text-on-teal-2);
+  font-size: var(--fs-14);
+}
+.round output {
+  flex-shrink: 0;
+  font-family: var(--font-num);
+  font-size: var(--fs-34);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.buttons {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 12px 0 6px;
+  border-top: 1px solid var(--line);
+}
