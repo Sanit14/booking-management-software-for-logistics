@@ -221,7 +221,6 @@ export default function FirmAccountsPage({ today, jump, onJumpUsed, onPick }: Pr
               {t.loadMore(count - rows.length)}
             </Button>
           )}
-          <span className={styles.hint}>{t.openHint}</span>
         </div>
       </Card>
     </div>

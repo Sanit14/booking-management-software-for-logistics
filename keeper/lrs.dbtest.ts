@@ -324,26 +324,51 @@ test('each saved LR has one audit row with its values', () => {
   assert.equal((s.db.prepare('SELECT seat FROM lrs WHERE id = ?').get(r.row.id) as { seat: string }).seat, 'seat-7');
 });
 
-test('LR defaults: no station until the Admin PIN sets it; wrong PIN or a bad station change nothing', () => {
+test('LR defaults: a new LR starts from Yavatmal, found by name; no setting is read or written', () => {
   const s = setUp();
-  assert.deepEqual(s.lrs.defaults(s.db, null), { today: TODAY, bookingStationId: null, nextNo: 1 });
-  const want = { bookingStationId: s.yavatmal };
-  const before = footprint(s);
-  const wrong = s.lrs.setDefaults(s.db, 'seat-1', want, SYSTEM);
-  assert.equal(wrong.ok === false && wrong.code, 'wrong-pin', 'the System PIN is not enough');
-  const noStation = s.lrs.setDefaults(s.db, 'seat-1', { ...want, bookingStationId: 999 }, ADMIN);
-  assert.equal(noStation.ok === false && noStation.code, 'lr-invalid');
-  assert.deepEqual(footprint(s), before);
+  assert.deepEqual(s.lrs.defaults(s.db, null), { today: TODAY, bookingStationId: s.yavatmal, nextNo: 1 });
+  // An old book may still hold the setting of the removed LR defaults card: it is ignored.
+  s.db.prepare("INSERT INTO settings (key, value) VALUES ('bookingStationId', ?)").run(String(s.nagpur));
+  assert.equal(s.lrs.defaults(s.db, null).bookingStationId, s.yavatmal);
+});
 
-  const done = s.lrs.setDefaults(s.db, 'seat-1', want, ADMIN);
-  assert.ok(done.ok);
-  assert.deepEqual(done.value, { today: TODAY, bookingStationId: s.yavatmal, nextNo: 1 });
-  assert.equal(n(s, 'audit_log'), before.audit + 1);
-  const row = s.db.prepare("SELECT before_json AS before, after_json AS after FROM audit_log WHERE action = 'settings.lr-defaults'").get() as { before: string; after: string };
-  assert.deepEqual([JSON.parse(row.before), JSON.parse(row.after)], [{ bookingStationId: null }, { bookingStationId: s.yavatmal }], 'the audit row carries the booking station only');
-  assert.equal((s.db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key IN ('defaultChargeOption', 'defaultStaxBp')").get() as { n: number }).n, 0, 'nothing else is written to settings');
-  assert.ok(s.lrs.setDefaults(s.db, 'seat-1', { ...want, bookingStationId: null }, ADMIN).ok);
-  assert.equal(s.lrs.defaults(s.db, null).bookingStationId, null);
+test('ensureBookingStation: makes Yavatmal in a book without it, reopens it when it was closed, and writes nothing when it is there', () => {
+  const pins = makePins();
+  const db = freshDb();
+  const masters = makeMasters(pins);
+  const lrs = makeLrs(pins, masters, () => new Date(2026, 9, 29, 10, 30));
+  assert.equal(lrs.defaults(db, null).bookingStationId, null, 'a new book has none yet');
+  const made = lrs.ensureBookingStation(db, 'KEEPER');
+  assert.ok(made.ok && made.value !== null && 'name' in made.value && made.value.name === 'Yavatmal' && made.value.active);
+  const id = made.ok && made.value ? made.value.id : -1;
+  assert.equal(lrs.defaults(db, null).bookingStationId, id);
+  const audits = () => db.prepare("SELECT seat, action FROM audit_log WHERE action LIKE 'masters.%' ORDER BY id").all() as { seat: string; action: string }[];
+  assert.deepEqual(audits(), [{ seat: 'KEEPER', action: 'masters.create' }]);
+
+  assert.deepEqual(lrs.ensureBookingStation(db, 'KEEPER'), { ok: true, value: null }, 'already there');
+  assert.equal(audits().length, 1, 'and nothing was written');
+
+  // Closed by hand (System PIN): a new LR has no From until the keeper starts again.
+  assert.ok(pins.setup(db, 'seat-1', ADMIN, SYSTEM).ok);
+  const row = masters.all(db).stations[0];
+  assert.ok(masters.setActive(db, 'seat-1', 'stations', id, row.version, false, SYSTEM).ok);
+  assert.equal(lrs.defaults(db, null).bookingStationId, null);
+  const back = lrs.ensureBookingStation(db, 'KEEPER');
+  assert.ok(back.ok && back.value?.active === true);
+  assert.equal(lrs.defaults(db, null).bookingStationId, id);
+  assert.deepEqual(audits().map((a) => a.action), ['masters.create', 'masters.deactivate', 'masters.activate']);
+  assert.equal(masters.all(db).stations.length, 1, 'never a second Yavatmal');
+});
+
+test('ensureBookingStation: a similar station name (Yavatmal City) does not stop it', () => {
+  const pins = makePins();
+  const db = freshDb();
+  const masters = makeMasters(pins);
+  const lrs = makeLrs(pins, masters);
+  assert.ok(masters.create(db, 'seat-1', 'stations', { name: 'Yavatmal City' }).ok);
+  const made = lrs.ensureBookingStation(db, 'KEEPER');
+  assert.ok(made.ok && made.value !== null && 'name' in made.value && made.value.name === 'Yavatmal');
+  assert.equal(masters.all(db).stations.length, 2);
 });
 
 // ---- Session 2.3: open, edit, cancel, restore, history ----

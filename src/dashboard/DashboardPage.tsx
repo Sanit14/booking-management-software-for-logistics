@@ -90,7 +90,7 @@ export default function DashboardPage({ summary, onMakeMemo, onPick }: { summary
               <Button small variant="outline" onClick={onMakeMemo}>
                 {t.makeMemo}
               </Button>
-              <span className={styles.note}>{more > 0 ? t.moreStations(more) : t.stationHint}</span>
+              {more > 0 && <span className={styles.note}>{t.moreStations(more)}</span>}
             </div>
           </Card>
           <Card className={styles.listCard} title={t.recentTitle}>

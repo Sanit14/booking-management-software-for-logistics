@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { strings } from '../strings';
 import Button from '../ui/Button';
-import { Card } from '../ui/Card';
 import Dialog from '../ui/Dialog';
 import PinDialog from '../ui/PinDialog';
 import { useToast } from '../ui/Toast';
@@ -10,10 +9,10 @@ import styles from './SettingsPage.module.css';
 const t = strings.settings;
 
 /**
- * Settings → Backup folder (Admin PIN). The PIN is asked first, then main asks for the folder, then the keeper makes a backup there and only if
- * that works switches to it. A folder on the data's own drive is asked about once more. The PIN is held in a ref only while that question is open.
+ * Settings → Data & Backups → Backup folder, with Change… (Admin PIN). The PIN is asked first, then main asks for the folder, then the keeper makes a backup
+ * there and only if that works switches to it. A folder on the data's own drive is asked about once more. The PIN is held in a ref only while that question is open.
  */
-export default function BackupFolderCard({ dir, onChanged }: { dir: string; onChanged: () => void }) {
+export default function BackupFolderRow({ dir, onChanged }: { dir: string; onChanged: () => void }) {
   const toast = useToast();
   const [asking, setAsking] = useState(false); // the Admin PIN
   const [same, setSame] = useState<string | null>(null); // the folder that is on the data's drive, waiting for "use it anyway"
@@ -21,7 +20,7 @@ export default function BackupFolderCard({ dir, onChanged }: { dir: string; onCh
 
   const done = (made: { dir: string; file: string }) => {
     toast.success(t.backupFolderDone(made.dir), t.backupFolderMade(made.file));
-    onChanged(); // the status box and this card read the keeper's health
+    onChanged(); // the status box and this row read the keeper's health
   };
 
   const submit = async (typed: string): Promise<boolean> => {
@@ -52,12 +51,12 @@ export default function BackupFolderCard({ dir, onChanged }: { dir: string; onCh
   };
 
   return (
-    <Card title={t.backupFolderTitle}>
-      <div className={styles.body}>
-        <p>{t.backupFolderText}</p>
-        <p className={styles.status}>{dir}</p>
-        <Button variant="secondary" onClick={() => setAsking(true)}>
-          {t.backupFolderChange}
+    <>
+      <div className={styles.row}>
+        <span className={styles.label}>{t.backupFolder}</span>
+        <span className={styles.path}>{dir}</span>
+        <Button small variant="outline" onClick={() => setAsking(true)}>
+          {t.change} · {t.adminPin}
         </Button>
       </div>
       <PinDialog open={asking} title={t.backupFolderPinTitle} prompt={t.adminPrompt} label={strings.pins.adminLabel} onCancel={() => setAsking(false)} onSubmit={submit} />
@@ -75,6 +74,6 @@ export default function BackupFolderCard({ dir, onChanged }: { dir: string; onCh
       >
         <p>{t.backupFolderSameDriveText(same ?? '')}</p>
       </Dialog>
-    </Card>
+    </>
   );
 }

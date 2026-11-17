@@ -51,13 +51,13 @@ npm install
 npm run postinstall
 npm run release            # check + installer + signature; prints the `gh release create vX.Y.Z …` command: run it
 ```
-Then on each seat: Settings → Software update → Check → Download → Install (Admin PIN). Settings must show the new version afterwards.
+Then on each seat: Settings → Software update → Check for update → Download → Install (Admin PIN). Settings must show the new version afterwards.
 The update **signing key** is `C:\Users\HP\BookingManagerKeys\update-signing-private.pem` — the only copy; keep a backup somewhere else, never in the repo
 (`.gitignore` blocks `*.pem`). Losing it means seats can no longer accept updates until a new key is built into a new installer.
 
 ## Restore a backup
 - Backups: `D:\BookingManagerBackups` (every hour, on start, on stop, before an update; newest 48 plus the first of each of the last 30 days).
-- Normal case: Settings → **Restore a backup…** (Admin PIN). Every other seat must have the app closed. Choose a backup, wait for the check (up to a minute on a big
+- Normal case: Settings → Data & Backups → **Restore…** (Admin PIN). Every other seat must have the app closed. Choose a backup, wait for the check (up to a minute on a big
   book), compare the two summaries, restore. The book as it was is kept as `booking-before-restore-<time>.db` in the backup folder and never deleted.
 - If the book is missing or damaged the app starts in **safe mode** and offers the same list; nothing is overwritten until you restore.
 - Data folder `C:\BookingManagerData`; the keeper's log is `%ProgramData%\BookingManager\logs\keeper.log` (what failed, with times; no PINs).

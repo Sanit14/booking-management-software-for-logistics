@@ -8,7 +8,8 @@
 import {
   MAX_MEMO_LRS,
   type KeeperResult, type MemoChange, type MemoChanged, type MemoCursor, type MemoDefaults, type MemoDetail, type MemoFilters, type MemoHeaderInput, type MemoHistoryEntry,
-  type MemoInput, type MemoListRow, type MemoLrRow, type MemoSaved, type MemoTaken, type MemoTotals, type PendingPage, type PendingTotals, type ResultCode,
+  type MemoInput, type MemoListRow, type MemoLrRow, type MemoSaved, type MemoTaken, type MemoTotals, type NameKey, type PendingName, type PendingNames, type PendingPage, type PendingStationCount,
+  type PendingTotals, type ResultCode,
   type SavedMemoCursor, type SavedMemoFilters, type SavedMemoPage, type SavedMemoRow, type SettlementPreview,
 } from '../shared';
 import { parseJson, writeAudit, type AuditRow } from './audit';
@@ -51,43 +52,97 @@ const DETAIL = `SELECT m.id, m.challan_year AS challanYear, m.challan_no AS chal
   JOIN stations fs ON fs.id = m.from_station_id JOIN stations ts ON ts.id = m.to_station_id`;
 type DetailRow = Omit<MemoDetail, 'frozen' | 'now' | 'differs' | 'lrs' | 'settlement'> & { fQty: number; fToPay: number; fPaid: number; fHamali: number; fWasuli: number };
 
+type Side = 'consignor' | 'consignee';
+type Args = Record<string, string | number>;
+const STATION_LIMIT = 100;
+const NAME_SHOWN = 5;
+const asciiLower = (text: string): string => text.replace(/[A-Z]/g, (c) => c.toLowerCase()); // SQLite's lower() is ASCII only
+
+/**
+ * The picked names of one side as a WHERE term: a master firm by its id, or a walk-in (no firm) by the exact text it was booked with. Only values are bound.
+ * Each half is FALSE (never NULL) for the other kind of LR, so `NOT (…)` still keeps the LRs it should.
+ */
+function namesWhere(side: Side, names: NameKey[], args: Args): string {
+  const ids: string[] = [];
+  const texts: string[] = [];
+  names.forEach((n, i) => {
+    if (n.firmId !== null) {
+      args[`${side}F${i}`] = n.firmId;
+      ids.push(`@${side}F${i}`);
+    } else {
+      args[`${side}N${i}`] = n.name;
+      texts.push(`@${side}N${i}`);
+    }
+  });
+  const either = [
+    ids.length > 0 ? `(l.${side}_id IS NOT NULL AND l.${side}_id IN (${ids.join(', ')}))` : '',
+    texts.length > 0 ? `(l.${side}_id IS NULL AND l.${side}_name IN (${texts.join(', ')}))` : '',
+  ].filter((part) => part !== '');
+  return `(${either.join(' OR ')})`;
+}
+
+/**
+ * The WHERE terms of the pending filters: AND between filters, OR inside one. `skip` leaves one filter out (the station list and the name search count
+ * with every OTHER filter applied, so the clerk sees what a pick would add).
+ */
+function filterParts(f: MemoFilters, skip: 'station' | Side | null): { parts: string[]; args: Args } {
+  const parts = ["l.status = 'booked'"];
+  const args: Args = {};
+  if (skip !== 'station' && f.toStationIds.length > 0) {
+    f.toStationIds.forEach((id, i) => (args[`station${i}`] = id));
+    parts.push(`l.to_station_id IN (${f.toStationIds.map((_, i) => `@station${i}`).join(', ')})`);
+  }
+  if (skip !== 'consignor' && f.consignors.length > 0) parts.push(namesWhere('consignor', f.consignors, args));
+  if (skip !== 'consignee' && f.consignees.length > 0) parts.push(namesWhere('consignee', f.consignees, args));
+  return { parts, args };
+}
+
 /**
  * The pending list's SQL, built from fixed pieces: only values are bound, a column name never comes from the request.
  * `rows` is one page after the cursor (one row over, to know there is a next page); `count` is the whole filter.
- * A firm filter is the LR's firm id; typed text is any part of the name the LR was booked with, a firm's or a walk-in's
- * (ASCII case ignored), so a name typed without picking it, or a firm closed since, still finds its LRs.
  */
 export function pendingSql(f: MemoFilters, afterCursor: boolean) {
-  const parts = ["l.status = 'booked'"];
-  const args: Record<string, string | number> = {};
-  if (f.from) {
-    parts.push('l.lr_date >= @from');
-    args.from = f.from;
-  }
-  if (f.to) {
-    parts.push('l.lr_date <= @to');
-    args.to = f.to;
-  }
-  if (f.toStationId !== null) {
-    parts.push('l.to_station_id = @station');
-    args.station = f.toStationId;
-  }
-  for (const [who, p] of [['consignor', f.consignor], ['consignee', f.consignee]] as const) {
-    if (!p) continue;
-    if (p.firmId !== null) {
-      parts.push(`l.${who}_id = @${who}`);
-      args[who] = p.firmId;
-    } else {
-      parts.push(`instr(lower(l.${who}_name), @${who}) > 0`);
-      args[who] = p.text.replace(/[A-Z]/g, (c) => c.toLowerCase()); // SQLite's lower() is ASCII only
-    }
-  }
+  const { parts, args } = filterParts(f, null);
   const where = parts.join(' AND ');
   return {
     args,
     rows: `SELECT ${LR_COLUMNS} FROM lrs l JOIN stations s ON s.id = l.to_station_id WHERE ${where}${afterCursor ? ' AND (l.lr_date, l.lr_no) > (@cd, @cn)' : ''}
       ORDER BY l.lr_date, l.lr_no LIMIT ${PAGE + 1}`,
     count: `SELECT COUNT(*) AS count, COALESCE(SUM(l.qty), 0) AS qty FROM lrs l WHERE ${where}`,
+  };
+}
+
+/** The stations that have pending LRs and how many each (the Consignor and Consignee filters applied, the station filter not), busiest first. One GROUP BY. */
+export function pendingStationsSql(f: MemoFilters) {
+  const { parts, args } = filterParts(f, 'station');
+  return {
+    args,
+    sql: `SELECT l.to_station_id AS stationId, s.name AS station, COUNT(*) AS lrs
+      FROM lrs l JOIN stations s ON s.id = l.to_station_id WHERE ${parts.join(' AND ')}
+      GROUP BY l.to_station_id ORDER BY lrs DESC, s.name_key LIMIT ${STATION_LIMIT}`,
+  };
+}
+
+/**
+ * The name search of one side: names that have pending LRs with the other filters applied (this side's own picks left out), those containing the typed text
+ * (ASCII case ignored; a firm by its master name, a walk-in by the text as booked), busiest first. One GROUP BY; it reads at most 6 rows (5 shown and one more
+ * to say there are others) and `total` is how many names match altogether.
+ */
+export function pendingNamesSql(side: Side, f: MemoFilters, typed: string) {
+  const { parts, args } = filterParts(f, side);
+  const own = side === 'consignor' ? f.consignors : f.consignees;
+  if (own.length > 0) parts.push(`NOT ${namesWhere(side, own, args)}`);
+  const name = `CASE WHEN l.${side}_id IS NULL THEN l.${side}_name ELSE f.name END`;
+  if (typed !== '') {
+    parts.push(`instr(lower(${name}), @typed) > 0`);
+    args.typed = asciiLower(typed);
+  }
+  return {
+    args,
+    sql: `SELECT l.${side}_id AS firmId, ${name} AS name, COUNT(*) AS lrs, COUNT(*) OVER () AS total
+      FROM lrs l LEFT JOIN firms f ON f.id = l.${side}_id WHERE ${parts.join(' AND ')}
+      GROUP BY l.${side}_id, CASE WHEN l.${side}_id IS NULL THEN l.${side}_name END
+      ORDER BY lrs DESC, lower(${name}), ${name} LIMIT ${NAME_SHOWN + 1}`,
   };
 }
 
@@ -331,6 +386,20 @@ export function makeMemos(pins: Pick<ReturnType<typeof makePins>, 'verify'>, now
       const total = db.prepare(q.count).get(q.args) as { count: number; qty: number };
       const last = rows[PAGE - 1];
       return ok({ rows: rows.slice(0, PAGE), next: rows.length > PAGE ? { date: last.date, no: last.lrNo } : null, ...total });
+    },
+
+    /** The To-station tick list: stations with pending LRs and their counts under the other filters. */
+    pendingStations(db: Db, filters: MemoFilters): KeeperResult<PendingStationCount[]> {
+      const q = pendingStationsSql(filters);
+      return ok(db.prepare(q.sql).all(q.args) as PendingStationCount[]);
+    },
+
+    /** The Consignor / Consignee search: at most 5 names with pending LRs, busiest first, and how many more match. */
+    pendingNames(db: Db, side: Side, filters: MemoFilters, typed: string): KeeperResult<PendingNames> {
+      const q = pendingNamesSql(side, filters, typed);
+      const rows = db.prepare(q.sql).all(q.args) as { firmId: number | null; name: string; lrs: number; total: number }[];
+      const names = rows.slice(0, NAME_SHOWN).map(({ firmId, name, lrs }): PendingName => ({ firmId, name, lrs }));
+      return ok({ names, more: rows.length > 0 ? Math.max(0, rows[0].total - names.length) : 0 });
     },
 
     /** The ticked LRs that are still booked, added up in SQL. */

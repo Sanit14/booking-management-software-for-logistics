@@ -23,14 +23,13 @@
   height: 36px;
   flex-shrink: 0;
   border-radius: var(--r-lg);
-  background: var(--teal-dark);
+  background: var(--orange);
 }
 
 .name {
   font-size: var(--fs-15);
   font-weight: 800;
-  line-height: 19px;
-  white-space: nowrap;
+  line-height: 18px;
   color: var(--teal-dark);
 }
 
@@ -47,7 +46,7 @@
 }
 
 .group {
-  margin: 18px 0 4px;
+  margin: 12px 0 2px;
   padding: 0 12px;
   font-size: var(--fs-12);
   font-weight: 700;
@@ -65,9 +64,10 @@
 .item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   height: 40px;
-  padding: 0 10px 0 9px;
+  padding: 0 6px 0 9px;
+  white-space: nowrap;
   border: none;
   border-left: 3px solid transparent;
   border-radius: 0 var(--r-md) var(--r-md) 0;
@@ -104,7 +104,7 @@
   min-width: 26px;
   height: 22px;
   margin-left: auto;
-  padding: 0 7px;
+  padding: 0 6px;
   border-radius: 11px;
   background: var(--orange-btn);
   color: #ffffff;

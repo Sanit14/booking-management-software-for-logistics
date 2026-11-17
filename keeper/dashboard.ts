@@ -21,7 +21,8 @@ export const DASHBOARD_SQL = {
       (SELECT MIN(lr_date) FROM lrs WHERE status = 'booked') AS oldestPending,
       (SELECT COUNT(DISTINCT to_station_id) FROM lrs WHERE status = 'booked') AS pendingStations,
       (SELECT COUNT(*) FROM memos WHERE memo_date = @d AND status = 'saved') AS memos,
-      (SELECT COUNT(DISTINCT truck_id) FROM memos WHERE memo_date = @d AND status = 'saved') AS trucksOut`,
+      (SELECT COUNT(DISTINCT truck_id) FROM memos WHERE memo_date = @d AND status = 'saved') AS trucksOut,
+      (SELECT COUNT(*) FROM wasuli WHERE status = 'unassigned') AS wasuliUnassigned`,
   pending: `SELECT l.to_station_id AS stationId, s.name AS station, COUNT(*) AS lrs, SUM(l.qty) AS qty
       FROM lrs l INDEXED BY lrs_booked JOIN stations s ON s.id = l.to_station_id
       WHERE l.status = 'booked'

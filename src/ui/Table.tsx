@@ -3,7 +3,7 @@ import styles from './Table.module.css';
 
 export interface Column<R> {
   key: string;
-  header: string;
+  header: ReactNode;
   /** Number column: right-aligned, tabular figures. */
   num?: boolean;
   width?: number;

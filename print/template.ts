@@ -49,8 +49,6 @@ th{font-weight:bold}
 .memo th{height:6.5mm}
 .memo td{height:5.6mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .memo td.n{overflow:visible;text-overflow:clip}
-.memo .tot{display:flex;gap:6mm;align-items:center;height:6.5mm;padding:0 1.2mm;border:.2mm solid #000;border-top:0}
-.memo .tot .l{flex:1;font-weight:bold}
 .memo .none{height:8mm;text-align:center;font-style:italic}
 .memo .note{margin-top:2mm;font-style:italic}
 .lr .co{margin-bottom:2mm}
@@ -72,10 +70,9 @@ export function pageDocument(title: string, spec: PageSpec, body: string, extraC
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${css(spec)}${extraCss}</style></head><body>${body}</body></html>`;
 }
 
-/** The company lines at the top of a page: the name, then the address, phone and GSTIN lines that are not empty. */
-export function companyBlock(c: { name: string; address: string; phone: string; gstin: string }): string {
-  const lines = [c.address, c.phone, c.gstin].filter((l) => l !== '').map((l) => `<div>${esc(l)}</div>`);
-  return `<div class="co"><div class="name">${esc(c.name)}</div>${lines.join('')}</div>`;
+/** The two fixed lines at the top of a page: the name, then the location (DM prints no address, phone or GSTIN). */
+export function companyBlock(c: { name: string; location: string }): string {
+  return `<div class="co"><div class="name">${esc(c.name)}</div><div>${esc(c.location)}</div></div>`;
 }
 
 export const stamp = (word: string): string => `<div class="stamp">${esc(word)}</div>`;

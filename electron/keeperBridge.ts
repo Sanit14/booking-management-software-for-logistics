@@ -33,11 +33,12 @@ import {
   type MemoListRow,
   type MemoSaved,
   type SavedMemoPage,
+  type PendingNames,
   type PendingPage,
+  type PendingStationCount,
   type PendingStation,
   type PendingTotals,
   type SettlementPreview,
-  type PrintCompany,
   type RecentLr,
   type ReportAgentRow,
   type ReportAgentTotals,
@@ -315,9 +316,6 @@ export function initKeeperBridge(userDataDir: string) {
     call<LrDetail>('POST', '/lrs/restore', { id, version, systemPin: text(pin) }),
   );
   ipcMain.handle('keeper:lrs-history', (_e, id: unknown) => call<LrHistoryEntry[]>('POST', '/lrs/history', { id }));
-  ipcMain.handle('keeper:settings-set-lr-defaults', (_e, input: unknown, pin: unknown) =>
-    call<LrDefaults>('POST', '/settings/set-lr-defaults', { input, adminPin: text(pin) }),
-  );
   // Dashboard counts and the search box: reads only; the keeper checks the date and cleans the text.
   ipcMain.handle('keeper:dashboard-summary', (_e, date: unknown) => call<DashboardSummary>('POST', '/dashboard/summary', { date: dateOrNull(date) }));
   ipcMain.handle('keeper:dashboard-pending', () => call<PendingStation[]>('POST', '/dashboard/pending-by-station'));
@@ -326,6 +324,8 @@ export function initKeeperBridge(userDataDir: string) {
   // Loading memos: the keeper cleans the filters and parses the typed money; main forwards named arguments.
   ipcMain.handle('keeper:memos-defaults', (_e, date: unknown) => call<MemoDefaults>('POST', '/memos/defaults', { date: dateOrNull(date) }));
   ipcMain.handle('keeper:memos-pending', (_e, filters: unknown, cursor: unknown) => call<PendingPage>('POST', '/memos/pending', { filters, cursor }));
+  ipcMain.handle('keeper:memos-pending-stations', (_e, filters: unknown) => call<PendingStationCount[]>('POST', '/memos/pending-stations', { filters }));
+  ipcMain.handle('keeper:memos-pending-names', (_e, side: unknown, filters: unknown, text: unknown) => call<PendingNames>('POST', '/memos/pending-names', { side, filters, text }));
   ipcMain.handle('keeper:memos-totals', (_e, ids: unknown) => call<PendingTotals>('POST', '/memos/totals', { ids }));
   ipcMain.handle('keeper:memos-settlement', (_e, ids: unknown, hamaliRate: unknown, commission: unknown, memoId: unknown) =>
     call<SettlementPreview>('POST', '/memos/settlement', { ids, hamaliRate: text(hamaliRate), commission: text(commission), memoId }),
@@ -351,9 +351,6 @@ export function initKeeperBridge(userDataDir: string) {
     call<MemoDetail>('POST', '/memos/cancel', { id, version, reason: text(reason), adminPin: text(pin) }),
   );
   ipcMain.handle('keeper:memos-history', (_e, id: unknown) => call<MemoHistoryEntry[]>('POST', '/memos/history', { id }));
-  // Company lines on printouts (3.3): the Admin PIN is checked by the keeper. What a printout carries is fetched by electron/print.ts, not by the screen.
-  ipcMain.handle('keeper:print-company', () => call<PrintCompany>('POST', '/print/company'));
-  ipcMain.handle('keeper:print-set-company', (_e, input: unknown, pin: unknown) => call<PrintCompany>('POST', '/print/set-company', { input, adminPin: text(pin) }));
   // Wasuli (3.4): the keeper cleans every value and compares the rows with what the screen saw; main forwards named arguments.
   ipcMain.handle('keeper:wasuli-list', (_e, filters: unknown, cursor: unknown) => call<WasuliPage>('POST', '/wasuli/list', { filters, cursor }));
   ipcMain.handle('keeper:wasuli-find', (_e, no: unknown, year: unknown) => call<WasuliRow>('POST', '/wasuli/find', { no, year }));

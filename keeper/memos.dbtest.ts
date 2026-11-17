@@ -4,12 +4,12 @@ import assert from 'node:assert/strict';
 import type { MemoFilters, MemoInput } from '../shared';
 import { makeDashboard } from './dashboard';
 import type { Db } from './db';
-import { FROZEN_SQL, pendingSql } from './memos';
+import { FROZEN_SQL, pendingNamesSql, pendingSql, pendingStationsSql } from './memos';
 import { lrAmounts } from './money';
 import { SYSTEM, book, create, memoInput, now, refused, saved, setUp, type Set } from './memoTesting';
 import { fastest, insertStation } from './testing';
 
-const none: MemoFilters = { from: null, to: null, toStationId: null, consignor: null, consignee: null };
+const none: MemoFilters = { toStationIds: [], consignors: [], consignees: [] };
 const nos = (s: Set, f: MemoFilters) => {
   const r = s.memos.pending(s.db, f, null);
   assert.ok(r.ok);
@@ -76,27 +76,165 @@ test('pending: only booked LRs, ordered by date then number (not by id), with th
   assert.equal(first.toPayPaise, 180000);
 });
 
-test('pending: every filter on its own, and together', () => {
+/** The LRs of `seedPending` by who is on them: [consignor, consignee, to station] — F is a master firm, W a walk-in name as booked. */
+//   one   10-20  Ganesh (F)         Kale Brothers (W)  Nagpur
+//   five  10-20  Patil (F)          Patil (F)          Amravati
+//   two   10-29  Patil (F)          Ganesh (F)         Amravati
+//   three today  Ravi Traders (W)   Patil (F)          Nagpur
+//   four  today  Ganesh (F)         KALE & Sons (W)    Nagpur
+test('pending: every filter on its own', () => {
   const s = setUp();
   const lr = seedPending(s);
   const [one, two, three, four, five] = [lr.one.no, lr.two.no, lr.three.no, lr.four.no, lr.five.no];
   const f = (over: Partial<MemoFilters>): MemoFilters => ({ ...none, ...over });
-  assert.deepEqual(nos(s, f({ from: '2026-10-29' })), [two, three, four]);
-  assert.deepEqual(nos(s, f({ to: '2026-10-29' })), [one, five, two]);
-  assert.deepEqual(nos(s, f({ from: '2026-10-29', to: '2026-10-29' })), [two]);
-  assert.deepEqual(nos(s, f({ toStationId: s.nagpur })), [one, three, four]);
-  assert.deepEqual(nos(s, f({ toStationId: s.amravati })), [five, two]);
-  assert.deepEqual(nos(s, f({ consignor: { firmId: s.ganesh, text: '' } })), [one, four]);
-  assert.deepEqual(nos(s, f({ consignee: { firmId: s.patil, text: '' } })), [five, three]);
-  // typed text: any part of the name the LR was booked with, any ASCII case, a firm's name or a walk-in's
-  assert.deepEqual(nos(s, f({ consignor: { firmId: null, text: 'ravi' } })), [three]);
-  assert.deepEqual(nos(s, f({ consignee: { firmId: null, text: 'KALE' } })), [one, four]);
-  assert.deepEqual(nos(s, f({ consignor: { firmId: null, text: 'ganesh' } })), [one, four], 'a firm typed but not picked still finds its LRs');
-  assert.deepEqual(nos(s, f({ consignee: { firmId: null, text: '100%' } })), [], '% is plain text');
-  assert.deepEqual(nos(s, f({ toStationId: s.nagpur, consignee: { firmId: null, text: 'kale' }, from: '2026-10-25' })), [four]);
-  const some = s.memos.pending(s.db, f({ toStationId: s.nagpur }), null);
+  const firm = (firmId: number) => ({ firmId, name: '' });
+  const walkIn = (name: string) => ({ firmId: null, name });
+  assert.deepEqual(nos(s, f({ toStationIds: [s.nagpur] })), [one, three, four]);
+  assert.deepEqual(nos(s, f({ toStationIds: [s.amravati] })), [five, two]);
+  assert.deepEqual(nos(s, f({ consignors: [firm(s.ganesh)] })), [one, four]);
+  assert.deepEqual(nos(s, f({ consignees: [firm(s.patil)] })), [five, three]);
+  // a walk-in is matched by the exact text it was booked with (not by a part of it, not by another case) and never through a firm id
+  assert.deepEqual(nos(s, f({ consignors: [walkIn('Ravi Traders')] })), [three]);
+  assert.deepEqual(nos(s, f({ consignors: [walkIn('ravi')] })), [], 'a part of the name is not the name');
+  assert.deepEqual(nos(s, f({ consignors: [walkIn('RAVI TRADERS')] })), [], 'nor is another case');
+  assert.deepEqual(nos(s, f({ consignees: [walkIn('Kale Brothers')] })), [one]);
+  assert.deepEqual(nos(s, f({ consignees: [walkIn('KALE & Sons')] })), [four]);
+  assert.deepEqual(nos(s, f({ consignors: [walkIn('Shree Ganesh Traders')] })), [], 'a firm\'s name typed as a walk-in is not the firm');
+  assert.deepEqual(nos(s, f({ consignees: [walkIn("100%")] })), [], '% is plain text');
+  const some = s.memos.pending(s.db, f({ toStationIds: [s.nagpur] }), null);
   assert.ok(some.ok);
   assert.deepEqual([some.value.count, some.value.qty], [3, 13]);
+});
+
+test('pending: several values inside one filter mean any of them (OR); different filters must all match (AND)', () => {
+  const s = setUp();
+  const lr = seedPending(s);
+  const [one, two, three, four, five] = [lr.one.no, lr.two.no, lr.three.no, lr.four.no, lr.five.no];
+  const f = (over: Partial<MemoFilters>): MemoFilters => ({ ...none, ...over });
+  const firm = (firmId: number) => ({ firmId, name: '' });
+  const walkIn = (name: string) => ({ firmId: null, name });
+  // OR inside a filter
+  assert.deepEqual(nos(s, f({ toStationIds: [s.nagpur, s.amravati] })), [one, five, two, three, four]);
+  assert.deepEqual(nos(s, f({ consignors: [firm(s.ganesh), firm(s.patil)] })), [one, five, two, four], 'two firms');
+  assert.deepEqual(nos(s, f({ consignors: [firm(s.ganesh), walkIn('Ravi Traders')] })), [one, three, four], 'a firm and a walk-in');
+  assert.deepEqual(nos(s, f({ consignees: [walkIn('Kale Brothers'), walkIn('KALE & Sons')] })), [one, four]);
+  // AND between filters
+  assert.deepEqual(nos(s, f({ toStationIds: [s.nagpur], consignors: [firm(s.ganesh)] })), [one, four]);
+  assert.deepEqual(nos(s, f({ toStationIds: [s.nagpur], consignors: [firm(s.ganesh)], consignees: [walkIn('Kale Brothers')] })), [one]);
+  assert.deepEqual(nos(s, f({ toStationIds: [s.amravati], consignors: [firm(s.ganesh)] })), [], 'nothing matches all of them');
+  // both: AND of two ORs
+  assert.deepEqual(nos(s, f({ toStationIds: [s.nagpur, s.amravati], consignees: [firm(s.patil), walkIn('KALE & Sons')] })), [five, three, four]);
+  const some = s.memos.pending(s.db, f({ toStationIds: [s.nagpur], consignees: [firm(s.patil), walkIn('KALE & Sons')] }), null);
+  assert.ok(some.ok);
+  assert.deepEqual([some.value.count, some.value.qty], [2, 12], 'count and quantity are for the whole filter: LR 3 (qty 4) and LR 4 (qty 8)');
+});
+
+// ---- the station list and the name search (4.7) ----
+
+const stationList = (s: Set, f: MemoFilters) => {
+  const r = s.memos.pendingStations(s.db, f);
+  assert.ok(r.ok);
+  return r.value;
+};
+const nameList = (s: Set, side: 'consignor' | 'consignee', f: MemoFilters, typed = '') => {
+  const r = s.memos.pendingNames(s.db, side, f, typed);
+  assert.ok(r.ok);
+  return r.value;
+};
+
+test('pending stations: the stations that have pending LRs with their counts, the other filters applied and its own not', () => {
+  const s = setUp();
+  const lr = seedPending(s);
+  const cancelled = book(s, { toStationId: s.nagpur });
+  s.lrs.cancel(s.db, 'seat-1', cancelled.id, 1, 'wrong party', SYSTEM);
+  saved(create(s, [book(s, { toStationId: s.amravati }).id]));
+  const f = (over: Partial<MemoFilters>): MemoFilters => ({ ...none, ...over });
+  const flat = (rows: { station: string; lrs: number }[]) => rows.map((r) => [r.station, r.lrs]);
+  assert.deepEqual(flat(stationList(s, none)), [['Nagpur', 3], ['Amravati', 2]], 'busiest first; Yavatmal, the cancelled and the loaded LR are not counted');
+  assert.deepEqual(stationList(s, none)[0].stationId, s.nagpur);
+  assert.deepEqual(flat(stationList(s, f({ toStationIds: [s.amravati] }))), [['Nagpur', 3], ['Amravati', 2]], 'its own filter is not applied: the clerk sees the other stations');
+  assert.deepEqual(flat(stationList(s, f({ consignors: [{ firmId: s.ganesh, name: '' }] }))), [['Nagpur', 2]], 'a station with none left is not listed');
+  assert.deepEqual(flat(stationList(s, f({ consignees: [{ firmId: s.patil, name: '' }, { firmId: null, name: 'KALE & Sons' }] }))), [['Nagpur', 2], ['Amravati', 1]]);
+  void lr;
+});
+
+test('pending stations: every count is the number of LRs the pending list shows for that station under the same other filters', () => {
+  const s = setUp();
+  seedPending(s);
+  const other: MemoFilters[] = [
+    none,
+    { ...none, consignors: [{ firmId: s.patil, name: '' }, { firmId: null, name: 'Ravi Traders' }] },
+    { ...none, consignees: [{ firmId: s.patil, name: '' }] },
+  ];
+  for (const f of other) {
+    for (const row of stationList(s, f)) {
+      const list = s.memos.pending(s.db, { ...f, toStationIds: [row.stationId] }, null);
+      assert.ok(list.ok);
+      assert.equal(list.value.count, row.lrs, `${row.station} under ${JSON.stringify(f)}`);
+    }
+  }
+});
+
+test('pending names: names with pending LRs, busiest first, a firm by its master name and a walk-in by the text booked', () => {
+  const s = setUp();
+  seedPending(s);
+  const consignors = nameList(s, 'consignor', none);
+  assert.deepEqual(consignors, {
+    names: [
+      { firmId: s.patil, name: 'Patil Hardware', lrs: 2 },
+      { firmId: s.ganesh, name: 'Shree Ganesh Traders', lrs: 2 },
+      { firmId: null, name: 'Ravi Traders', lrs: 1 },
+    ],
+    more: 0,
+  });
+  assert.deepEqual(nameList(s, 'consignee', none).names.map((n) => [n.name, n.lrs]), [['Patil Hardware', 2], ['KALE & Sons', 1], ['Kale Brothers', 1], ['Shree Ganesh Traders', 1]], 'the other side has its own names');
+  // a firm and a walk-in written with the same text are two names, not one
+  book(s, { consignor: { firmId: null, name: 'Shree Ganesh Traders', addToFirms: false }, toStationId: s.nagpur });
+  const both = nameList(s, 'consignor', none).names.filter((n) => n.name === 'Shree Ganesh Traders');
+  assert.deepEqual(both.map((n) => [n.firmId, n.lrs]), [[s.ganesh, 2], [null, 1]]);
+  // only booked LRs: a loaded one and a cancelled one do not count
+  const gone = book(s, { consignor: { firmId: null, name: 'Gone Traders', addToFirms: false } });
+  s.lrs.cancel(s.db, 'seat-1', gone.id, 1, 'wrong party', SYSTEM);
+  assert.ok(!nameList(s, 'consignor', none, 'gone').names.length);
+});
+
+test('pending names: the typed text is any part of the name, any ASCII case; the other filters apply; this side\'s own picks are left out', () => {
+  const s = setUp();
+  seedPending(s);
+  const firm = (firmId: number) => ({ firmId, name: '' });
+  assert.deepEqual(nameList(s, 'consignor', none, 'RAVI').names.map((n) => n.name), ['Ravi Traders']);
+  assert.deepEqual(nameList(s, 'consignor', none, 'ganesh').names.map((n) => n.name), ['Shree Ganesh Traders'], 'a firm is found by its master name');
+  assert.deepEqual(nameList(s, 'consignor', none, 'i t').names.map((n) => n.name), ['Ravi Traders'], 'a part with a space in it');
+  assert.deepEqual(nameList(s, 'consignor', none, '100%').names, [], '% is plain text');
+  assert.deepEqual(nameList(s, 'consignor', none, 'zzz'), { names: [], more: 0 });
+  // the other filters: to Amravati only Patil has LRs
+  assert.deepEqual(nameList(s, 'consignor', { ...none, toStationIds: [s.amravati] }).names.map((n) => [n.name, n.lrs]), [['Patil Hardware', 2]]);
+  assert.deepEqual(nameList(s, 'consignor', { ...none, consignees: [{ firmId: null, name: 'Kale Brothers' }] }).names.map((n) => n.name), ['Shree Ganesh Traders'], 'under a consignee only the LRs of that consignee count');
+  // its own picks are not offered again — a firm pick must not hide the walk-ins (NOT of a NULL test), and a walk-in pick must not hide the firms
+  assert.deepEqual(nameList(s, 'consignor', { ...none, consignors: [firm(s.ganesh)] }).names.map((n) => n.name), ['Patil Hardware', 'Ravi Traders']);
+  assert.deepEqual(nameList(s, 'consignor', { ...none, consignors: [{ firmId: null, name: 'Ravi Traders' }] }).names.map((n) => n.name), ['Patil Hardware', 'Shree Ganesh Traders']);
+  // and its own picks do not narrow what is offered (only the other filters do)
+  assert.deepEqual(nameList(s, 'consignor', { ...none, consignors: [firm(s.ganesh), firm(s.patil)] }).names.map((n) => n.name), ['Ravi Traders']);
+});
+
+test('pending names: at most 5 are returned, and "more" says how many others match', () => {
+  const s = setUp();
+  for (let i = 1; i <= 8; i++) book(s, { consignor: { firmId: null, name: `Walk ${i}`, addToFirms: false }, toStationId: s.nagpur });
+  book(s, { consignor: { firmId: null, name: 'Walk 8', addToFirms: false }, toStationId: s.nagpur }); // Walk 8 has two LRs: it leads
+  const r = nameList(s, 'consignor', none, 'walk');
+  assert.equal(r.names.length, 5);
+  assert.deepEqual(r.names[0], { firmId: null, name: 'Walk 8', lrs: 2 });
+  assert.equal(r.more, 3, '8 names match, 5 are shown');
+  assert.deepEqual(nameList(s, 'consignor', none, 'walk 7'), { names: [{ firmId: null, name: 'Walk 7', lrs: 1 }], more: 0 });
+  const exactly5 = nameList(s, 'consignor', { ...none, consignors: [{ firmId: null, name: 'Walk 1' }, { firmId: null, name: 'Walk 2' }, { firmId: null, name: 'Walk 3' }] }, 'walk');
+  assert.deepEqual([exactly5.names.length, exactly5.more], [5, 0], '8 names, 3 picked: 5 left, nothing more');
+});
+
+test('the station list and the name search carry counts only: no amount, no LR id', () => {
+  const s = setUp();
+  seedPending(s);
+  const all = JSON.stringify([stationList(s, none), nameList(s, 'consignor', none), nameList(s, 'consignee', none)]);
+  assert.doesNotMatch(all, /"[^"]*(paise|amount|total|pay|paid|rupee|lrId|"id")[^"]*":/i);
 });
 
 test('pending: 100 rows a page, the cursor goes on exactly where the page ended, count and quantity are for the whole filter', () => {
@@ -431,17 +569,27 @@ test('the pending statements are answered from an index, never a scan of lrs', (
   const s = setUp();
   const filters: MemoFilters[] = [
     none,
-    { ...none, toStationId: s.nagpur, from: '2026-10-01', to: '2026-10-31' },
-    { ...none, consignor: { firmId: s.ganesh, text: '' }, consignee: { firmId: null, text: 'kale' } },
+    { ...none, toStationIds: [s.nagpur, s.amravati] },
+    { ...none, consignors: [{ firmId: s.ganesh, name: '' }], consignees: [{ firmId: null, name: 'Kale Brothers' }] },
+    { toStationIds: [s.nagpur], consignors: [{ firmId: s.ganesh, name: '' }, { firmId: null, name: 'Ravi Traders' }], consignees: [{ firmId: s.patil, name: '' }] },
   ];
+  // "SCAN l" is the newer wording, "SCAN TABLE lrs AS l" the older one
+  const noScanOfLrs = (what: string, sql: string, args: object) => {
+    const plan = (s.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(args) as { detail: string }[]).map((r) => r.detail);
+    assert.ok(!plan.some((l) => /^SCAN (TABLE lrs\b|l\b)/.test(l)), `${what}: ${plan.join(' | ')}`);
+    assert.ok(plan.some((l) => /^SEARCH (TABLE lrs\b|l\b).* USING (COVERING )?INDEX/.test(l)), `${what}: ${plan.join(' | ')}`);
+  };
   for (const f of filters) {
     const q = pendingSql(f, true);
-    for (const [name, sql] of [['rows', q.rows], ['count', q.count]] as const) {
-      const args = name === 'rows' ? { ...q.args, cd: '2026-10-01', cn: 1 } : q.args;
-      const plan = (s.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(args) as { detail: string }[]).map((r) => r.detail);
-      // "SCAN l" is the newer wording, "SCAN TABLE lrs AS l" the older one
-      assert.ok(!plan.some((l) => /^SCAN (TABLE lrs\b|l\b)/.test(l)), `${name}: ${plan.join(' | ')}`);
-      assert.ok(plan.some((l) => /^SEARCH (TABLE lrs\b|l\b).* USING (COVERING )?INDEX/.test(l)), `${name}: ${plan.join(' | ')}`);
+    noScanOfLrs('rows', q.rows, { ...q.args, cd: '2026-10-01', cn: 1 });
+    noScanOfLrs('count', q.count, q.args);
+    const stations = pendingStationsSql(f);
+    noScanOfLrs('stations', stations.sql, stations.args);
+    for (const side of ['consignor', 'consignee'] as const) {
+      for (const typed of ['', 'kal']) {
+        const names = pendingNamesSql(side, f, typed);
+        noScanOfLrs(`${side} names ${typed}`, names.sql, names.args);
+      }
     }
   }
 });
@@ -460,12 +608,19 @@ test('speed: the pending list over 20 000 booked LRs answers in under 200 ms; a 
   assert.ok(first.ok && first.value.count === 20000 && first.value.rows.length === 100);
   const took = fastest(5, () => void s.memos.pending(s.db, none, null));
   assert.ok(took < 200, `pending took ${took.toFixed(1)} ms at its fastest of 5`);
-  const station = fastest(5, () => void s.memos.pending(s.db, { ...none, toStationId: towns[3] }, null));
+  const station = fastest(5, () => void s.memos.pending(s.db, { ...none, toStationIds: [towns[3]] }, null));
   assert.ok(station < 100, `pending for one station took ${station.toFixed(1)} ms at its fastest of 5`);
+  // The station list and the name search (4.7) over the same 20 000 LRs, with 400 consignors and 900 consignees to group.
+  s.db.exec("UPDATE lrs SET consignor_name = 'Party ' || (id % 400), consignee_name = 'Shop ' || (id % 900) WHERE lr_no <= 20000");
+  const stations = fastest(5, () => void s.memos.pendingStations(s.db, none));
+  assert.ok(stations < 100, `the station list took ${stations.toFixed(1)} ms at its fastest of 5`);
+  const names = fastest(5, () => void s.memos.pendingNames(s.db, 'consignee', { ...none, toStationIds: [towns[3]] }, 'sh'));
+  const namesAll = fastest(5, () => void s.memos.pendingNames(s.db, 'consignor', none, 'party'));
+  assert.ok(names < 100 && namesAll < 200, `the name search took ${names.toFixed(1)} ms for one station and ${namesAll.toFixed(1)} ms for all, at its fastest of 5`);
 
   const batches = Array.from({ length: 5 }, (_, b) => bulk(s.db, 100, s.nagpur, s.yavatmal, { first: 500000 + b * 1000 }));
   let next = 0;
   const save = fastest(5, () => void saved(create(s, batches[next++], { truckHire: '1000', loadingHamali: '100' })));
   assert.ok(save < 300, `a 100-LR memo took ${save.toFixed(1)} ms at its fastest of 5`);
-  console.log(`# pending over 20000 LRs: ${took.toFixed(1)} ms (one station ${station.toFixed(1)} ms); 100-LR memo: ${save.toFixed(1)} ms`);
+  console.log(`# pending over 20000 LRs: ${took.toFixed(1)} ms (one station ${station.toFixed(1)} ms); station list ${stations.toFixed(1)} ms; name search ${names.toFixed(1)} / ${namesAll.toFixed(1)} ms; 100-LR memo: ${save.toFixed(1)} ms`);
 });

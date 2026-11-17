@@ -1,78 +1,112 @@
-.cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  /* The page itself never scrolls (global.css), so this box does. Rows are their content's height: with a definite height and
-     auto rows, grid would squash the cards (they clip their own overflow) instead of letting this box scroll. */
-  grid-auto-rows: max-content;
-  align-content: start;
-  gap: 12px;
-  align-items: start;
+/* Settings, as DM has it: one column of sections, an orange icon and a title on each. The page itself never scrolls (global.css), so the column does. */
+.column {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 720px;
   min-height: 0;
   overflow-y: auto;
-  /* A scroll box clips: room for the focus ring (3px + 2px offset) of a control at a card's edge. */
+  /* A scroll box clips: room for the focus ring (3px + 2px offset) of a control at a section's edge. */
   padding: 6px;
   margin: -6px;
 }
 
-/* The backup picker inside the Restore dialog: its cards stack and scroll here, not the page. */
-.restoreBox {
+.section {
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+.head {
   display: flex;
-  max-height: 560px;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-}
-
-.note {
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  padding: 0 16px 14px;
-  color: var(--text-2);
-  font-size: var(--fs-14);
-}
-
-.wide {
-  grid-column: 1 / -1;
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 8px 16px;
-  margin: 0;
-  padding: 16px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--teal-dark);
   font-size: var(--fs-16);
-  line-height: 24px;
+  font-weight: 800;
 }
-
-.facts dt {
-  font-weight: 600;
-  color: var(--text-2);
+.icon {
+  flex-shrink: 0;
+  color: var(--orange);
 }
-
-.facts dd {
-  margin: 0;
-  color: var(--text);
-  overflow-wrap: anywhere;
+.adminChip {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: var(--warning-tint);
+  color: var(--warning);
+  font-size: var(--fs-12);
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
-
 .body {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 16px;
-  font-size: var(--fs-16);
-  line-height: 24px;
-  color: var(--text-2);
+  gap: 12px;
+  padding: 12px 16px 14px;
 }
-
-.buttons {
+.row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  align-items: center;
+  gap: 10px 12px;
 }
-
+.label {
+  width: 150px;
+  flex-shrink: 0;
+  color: var(--text-nav);
+  font-size: var(--fs-15);
+  font-weight: 600;
+}
+.name {
+  width: 220px;
+}
+.path {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--readonly-bg);
+  color: var(--text);
+  font-family: var(--font-num);
+  font-size: var(--fs-15);
+  overflow-wrap: anywhere;
+}
+.version {
+  flex: 1;
+  font-family: var(--font-num);
+  font-size: var(--fs-17);
+  font-weight: 700;
+}
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--success-tint);
+  color: var(--success);
+  font-size: var(--fs-15);
+  font-weight: 600;
+}
+.lineBad {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+.status {
+  margin: 0;
+  color: var(--text);
+  font-weight: 600;
+}
 .pinError {
   margin: 0 0 8px;
   text-align: center;
@@ -80,65 +114,23 @@
   font-weight: 700;
   color: var(--danger);
 }
-
-.status {
-  margin: 0;
-  font-weight: 600;
-  color: var(--text);
-}
-
 .steps {
   margin: 0;
   padding-left: 22px;
   color: var(--text-2);
 }
-
 .stepNow {
   font-weight: 700;
   color: var(--teal-dark);
 }
-
 .stepDone {
   color: var(--success);
 }
-
-.keyList {
+/* The backup picker inside the Restore dialog: its cards stack and scroll here, not the page. */
+.restoreBox {
   display: flex;
-  width: 100%;
-  margin: 0;
-  padding: 0;
+  max-height: 560px;
   flex-direction: column;
-  list-style: none;
-}
-
-.keyRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 16px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.keyAction {
-  flex: 0 0 240px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.keyValue {
-  flex: 0 0 220px;
-  color: var(--teal-dark);
-}
-
-.keyError {
-  flex: 1 0 100%;
-  font-size: var(--fs-14);
-  font-weight: 700;
-  color: var(--danger);
-}
-
-/* A text box that fills the card (the card lines up its content to the left). */
-.stretch {
-  align-self: stretch;
+  gap: 12px;
+  overflow-y: auto;
 }

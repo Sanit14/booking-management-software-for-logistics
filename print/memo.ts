@@ -1,5 +1,5 @@
-// The loading memo on A4: company, LOADING MEMO, the header, one ruled line per LR (the old software's table), the frozen totals and "Details of report"
-// on the last sheet only. The sheets are split here, so "Page n of m", the header row on every sheet and the totals on the last one are exact.
+// The loading memo on A4, in DM's columns (4.7): company, LOADING MEMO, the header, one ruled line per LR, the frozen totals row and "Details of report" on the
+// last sheet only. The sheets are split here, so "Page n of m", the header row on every sheet and the totals on the last one are exact.
 import type { PrintMemo, PrintMemoRow, PrintSettlement } from '../shared';
 import { strings } from '../src/strings';
 import { A4, companyBlock, esc, pageDocument, stamp } from './template';
@@ -35,26 +35,34 @@ export function paginate(rows: number, firstRows = FIRST_ROWS, nextRows = NEXT_R
   }
 }
 
-/** Column widths in mm (Consignor, Consignee, LR No, Particulars, Pak, Paid, To pay, Wasuli); they add up to the 190 mm between the margins. */
-const WIDTHS = [36, 36, 14, 28, 11, 21, 22, 22];
+/**
+ * Column widths in mm (Consignor, Consignee, LR No, Particulars, Quantity, To pay, Paid, Hamali, Total, Wasuli); they add up to the 190 mm between the margins. Each amount column
+ * holds 12,34,567.89 whole (the widest total a memo can carry), the LR No column a 6-digit number and Quantity a 5-digit one (the real-PDF test measures all three).
+ */
+const WIDTHS = [25, 25, 12.5, 19.5, 15.5, 18.5, 18.5, 18.5, 18.5, 18.5];
+const RIGHT = [false, false, false, false, true, true, true, true, true, true];
 
 const head = () => {
   const c = t.memo.columns;
-  const names = [c.consignor, c.consignee, c.lr, c.particular, c.qty, c.paid, c.toPay, c.wasuli];
-  const right = [false, false, false, false, true, true, true, true];
+  const names = [c.consignor, c.consignee, c.lr, c.particular, c.qty, c.toPay, c.paid, c.hamali, c.total, c.wasuli];
   const cols = WIDTHS.map((w) => `<col style="width:${w}mm">`).join('');
-  const cells = names.map((n, i) => `<th${right[i] ? ' class="n"' : ''}>${esc(n)}</th>`).join('');
+  const cells = names.map((n, i) => `<th${RIGHT[i] ? ' class="n"' : ''}>${esc(n)}</th>`).join('');
   return `<colgroup>${cols}</colgroup><thead><tr>${cells}</tr></thead>`;
 };
 
 const row = (r: PrintMemoRow) =>
   `<tr><td>${esc(r.consignor)}</td><td>${esc(r.consignee)}</td><td>${r.lrNo}</td><td>${esc(r.particular)}</td>` +
-  `<td class="n">${r.qty}</td><td class="n">${esc(r.paid)}</td><td class="n">${esc(r.toPay)}</td><td class="n">${esc(r.wasuli)}</td></tr>`;
+  [r.qty, r.toPay, r.paid, r.hamali, r.total, r.wasuli].map((v) => `<td class="n">${esc(v)}</td>`).join('') +
+  '</tr>';
 
+/** The totals row, in the table's own columns so every figure stands under its heading. */
 const totals = (p: PrintMemo) => {
-  const c = t.memo.columns;
   const k = p.totals;
-  return `<div class="tot"><span class="l">${esc(t.memo.total(k.lrs))}</span><span>${esc(c.qty)} <b>${k.qty}</b></span><span>${esc(c.paid)} <b>${esc(k.paid)}</b></span><span>${esc(c.toPay)} <b>${esc(k.toPay)}</b></span><span>${esc(c.wasuli)} <b>${esc(k.wasuli)}</b></span></div>`;
+  return (
+    `<tfoot><tr class="tot"><td colspan="4">${esc(t.memo.total(k.lrs))}</td>` +
+    [k.qty, k.toPay, k.paid, k.hamali, k.total, k.wasuli].map((v) => `<td class="n">${esc(v)}</td>`).join('') +
+    '</tr></tfoot>'
+  );
 };
 
 /** "Details of report" in the old paper's order: the amounts as the keeper sent them, the two notes in brackets next to hamali and commission. */
@@ -80,6 +88,8 @@ const settlementBlock = (s: PrintSettlement): string => {
 
 /** What the block does differently from the rest of the page: a centred column of ruled lines, the totals indented, the round figure big. */
 const CSS = `
+.memo th.n,.memo td.n{padding:0 .8mm}
+.memo tfoot td{height:6.5mm;font-weight:bold;border-top:.4mm solid #000}
 .set{width:112mm;margin:5mm auto 0;font-size:10pt}
 .set .h{text-align:center;font-weight:bold;font-size:11pt;letter-spacing:.4mm;text-decoration:underline;margin-bottom:2mm}
 .set .r{display:flex;justify-content:space-between;height:5.2mm;line-height:5.2mm;white-space:nowrap}
@@ -113,9 +123,9 @@ export function memoHtml(p: PrintMemo): string {
       i === 0
         ? `${companyBlock(p.company)}<div class="head">${esc(t.memo.heading)}</div>${details(p)}`
         : `<div class="cont">${esc(p.company.name)} — ${esc(t.memo.continued(p.challanNo))}</div>`;
-    const body = rows.map(row).join('') + (rows.length === 0 ? `<tr><td class="none" colspan="8">${esc(t.memo.none)}</td></tr>` : '');
+    const body = rows.map(row).join('') + (rows.length === 0 ? `<tr><td class="none" colspan="${WIDTHS.length}">${esc(t.memo.none)}</td></tr>` : '');
     const note = last && p.differs ? `<div class="note">${esc(t.memo.differs)}</div>` : '';
-    return `<section class="page memo">${top}<table>${head()}<tbody>${body}</tbody></table>${last ? totals(p) : ''}${note}${last && p.settlement ? settlementBlock(p.settlement) : ''}<div class="foot">${esc(t.pageOf(i + 1, sizes.length))}</div>${p.cancelled ? stamp(t.cancelled) : ''}</section>`;
+    return `<section class="page memo">${top}<table>${head()}<tbody>${body}</tbody>${last ? totals(p) : ''}</table>${note}${last && p.settlement ? settlementBlock(p.settlement) : ''}<div class="foot">${esc(t.pageOf(i + 1, sizes.length))}</div>${p.cancelled ? stamp(t.cancelled) : ''}</section>`;
   });
   return pageDocument(t.memo.title(p.challanNo), A4, sheets.join(''), CSS);
 }

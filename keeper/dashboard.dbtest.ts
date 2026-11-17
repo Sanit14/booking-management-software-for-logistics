@@ -68,12 +68,26 @@ test('summary: the day\'s LRs by status, cancelled kept out of the quantity, pen
     pendingStations: 2,
     memos: 2, // the two memos made for today's loaded LRs
     trucksOut: 2,
+    wasuliUnassigned: 0,
   });
 });
 
 test('summary: an empty database is all zeros and no oldest date', () => {
   const s = value(dash.summary(freshDb(), null));
-  assert.deepEqual(s, { date: TODAY, booked: 0, loaded: 0, cancelled: 0, qty: 0, pending: 0, pendingQty: 0, oldestPending: null, pendingStations: 0, memos: 0, trucksOut: 0 });
+  assert.deepEqual(s, { date: TODAY, booked: 0, loaded: 0, cancelled: 0, qty: 0, pending: 0, pendingQty: 0, oldestPending: null, pendingStations: 0, memos: 0, trucksOut: 0, wasuliUnassigned: 0 });
+});
+
+test('summary: wasuli unassigned counts the collections nobody has, whatever their date; an assigned or a collected one does not', () => {
+  const db = freshDb();
+  const mine = (over: Record<string, unknown>) => insert(db, 'wasuli', { lr_id: insertLr(db), amount_paise: 50000, seat: 't', ...over });
+  assert.equal(value(dash.summary(db, null)).wasuliUnassigned, 0);
+  mine({});
+  mine({});
+  const agent = insert(db, 'agents', { name: 'Suresh', name_key: 'SURESH', seat: 't' });
+  mine({ status: 'assigned', agent_id: agent, assigned_date: '2026-10-29' });
+  mine({ status: 'collected', agent_id: agent, assigned_date: '2026-10-28', collected_date: '2026-10-29', collected_paise: 50000, mode: 'cash' });
+  assert.equal(value(dash.summary(db, null)).wasuliUnassigned, 2);
+  assert.equal(value(dash.summary(db, '2026-09-01')).wasuliUnassigned, 2, 'never tied to the day');
 });
 
 test('summary: another day, and a bad date means today', () => {

@@ -105,7 +105,7 @@ async function cutReportCells(html: string, texts: number[]): Promise<string[]> 
 }
 /**
  * The cells of a loading memo that were cut, and the lines of "Details of report" that run past their box. In a row only the three text columns
- * (Consignor, Consignee, Particulars) may end in "…"; the LR number, Pak, Paid, To pay and Wasuli must show whole, and so must every heading and every figure of the block.
+ * (Consignor, Consignee, Particulars) may end in "…"; the LR number, Quantity, To pay, Paid, Hamali, Total and Wasuli must show whole (the totals row too), and so must every heading and every figure of the block.
  */
 async function cutMemoCells(html: string): Promise<string[]> {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
@@ -118,8 +118,10 @@ async function cutMemoCells(html: string): Promise<string[]> {
         .flatMap((tr) => [...tr.children].map((td, i) => ({ td, i })))
         .filter(({ td, i }) => ![0, 1, 3].includes(i) && !td.classList.contains('none') && cut(td))
         .map(({ td, i }) => i + ':' + td.textContent);
+      // the totals row: every figure (the label in front of them is one cell across four columns)
+      const totals = [...document.querySelectorAll('.memo tfoot td.n')].filter(cut).map((td) => 'totals:' + td.textContent);
       const lines = [...document.querySelectorAll('.set .r')].filter(cut).map((r) => 'block:' + r.textContent);
-      return [...heads, ...cells, ...lines];
+      return [...heads, ...cells, ...totals, ...lines];
     })()`)) as string[];
   } finally {
     win.destroy();
@@ -186,21 +188,23 @@ void app.whenReady().then(async () => {
     }
   }
 
-  await check('a memo shows a 6-digit LR number, a 5-digit Pak and amounts up to 9,99,999.99 whole, and so does every line of Details of report (a negative net too)', async () => {
+  await check('a memo shows a 6-digit LR number, a 5-digit Quantity and amounts up to 9,99,999.99 whole (totals up to 12,34,567.89), and so does every line of Details of report (a negative net too)', async () => {
     const base = sampleMemo(12);
     const wide = {
       ...base,
-      rows: base.rows.map((r) => ({ ...r, lrNo: 109999, qty: 99999, paid: '9,99,999.99', toPay: '9,99,999.99', wasuli: '9,99,999.99' })),
-      totals: { lrs: 12, qty: 99999, toPay: '12,34,567.89', paid: '12,34,567.89', wasuli: '12,34,567.89' },
+      rows: base.rows.map((r) => ({ ...r, lrNo: 109999, qty: 99999, paid: '9,99,999.99', toPay: '9,99,999.99', hamali: '9,99,999.99', total: '9,99,999.99', wasuli: '9,99,999.99' })),
+      totals: { lrs: 12, qty: 99999, toPay: '12,34,567.89', paid: '12,34,567.89', hamali: '12,34,567.89', total: '12,34,567.89', wasuli: '12,34,567.89' },
       settlement: {
         ...(base.settlement as NonNullable<typeof base.settlement>), articles: 999999, paid: '12,34,567.89', toPay: '12,34,567.89', hamaliLess: '12,34,567.89', total1: '-12,34,567.89',
         commissionLess: '12,34,567.89', total2: '-12,34,567.89', wasuli: '12,34,567.89', net: '-12,34,567.89', round: '-12,34,568',
       },
     };
     assert.deepEqual(await cutMemoCells(memoHtml(wide)), []);
-    // the check can see a cut: an 8 mm Pak column cuts a 5-digit quantity
-    const html = memoHtml(wide).replace('<col style="width:11mm">', '<col style="width:8mm">');
-    assert.ok((await cutMemoCells(html)).length > 0, 'an 8 mm Pak column is cut');
+    // the check can see a cut: an 8 mm Quantity column cuts a 5-digit quantity, and a 14 mm amount column cuts 9,99,999.99
+    const narrowQty = memoHtml(wide).replace('<col style="width:15.5mm">', '<col style="width:8mm">');
+    assert.ok((await cutMemoCells(narrowQty)).length > 0, 'an 8 mm Quantity column is cut');
+    const narrowAmount = memoHtml(wide).replace('<col style="width:18.5mm">', '<col style="width:14mm">'); // the first one is To pay
+    assert.ok((await cutMemoCells(narrowAmount)).length > 0, 'a 14 mm To pay column is cut');
   });
 
   await check('a cancelled memo with no rows is one sheet; a cancelled 60-LR memo keeps its two', async () => {
@@ -222,7 +226,7 @@ void app.whenReady().then(async () => {
 
   // Long lines in the header: every one is cut to one line, so the sheets still fit (the company block, driver and stations, the continued-sheet title).
   const long = 'X'.repeat(100);
-  const worst = { company: { name: long, address: long.toUpperCase(), phone: long, gstin: long }, driver: long, from: long, to: long, truck: long };
+  const worst = { company: { name: long, location: long.toUpperCase() }, driver: long, from: long, to: long, truck: long };
   for (const n of [FIRST_ROWS - SETTLEMENT_ROWS, FIRST_ROWS + 1, FIRST_ROWS + NEXT_ROWS + 1]) {
     await check(`a memo of ${n} LRs with 100-character company, driver and station lines still fits its sheets`, async () => {
       const html = memoHtml(sampleMemo(n, { ...worst, differs: true }));

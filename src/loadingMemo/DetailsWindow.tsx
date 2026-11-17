@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { PendingTotals } from '../../shared';
 import { keyLabel, matches } from '../logic/keymap';
 import { blankLines, previewReady, roundText, saveKeyWanted, settlementLines, windowErrors, type SettlementAnswer } from '../logic/memoDetails';
@@ -19,8 +19,8 @@ const NOTHING: PendingTotals = { lrs: 0, qty: 0, toPayPaise: 0, paidPaise: 0, wa
 
 interface Props {
   open: boolean;
-  /** One line under the title: which memo this is for. */
-  subtitle: string;
+  /** One line under the title: which memo this is for (a new memo's line also carries the date control). */
+  subtitle: ReactNode;
   /** The ticked LRs a new memo is made of (their totals are added up by the keeper); ignored when `memoId` is set. Keep it stable between renders. */
   ids: number[];
   /** A saved memo: Edit rate / commission works from the totals frozen on it, what was printed. */
@@ -28,6 +28,10 @@ interface Props {
   /** What the boxes start with: empty for a new memo (no default), the saved values for an edit. */
   initialRate?: string;
   initialCommission?: string;
+  /** A new memo: the truck boxes, built and kept by the caller (this window mounts only while it is open, and what was typed must outlive it). Absent when only the rate and % are edited. */
+  header?: ReactNode;
+  /** Checks the header boxes before a save (marks the wrong ones, answers false); absent without a header. */
+  precheck?: () => boolean;
   /** A save is on its way: both buttons and the key wait. */
   busy: boolean;
   /** Bump it to ask the keeper again (a save was refused and the figures may have moved). */
@@ -46,13 +50,13 @@ interface Props {
 export default function DetailsWindow(props: Props) {
   // The body is mounted only while the window is open (the Dialog draws its children only then), so every opening starts from the values it is given.
   return (
-    <Dialog open={props.open} wide noActions title={t.title} onCancel={() => !props.busy && props.onBack()}>
+    <Dialog open={props.open} xwide noActions title={t.title} onCancel={() => !props.busy && props.onBack()}>
       <DetailsBody {...props} />
     </Dialog>
   );
 }
 
-function DetailsBody({ subtitle, ids, memoId = null, initialRate = '', initialCommission = '', busy, refresh = 0, onSave, onBack }: Props) {
+function DetailsBody({ subtitle, ids, memoId = null, initialRate = '', initialCommission = '', header, precheck, busy, refresh = 0, onSave, onBack }: Props) {
   const { keys } = useKeys();
   const toast = useToast();
   const enterToNext = useEnterToNext();
@@ -96,9 +100,10 @@ function DetailsBody({ subtitle, ids, memoId = null, initialRate = '', initialCo
   /** The two buttons and the key: save when the figures are for what is typed; else mark what is missing and go to the first box to fix. */
   const trySave = (print: boolean) => {
     if (busy) return;
-    if (ready) return onSave(rate, commission, print);
+    const headerOk = precheck ? precheck() : true; // marks the truck boxes that are wrong and moves the cursor there
+    if (ready && headerOk) return onSave(rate, commission, print);
     setAttempted(true);
-    focusFirstToFix(windowErrors(answer, rate, commission, true));
+    if (headerOk) focusFirstToFix(windowErrors(answer, rate, commission, true));
   };
 
   // The seat's save key, while this window is the dialog in front.
@@ -139,24 +144,15 @@ function DetailsBody({ subtitle, ids, memoId = null, initialRate = '', initialCo
 
   return (
     <div ref={body} className={styles.window}>
-      <p className={styles.subtitle}>{subtitle}</p>
+      <div className={styles.subtitle}>{subtitle}</div>
       <div className={styles.grid}>
-        <div className={styles.left}>
-          <section aria-label={edit ? t.fromSaved : t.fromLrs}>
-            <h3 className={styles.kicker}>{edit ? t.fromSaved : t.fromLrs}</h3>
-            <dl className={styles.figures}>
-              {figures.map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-          <div className={styles.typeBox} onKeyDown={typeKeys}>
-            <h3 className={styles.kicker}>{t.typeHere}</h3>
+        <div className={styles.left} onKeyDown={typeKeys}>
+          {header}
+          <section className={styles.typeBox} aria-label={t.rateBox}>
+            <h3 className={styles.kicker}>{t.rateBox}</h3>
+            <div className={styles.rateRow}>
             <Field
-              data-autofocus=""
+              {...(header ? {} : { 'data-autofocus': '' })}
               name="rate"
               label={t.rate}
               inputMode="decimal"
@@ -176,25 +172,30 @@ function DetailsBody({ subtitle, ids, memoId = null, initialRate = '', initialCo
               value={commission}
               onChange={(e) => setCommission(e.target.value)}
             />
-            <p className={styles.note}>{t.noDefault}</p>
-          </div>
+            </div>
+          </section>
         </div>
         <section className={styles.right} aria-label={t.settlement} aria-live="polite">
+          <h3 className={styles.kicker}>{edit ? t.fromSaved : t.fromLrs}</h3>
+          <dl className={styles.figures}>
+            {figures.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
           <h3 className={styles.kicker}>{t.settlement}</h3>
           <Steps lines={lines} />
           <div className={styles.round}>
-            <div>
-              <strong>{t.round}</strong>
-              <span>{t.roundHint}</span>
-            </div>
+            <strong>{t.round}</strong>
             <output aria-label={t.round}>{settlement ? `${rupee} ${roundText(settlement)}` : `${rupee} ${strings.memo.none}`}</output>
           </div>
-          <p className={styles.note}>{t.notAdded}</p>
         </section>
       </div>
       <div className={styles.footer}>
         <Button variant="ghost" small keyCap={t.esc} onClick={onBack} disabled={busy}>
-          {edit ? t.editEscHint : t.escHint}
+          {edit ? t.backEdit : t.back}
         </Button>
         <span className={styles.buttons}>
           <Button variant="outline" disabled={busy} onClick={() => trySave(false)}>

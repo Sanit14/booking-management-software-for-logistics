@@ -84,7 +84,6 @@ interface Props {
   id: number;
   masters: MastersAll;
   today: string;
-  oldestPending: string | null;
 }
 
 /**
@@ -92,7 +91,7 @@ interface Props {
  * them) and its LRs, with what can be done to it. A change asks for its PIN (System for the header and the LRs, Admin for
  * Recalculate and Cancel); the keeper checks the PIN with the change and answers all or nothing. The screen adds nothing up.
  */
-export default function MemoView({ id, masters, today, oldestPending }: Props) {
+export default function MemoView({ id, masters, today }: Props) {
   const toast = useToast();
   const print = usePrint();
   const memo = useKeeperData<MemoDetail | null>(() => window.bm.keeper.memos.get(id), ['memos', 'lrs'], null, [id]).data;
@@ -434,7 +433,7 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
       {/* Add LRs: the pending list, then the System PIN */}
       <Dialog open={step === 'add'} wide title={t.addTitle(memo.challanNo)} cancelLabel={t.goBack} confirmLabel={t.addCount(added.size)} onCancel={close} onConfirm={() => (added.size > 0 ? setStep('addPin') : toast.warning(t.noneTicked))}>
         <div className={styles.pickerBox}>
-          <PendingPicker masters={masters} mastersLoaded today={today} oldestPending={oldestPending} ticks={added} onTicks={setAdded} />
+          <PendingPicker masters={masters} ticks={added} onTicks={setAdded} />
         </div>
       </Dialog>
       <PinDialog
@@ -448,8 +447,8 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
       <PinDialog
         open={step === 'recalculatePin'}
         title={t.pinRecalculate(memo.challanNo)}
-        prompt={strings.lrDefaults.pinPrompt}
-        label={strings.lrDefaults.pinLabel}
+        prompt={strings.settings.adminPrompt}
+        label={strings.pins.adminLabel}
         onCancel={close}
         onSubmit={(pin) =>
           attempt(pin, (p) => window.bm.keeper.memos.recalculate(memo.id, memo.version, p), (r) => (r.changed ? toast.success(t.recalculated(memo.challanNo)) : toast.info(t.recalculatedNothing)))
@@ -482,8 +481,8 @@ export default function MemoView({ id, masters, today, oldestPending }: Props) {
       <PinDialog
         open={step === 'cancelPin'}
         title={t.pinCancel(memo.challanNo)}
-        prompt={strings.lrDefaults.pinPrompt}
-        label={strings.lrDefaults.pinLabel}
+        prompt={strings.settings.adminPrompt}
+        label={strings.pins.adminLabel}
         onCancel={() => setStep('reason')}
         onSubmit={(pin) => attempt(pin, (p) => window.bm.keeper.memos.cancel(memo.id, memo.version, reason, p), () => toast.success(t.cancelledToast(memo.challanNo)))}
       />

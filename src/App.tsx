@@ -7,6 +7,8 @@ import HistoryPage from './history/HistoryPage';
 import { matches } from './logic/keymap';
 import type { Jump } from './logic/searchResults';
 import LoadingMemoPage from './loadingMemo/LoadingMemoPage';
+import SavedMemosPage from './loadingMemo/SavedMemosPage';
+import { badgesOf } from './logic/sidebar';
 import LrEntryPage from './lrEntry/LrEntryPage';
 import QuickLr from './lrEntry/QuickLr';
 import ReportsPage from './reports/ReportsPage';
@@ -25,7 +27,7 @@ import Dialog from './ui/Dialog';
 import { useKeeperData } from './useKeeperData';
 import { useKeys } from './useKeys';
 
-const pageOf = (j: Jump): PageId => (j.to === 'lr' || j.to === 'day' ? 'lrEntry' : j.to === 'master' ? 'masters' : j.to === 'account' ? 'firmAccounts' : j.to === 'wasuli' ? 'wasuli' : 'loadingMemo');
+const pageOf = (j: Jump): PageId => (j.to === 'lr' || j.to === 'day' ? 'lrEntry' : j.to === 'master' ? 'masters' : j.to === 'account' ? 'firmAccounts' : j.to === 'wasuli' ? 'wasuli' : j.to === 'memo' ? 'savedMemos' : 'loadingMemo');
 
 export default function App() {
   const { keys } = useKeys();
@@ -85,7 +87,7 @@ export default function App() {
   // The Dashboard's counts and the sidebar badges: refetched only when the keeper announces an LR or memo change.
   const summary = useKeeperData<DashboardSummary | null>(
     () => (shellUp ? window.bm.keeper.dashboard.summary(null) : Promise.resolve({ ok: true as const, value: null })),
-    ['lrs', 'memos'],
+    ['lrs', 'memos', 'wasuli'], // the sidebar's Wasuli badge counts the collections nobody has
     null,
     [shellUp],
   ).data;
@@ -122,7 +124,7 @@ export default function App() {
 
   return (
     <div className={styles.app}>
-      <Sidebar page={page} onSelect={go} onQuickLr={() => setQuick(true)} badges={summary ? { lrEntry: summary.booked + summary.loaded, loadingMemo: summary.pending } : undefined}>
+      <Sidebar page={page} onSelect={go} onQuickLr={() => setQuick(true)} badges={badgesOf(summary)}>
         <StatusBox seat={status.seat} backup={status.health.backup} link={link} />
       </Sidebar>
       <main className={styles.main}>
@@ -140,7 +142,9 @@ export default function App() {
             }}
           />
         ) : page === 'loadingMemo' ? (
-          <LoadingMemoPage jump={jump} onJumpUsed={() => setJump(null)} oldestPending={summary?.oldestPending ?? null} />
+          <LoadingMemoPage jump={jump} onJumpUsed={() => setJump(null)} onOpenMemo={(id) => pick({ to: 'memo', id })} />
+        ) : page === 'savedMemos' ? (
+          <SavedMemosPage jump={jump} onJumpUsed={() => setJump(null)} />
         ) : page === 'wasuli' ? (
           <WasuliPage jump={jump} onJumpUsed={() => setJump(null)} />
         ) : page === 'firmAccounts' ? (

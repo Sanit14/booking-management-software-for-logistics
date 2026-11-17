@@ -13,6 +13,10 @@
   width: 828px;
 }
 
+.xwide {
+  width: 960px;
+}
+
 .dialog::backdrop {
   background: rgba(15, 63, 67, 0.45);
 }

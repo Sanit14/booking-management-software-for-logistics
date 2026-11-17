@@ -357,7 +357,6 @@ export default function StatementView({ firm, today, state, onChange, onBack, on
               </span>
             </div>
             {months.data.length === 12 && <GrowthChart year={Number(months.data[0].month.slice(0, 4))} months={months.data} />}
-            <p className={styles.note}>{t.growthNote}</p>
           </Card>
           <div className={styles.tops}>
             <TopList title={t.top.parties[state.role]} items={top.data?.parties ?? []} />

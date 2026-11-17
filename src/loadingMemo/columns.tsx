@@ -11,7 +11,7 @@ const text = (value: string) => (
     {value}
   </span>
 );
-const money = (paise: number) => (paise > 0 ? formatPaise(paise) : t.none);
+export const money = (paise: number) => (paise > 0 ? formatPaise(paise) : t.none);
 /** A total with its sign: 150000 → "₹1,500". */
 export const rupees = (paise: number) => `${strings.ui.rupee}${formatPaise(paise)}`;
 

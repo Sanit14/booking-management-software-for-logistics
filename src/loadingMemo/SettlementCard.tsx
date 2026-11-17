@@ -56,16 +56,12 @@ export default function SettlementCard({ memo, onEdit }: Props) {
       ) : (
         <div className={styles.none}>
           <strong>{t.none}</strong>
-          <span>{t.noneText}</span>
         </div>
       )}
       {!cancelled && (
-        <>
-          <Button small variant="outline" icon={<Lock size={16} aria-hidden="true" />} onClick={onEdit}>
-            {t.edit}
-          </Button>
-          <p className={styles.note}>{t.editNote}</p>
-        </>
+        <Button small variant="outline" icon={<Lock size={16} aria-hidden="true" />} onClick={onEdit}>
+          {t.edit}
+        </Button>
       )}
     </section>
   );

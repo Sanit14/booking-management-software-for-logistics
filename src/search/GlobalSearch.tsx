@@ -178,7 +178,6 @@ export default function GlobalSearch({ onPick, floating, keyCap }: Props) {
         />
         {keyCap && <KeyCap>{keyCap}</KeyCap>}
       </div>
-      {typed === '' && !floating && <p className={styles.note}>{t.hint}</p>}
       {open && (
         <div className={styles.panel}>
           {rows.length === 0 ? (

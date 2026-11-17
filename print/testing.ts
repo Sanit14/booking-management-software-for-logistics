@@ -16,10 +16,12 @@ export function sampleMemo(count: number, over: Partial<PrintMemo> = {}): PrintM
     qty: 3 + (i % 5),
     toPay: i % 2 === 0 ? '1,800.00' : '–',
     paid: i % 2 === 0 ? '–' : '2,500.50',
+    hamali: i % 2 === 0 ? '10.50' : '12.25',
+    total: i % 2 === 0 ? '1,810.50' : '2,512.75',
     wasuli: i % 4 === 0 ? '1,200.00' : '–',
   }));
   return {
-    company: { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5' },
+    company: { name: 'Sundeep Freight Movers', location: 'Yavatmal' },
     challanNo: 13,
     challanYear: 2026,
     date: '31-10-2026',
@@ -32,7 +34,7 @@ export function sampleMemo(count: number, over: Partial<PrintMemo> = {}): PrintM
     cancelled: false,
     differs: false,
     rows,
-    totals: { lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', wasuli: '4,076.00' },
+    totals: { lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', hamali: '1,234.50', total: '1,34,345.00', wasuli: '4,076.00' },
     // the old paper's own example: 177 articles at 0.40 and 10 % -> net 10,240.90, round figure 10,241
     settlement: {
       articles: 177, paid: '220.00', toPay: '6,953.00', hamaliLess: '70.80', hamaliHow: '177 × 0.40', total1: '6,882.20', commissionLess: '717.30', commissionHow: '10 %',
@@ -44,7 +46,7 @@ export function sampleMemo(count: number, over: Partial<PrintMemo> = {}): PrintM
 
 export function sampleLr(over: Partial<PrintLr> = {}): PrintLr {
   return {
-    company: { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5' },
+    company: { name: 'Sundeep Freight Movers', location: 'Yavatmal' },
     lrNo: 1248,
     lrYear: 2026,
     date: '31-10-2026',
@@ -77,7 +79,7 @@ export function sampleStatement(count: number, over: Partial<PrintFirmStatement>
     total: i % 2 === 0 ? '1,932.00' : '2,632.50',
   }));
   return {
-    company: { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5' },
+    company: { name: 'Sundeep Freight Movers', location: 'Yavatmal' },
     firm: 'Shree Ganesh Traders',
     role: 'both',
     from: '01-10-2026',
@@ -134,7 +136,7 @@ const REPORT_SAMPLES: Record<ReportKind, { row: (i: number) => string[]; totals:
 export function sampleReport(report: ReportKind, count: number, over: Partial<PrintReport> = {}): PrintReport {
   const sample = REPORT_SAMPLES[report];
   return {
-    company: { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal 445001', phone: 'Ph 07232 245678', gstin: 'GSTIN 27ABCDE1234F1Z5' },
+    company: { name: 'Sundeep Freight Movers', location: 'Yavatmal' },
     report,
     from: '01-10-2026',
     to: '31-10-2026',

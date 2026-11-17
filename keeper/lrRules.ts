@@ -1,6 +1,6 @@
 // What makes a typed LR acceptable. Pure: no database, no clock (the caller passes today). The money and quantity
 // arrive as the TEXT the clerk typed; this is where they become numbers, so the screen never has to.
-import type { LrChange, LrDefaultsInput, LrEditField, LrField, LrFieldError, LrInput, LrOldField, LrParty } from '../shared';
+import type { LrChange, LrEditField, LrField, LrFieldError, LrInput, LrOldField, LrParty } from '../shared';
 import { cleanName } from './masterRules';
 import { parseRupees } from './money';
 
@@ -52,11 +52,6 @@ export function asLrInput(v: unknown): LrInput | null {
     wasuli: text(o, 'wasuli'),
     confirmSimilar: o.confirmSimilar === true,
   };
-}
-
-export function asDefaultsInput(v: unknown): LrDefaultsInput {
-  const o = obj(v) ?? {};
-  return { bookingStationId: int(o, 'bookingStationId') };
 }
 
 /** Local calendar date, `YYYY-MM-DD` (not UTC: at 3 a.m. in India UTC is still yesterday). */

@@ -1,6 +1,6 @@
 // LRs: the number, the validation and the money all happen here, inside ONE transaction per save. The screen sends
 // what was typed (money as text) and gets back the saved LR with its amounts; it never adds anything up.
-import type { KeeperResult, LrDay, LrDefaults, LrDefaultsInput, LrDetail, LrHistoryEntry, LrInput, LrListRow, LrPreview, LrSaved, LrStatus, LrUpdated, ResultCode } from '../shared';
+import { BOOKING_STATION, type KeeperResult, type LrDay, type LrDefaults, type LrDetail, type LrHistoryEntry, type LrInput, type LrListRow, type LrPreview, type LrSaved, type LrStatus, type LrUpdated, type MasterRow, type ResultCode } from '../shared';
 import { parseJson, writeAudit, type AuditRow } from './audit';
 import type { Db } from './db';
 import { changesOf, cleanLr, cleanReason, diffLr, isDate, localDate, parseNumbers, type CleanLr, type LrErrors } from './lrRules';
@@ -22,9 +22,6 @@ class Stop extends Error {
 }
 
 const DAY_LIMIT = 1000;
-
-const setting = (db: Db, key: string): string | undefined =>
-  (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
 
 const LIST = `SELECT l.id, l.lr_no AS lrNo, l.consignor_name AS consignor, l.consignee_name AS consignee, s.name AS toStation,
   l.qty, l.topay_paise AS toPayPaise, l.paid_paise AS paidPaise, l.status
@@ -150,22 +147,33 @@ export function lrEntry(db: Db, r: AuditRow): LrHistoryEntry | null {
   return entry;
 }
 
-export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, masters: Pick<ReturnType<typeof makeMasters>, 'create'>, now: () => Date = () => new Date()) {
+export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, masters: Pick<ReturnType<typeof makeMasters>, 'create' | 'setActive'>, now: () => Date = () => new Date()) {
   function defaults(db: Db, date: string | null): LrDefaults {
     const today = localDate(now());
     const on = date !== null && isDate(date) ? date : today;
-    const station = Number(setting(db, 'bookingStationId'));
-    const active = Number.isInteger(station) && db.prepare('SELECT 1 FROM stations WHERE id = ? AND active = 1').get(station) !== undefined;
+    // The From of a new LR is the fixed booking station (4.7), found by name; null only when someone closed it since the keeper started.
+    const station = db.prepare('SELECT id FROM stations WHERE name_key = ? AND active = 1').get(nameKey(BOOKING_STATION)) as { id: number } | undefined;
     const last = db.prepare("SELECT last FROM counters WHERE name = 'lr' AND year = ?").get(Number(on.slice(0, 4))) as { last: number } | undefined;
     return {
       today,
-      bookingStationId: active ? station : null,
+      bookingStationId: station?.id ?? null,
       nextNo: (last?.last ?? 0) + 1,
     };
   }
 
   return {
     defaults,
+
+    /**
+     * The booking station is fixed (`BOOKING_STATION`): at every start, and after a restore, the keeper makes sure the book has it and that it is
+     * active (an old book, a restored backup, or a station closed by hand). Nothing is written when it is already there.
+     */
+    ensureBookingStation(db: Db, seat: string): KeeperResult<MasterRow | null> {
+      const row = db.prepare('SELECT id, version, active FROM stations WHERE name_key = ?').get(nameKey(BOOKING_STATION)) as { id: number; version: number; active: number } | undefined;
+      if (!row) return masters.create(db, seat, 'stations', { name: BOOKING_STATION }, true);
+      if (row.active !== 1) return masters.setActive(db, seat, 'stations', row.id, row.version, true, '');
+      return ok(null);
+    },
 
     /** No write, no database. Amounts from `lrAmounts` on what is typed so far. */
     preview(input: LrInput): KeeperResult<LrPreview> {
@@ -339,22 +347,6 @@ export function makeLrs(pins: Pick<ReturnType<typeof makePins>, 'verify'>, maste
         )
         .get(on) as LrDay['totals'];
       return ok({ date: on, rows, totals: t });
-    },
-
-    /** The booking station a new LR starts from: the Admin PIN changes it. */
-    setDefaults(db: Db, seat: string, input: LrDefaultsInput, adminPin: string): KeeperResult<LrDefaults> {
-      const gate = pins.verify(db, 'admin', adminPin);
-      if (!gate.ok) return gate;
-      const station = input.bookingStationId;
-      if (station !== null && (!Number.isInteger(station) || db.prepare('SELECT 1 FROM stations WHERE id = ? AND active = 1').get(station) === undefined)) {
-        return refuse('lr-invalid', { fields: { fromStation: 'missing' } });
-      }
-      db.transaction(() => {
-        const before = defaults(db, null);
-        db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run('bookingStationId', station === null ? '' : String(station));
-        writeAudit(db, { seat, action: 'settings.lr-defaults', entity: 'settings', entityId: 'lr-defaults', before: { bookingStationId: before.bookingStationId }, after: { bookingStationId: station } });
-      })();
-      return ok(defaults(db, null));
     },
   };
 }

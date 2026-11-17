@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { LrDetail } from '../../shared';
 import { keyLabel } from '../logic/keymap';
 import { strings } from '../strings';
@@ -16,6 +16,8 @@ const t = strings.lr;
 type Step = null | 'edit' | 'reason' | 'cancel' | 'restore';
 
 interface Props {
+  /** Buttons at the right end of the strip (LR Entry: Shortcuts). */
+  tools?: ReactNode;
   lr: LrDetail;
   editing: boolean;
   /** Another seat saved this LR while it is being edited here. */
@@ -36,7 +38,7 @@ interface Props {
  * Cancel asks a reason, then the System PIN; the keeper checks the PIN with the action itself, so a wrong PIN just
  * shakes the dots and nothing is written.
  */
-export default function LrActions({ lr, editing, changedElsewhere, problem, onEdit, onDiscard, onOpen, onOpenMemo }: Props) {
+export default function LrActions({ tools, lr, editing, changedElsewhere, problem, onEdit, onDiscard, onOpen, onOpenMemo }: Props) {
   const toast = useToast();
   const { keys } = useKeys();
   const [step, setStep] = useState<Step>(null);
@@ -115,6 +117,7 @@ export default function LrActions({ lr, editing, changedElsewhere, problem, onEd
         </span>
       )}
       <span className={styles.openActions}>
+        {tools}
         {editing ? (
           <Button small variant="outline" onClick={onDiscard}>
             {t.actions.discard}

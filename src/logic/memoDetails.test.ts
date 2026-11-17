@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MemoSettlement, SettlementPreview } from '../../shared';
-import { blankLines, percentText, previewReady, roundText, saveKeyWanted, settlementLines, settlementRefusal, windowErrors } from './memoDetails';
+import { blankLines, nextEnabled, percentText, previewReady, refusalStep, resolveHeader, roundText, saveKeyWanted, settlementLines, settlementRefusal, windowErrors } from './memoDetails';
 
 // The old paper's example, as the keeper sends it.
 const PAPER: MemoSettlement = {
@@ -79,4 +79,39 @@ test('blankLines: before the figures come, To pay and Wasuli are known and every
   assert.deepEqual(blankLines(TOTALS).map((l) => [l.label, l.value]), [
     ['To pay', '6,953.00'], ['− Hamali less', '—'], ['Total', '—'], ['− Commission less', '—'], ['Total', '—'], ['+ Wasuli', '4,076.00'], ['Net amount', '—'],
   ]);
+});
+
+// ---- the truck boxes inside the window (4.7) ----
+
+const opts = { trucks: [{ id: '1', label: 'MH 29 BE 1007' }], drivers: [{ id: '2', label: 'Ramesh Pawar' }], stations: [{ id: '3', label: 'Yavatmal' }, { id: '4', label: 'Nagpur' }] };
+const box = (text: string, id: number | null = null) => ({ text, id });
+
+test('resolveHeader: a picked box or a name typed in full is a master row; an empty box is required, a typed one that is in no list is missing', () => {
+  const full = resolveHeader({ truck: box('mh 29  be 1007'), driver: box('Ramesh Pawar', 2), from: box('Yavatmal', 3), to: box(' NAGPUR ') }, opts);
+  assert.deepEqual(full, { ok: true, ids: { truckId: 1, driverId: 2, fromId: 3, toId: 4 } });
+  const bad = resolveHeader({ truck: box(''), driver: box('Ramesh'), from: box('Yavatmal', 3), to: box('Nag') }, opts);
+  assert.deepEqual(bad, { ok: false, problems: { truck: 'required', driver: 'missing', toStation: 'missing' } });
+  assert.deepEqual(resolveHeader({ truck: box('   '), driver: box(''), from: box(''), to: box('') }, opts), { ok: false, problems: { truck: 'required', driver: 'required', fromStation: 'required', toStation: 'required' } });
+});
+
+test('refusalStep: a refused header keeps the window open with the boxes marked; only the rate or % asks the figures again; a taken LR closes it', () => {
+  assert.equal(refusalStep('memo-invalid', { truck: 'missing' }), 'mark');
+  assert.equal(refusalStep('memo-invalid', { toStation: 'same', fromStation: 'same' }), 'mark');
+  assert.equal(refusalStep('memo-invalid', { truck: 'missing', hamaliRate: 'amount' }), 'mark', 'a header box with it: the box is what to fix first');
+  assert.equal(refusalStep('memo-invalid', { hamaliRate: 'amount' }), 'recheck');
+  assert.equal(refusalStep('memo-invalid', { hamaliRate: 'amount', commission: 'percent' }), 'recheck');
+  assert.equal(refusalStep('memo-invalid', { lrs: 'many' }), 'mark');
+  assert.equal(refusalStep('memo-invalid'), 'mark');
+  assert.equal(refusalStep('memo-conflict'), 'taken');
+  assert.equal(refusalStep('memo-already-saved'), 'open');
+  assert.equal(refusalStep('wrong-pin'), 'forget-date');
+  assert.equal(refusalStep('pin-locked'), 'forget-date');
+  assert.equal(refusalStep('failed'), 'toast');
+});
+
+test('Next is off with nothing ticked and past the most a memo carries', () => {
+  assert.equal(nextEnabled(0, 500), false);
+  assert.equal(nextEnabled(1, 500), true);
+  assert.equal(nextEnabled(500, 500), true);
+  assert.equal(nextEnabled(501, 500), false);
 });

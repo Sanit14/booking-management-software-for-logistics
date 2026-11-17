@@ -95,7 +95,6 @@ export default function CollectDialog({ row, onCancel, onSubmit }: Props) {
             data-autofocus=""
             onFocus={(e) => e.target.select()}
             label={t.amountLabel}
-            hint={t.amountHint}
             error={say('amount')}
             value={amount}
             onChange={(e) => change(() => setAmount(e.target.value), 'amount')}
@@ -108,7 +107,7 @@ export default function CollectDialog({ row, onCancel, onSubmit }: Props) {
             options={[{ value: '', label: t.modeChoose }, ...MODES.map((m) => ({ value: m, label: t.mode[m] }))]}
           />
           {errors.mode && <div className={styles.fieldError} role="alert">{say('mode')}</div>}
-          <Field name="remark" label={t.remarkField} hint={t.remarkHint} error={say('remark')} value={remark} onChange={(e) => change(() => setRemark(e.target.value), 'remark')} />
+          <Field name="remark" label={t.remarkField} error={say('remark')} value={remark} onChange={(e) => change(() => setRemark(e.target.value), 'remark')} />
         </form>
       )}
     </Dialog>

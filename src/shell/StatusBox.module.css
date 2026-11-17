@@ -1,26 +1,25 @@
 .box {
   margin-top: auto;
-  padding: 10px 12px;
-  border-radius: var(--r-lg);
-  background: var(--bg);
+  padding: 8px 4px 0;
+  border-top: 1px solid var(--line);
   font-size: var(--fs-13);
   line-height: 18px;
   color: var(--text-2);
   overflow-wrap: anywhere;
 }
 
-.keeper {
+.line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 7px;
-  font-weight: 700;
-  color: var(--text);
+  color: var(--text-2);
 }
 
 .dot {
   width: 9px;
   height: 9px;
   flex-shrink: 0;
+  margin-top: 5px;
   border-radius: 50%;
   background: var(--success);
 }

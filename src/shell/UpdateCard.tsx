@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import type { UpdateState } from '../../shared';
 import { strings } from '../strings';
 import Button from '../ui/Button';
-import { Card } from '../ui/Card';
 import PinDialog from '../ui/PinDialog';
 import { useToast } from '../ui/Toast';
+import SettingsSection from './SettingsSection';
 import styles from './SettingsPage.module.css';
 
 const t = strings.update;
@@ -26,7 +27,7 @@ export default function UpdateCard() {
   const line = ((): string => {
     switch (state.status) {
       case 'idle':
-        return t.current(window.bm.version);
+        return '';
       case 'checking':
         return t.checking;
       case 'uptodate':
@@ -57,43 +58,44 @@ export default function UpdateCard() {
   };
 
   return (
-    <Card title={t.title}>
-      <div className={styles.body}>
-        <p>{t.text}</p>
+    <SettingsSection icon={Download} title={t.title} adminOnly>
+      <div className={styles.row}>
+        <span className={styles.label}>{t.thisVersion}</span>
+        <span className={styles.version}>{window.bm.version}</span>
+        {state.status === 'available' ? (
+          <Button small variant="outline" onClick={() => run(window.bm.update.download)}>
+            {t.download}
+          </Button>
+        ) : state.status === 'downloaded' ? (
+          <Button small variant="outline" onClick={() => setAsking(true)}>
+            {t.install}
+          </Button>
+        ) : (
+          <Button small variant="outline" disabled={busy} onClick={() => run(window.bm.update.check)}>
+            {t.check}
+          </Button>
+        )}
+      </div>
+      {line !== '' && (
         <p className={state.status === 'error' ? styles.pinError : styles.status} role="status" aria-live="polite">
           {line}
         </p>
-        {state.status === 'downloaded' && state.notice && (
-          <p className={styles.pinError} role="alert">
-            {state.notice}
-          </p>
-        )}
-        {state.status === 'installing' && (
-          <ol className={styles.steps}>
-            {t.steps.map((label, i) => (
-              <li key={label} className={i === state.step ? styles.stepNow : i < state.step ? styles.stepDone : ''}>
-                {label}
-              </li>
-            ))}
-          </ol>
-        )}
-        <div className={styles.buttons}>
-          {state.status === 'available' ? (
-            <Button variant="secondary" small onClick={() => run(window.bm.update.download)}>
-              {t.download}
-            </Button>
-          ) : state.status === 'downloaded' ? (
-            <Button variant="secondary" small onClick={() => setAsking(true)}>
-              {t.install}
-            </Button>
-          ) : (
-            <Button variant="secondary" small disabled={busy} onClick={() => run(window.bm.update.check)}>
-              {t.check}
-            </Button>
-          )}
-        </div>
-      </div>
+      )}
+      {state.status === 'downloaded' && state.notice && (
+        <p className={styles.pinError} role="alert">
+          {state.notice}
+        </p>
+      )}
+      {state.status === 'installing' && (
+        <ol className={styles.steps}>
+          {t.steps.map((label, i) => (
+            <li key={label} className={i === state.step ? styles.stepNow : i < state.step ? styles.stepDone : ''}>
+              {label}
+            </li>
+          ))}
+        </ol>
+      )}
       <PinDialog open={asking} title={t.installTitle} prompt={t.installPrompt} label={strings.pins.adminLabel} onCancel={() => setAsking(false)} onSubmit={install} />
-    </Card>
+    </SettingsSection>
   );
 }

@@ -20,7 +20,7 @@ const noBox: Box = { text: '', id: null };
 
 const columns: Column<SavedMemoRow>[] = [
   { key: 'no', header: t.savedColumns.challan, width: 76, num: true, render: (r) => r.challanNo },
-  { key: 'date', header: t.savedColumns.date, width: 106, render: (r) => isoToDisplay(r.date) },
+  { key: 'date', header: t.savedColumns.date, width: 118, render: (r) => isoToDisplay(r.date) },
   { key: 'truck', header: t.savedColumns.truck, width: 130, render: (r) => <span className={styles.cell} title={r.truck}>{r.truck}</span> },
   { key: 'driver', header: t.savedColumns.driver, render: (r) => <span className={styles.cell} title={r.driver}>{r.driver}</span> },
   { key: 'to', header: t.savedColumns.to, width: 100, render: (r) => <span className={styles.cell} title={r.toStation}>{r.toStation}</span> },
@@ -29,7 +29,7 @@ const columns: Column<SavedMemoRow>[] = [
   {
     key: 'status',
     header: t.savedColumns.status,
-    width: 176,
+    width: 164,
     render: (r) => (
       <span className={styles.chips}>
         <Chip kind={r.status} />
@@ -42,8 +42,6 @@ const columns: Column<SavedMemoRow>[] = [
 interface Props {
   masters: MastersAll;
   today: string;
-  /** The tab is showing: a hidden list is not refetched on every LR a seat saves. */
-  active: boolean;
   onOpen: (id: number) => void;
 }
 
@@ -51,7 +49,7 @@ interface Props {
  * The saved memos, newest first: a day range (today until another is typed), a truck and a To station. A row opens the memo.
  * The keeper pages (100 a page) and says which memos differ from their LRs; this only draws.
  */
-export default function SavedMemos({ masters, today, active, onOpen }: Props) {
+export default function SavedMemos({ masters, today, onOpen }: Props) {
   const enterToNext = useEnterToNext();
   // null = the default (today); '' = no bound.
   const [from, setFrom] = useState<string | null>(null);
@@ -74,7 +72,7 @@ export default function SavedMemos({ masters, today, active, onOpen }: Props) {
   const pages = loaded.key === filtersKey ? loaded.pages : 1;
   const list = useKeeperData<SavedMemoPage>(
     async () => {
-      if (!active || today === '') return { ok: true as const, value: NO_PAGE }; // not before the keeper has said what today is
+      if (today === '') return { ok: true as const, value: NO_PAGE }; // not before the keeper has said what today is
       let cursor: SavedMemoCursor | null = null;
       const rows: SavedMemoRow[] = [];
       let last = NO_PAGE;
@@ -90,7 +88,7 @@ export default function SavedMemos({ masters, today, active, onOpen }: Props) {
     },
     ['memos', 'lrs'], // an LR edited on any seat can make a memo differ
     NO_PAGE,
-    [filtersKey, pages, active],
+    [filtersKey, pages],
   );
   const { rows, next } = list.data;
   const dimmed = useMemo(() => new Set(rows.filter((r) => r.status === 'cancelled').map((r) => String(r.id))), [rows]);
@@ -108,8 +106,8 @@ export default function SavedMemos({ masters, today, active, onOpen }: Props) {
     <>
       <Card className={styles.filters}>
         <form className={styles.filterRow} aria-label={t.savedFiltersLabel} onKeyDown={enterToNext} onSubmit={(e) => e.preventDefault()} noValidate>
-          <Field className={styles.dateBox} label={t.from} type="date" max={today} value={from ?? today} onChange={(e) => setFrom(e.target.value)} />
-          <Field className={styles.dateBox} label={t.to} type="date" max={today} value={to ?? today} onChange={(e) => setTo(e.target.value)} />
+          <Field className={styles.dateBox} label={t.dateFrom} type="date" max={today} value={from ?? today} onChange={(e) => setFrom(e.target.value)} />
+          <Field className={styles.dateBox} label={t.dateTo} type="date" max={today} value={to ?? today} onChange={(e) => setTo(e.target.value)} />
           <TypeAhead
             className={styles.partyBox}
             label={t.truckFilter}
@@ -135,7 +133,7 @@ export default function SavedMemos({ masters, today, active, onOpen }: Props) {
           </Button>
         </form>
       </Card>
-      <Card className={styles.listCard} title={t.tabs.saved}>
+      <Card className={styles.listCard} title={t.savedListTitle}>
         <div className={styles.tableBox}>
           <Table label={t.savedLabel} columns={columns} rows={rows} rowKey={(r) => String(r.id)} dimmed={dimmed} empty={t.savedEmpty} onRowActivate={(r) => onOpen(r.id)} />
         </div>

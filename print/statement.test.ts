@@ -47,7 +47,7 @@ test('statementHtml: 60 LRs are two sheets, each with its own header row and "Pa
 
 test('statementHtml: the first sheet carries the company, the heading, the firm, the period and the role; later sheets only say which statement they continue', () => {
   const [first, second] = sheetsOf(statementHtml(sampleStatement(60)));
-  for (const text of ['Sundeep Freight Movers', 'Station Road, Yavatmal 445001', 'STATEMENT OF ACCOUNT', 'Shree Ganesh Traders', '01-10-2026 to 31-10-2026', 'All LRs of the firm']) assert.ok(first.includes(text), text);
+  for (const text of ['Sundeep Freight Movers', 'STATEMENT OF ACCOUNT', 'Shree Ganesh Traders', '01-10-2026 to 31-10-2026', 'All LRs of the firm']) assert.ok(first.includes(text), text);
   assert.ok(!second.includes('STATEMENT OF ACCOUNT'));
   assert.match(second, /Shree Ganesh Traders - statement \(continued\)/);
   assert.ok(statementHtml(sampleStatement(2, { role: 'consignee' })).includes('As consignee'));
@@ -70,7 +70,7 @@ test('statementHtml: a statement with no LRs says so and still prints its totals
 });
 
 test('statementHtml: names and company lines are escaped, so nothing typed can open a tag', () => {
-  const html = statementHtml(sampleStatement(6, { firm: '<b>Kale</b> & Sons', company: { name: '"Q" \'name\'', address: '', phone: '', gstin: '' } }));
+  const html = statementHtml(sampleStatement(6, { firm: '<b>Kale</b> & Sons', company: { name: '"Q" \'name\'', location: 'Yavatmal' } }));
   assert.ok(html.includes('&lt;b&gt;Kale&lt;/b&gt; &amp; Sons'));
   assert.ok(html.includes('&quot;Q&quot; &#39;name&#39;'));
   assert.ok(html.includes('Rathod &lt;Steel&gt; &quot;House&quot;'));

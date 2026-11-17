@@ -23,7 +23,6 @@ import {
   type MemoChanged,
   type MemoDetail,
   type MemoSaved,
-  type PrintCompany,
   type ResultCode,
   type WasuliChanged,
 } from '../shared';
@@ -40,10 +39,10 @@ import { asAccountCursor, asAccountFilters, asRole, asStatementCursor, asStateme
 import { blankReason, inspectBeforeOpen, markRunning, readMarkerClean, readMarkerRows, writeMarker } from './guard';
 import { makeHistory } from './history';
 import { asHistoryCursor, asHistoryFilters } from './historyRules';
-import { asDefaultsInput, asLrInput } from './lrRules';
+import { asLrInput } from './lrRules';
 import { makeLog } from './log';
 import { makeLrs } from './lrs';
-import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters } from './memoRules';
+import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters, asSearchText, asSide } from './memoRules';
 import { makeMasters } from './masters';
 import { makeMemos } from './memos';
 import { MIGRATIONS, migrate } from './migrations';
@@ -119,7 +118,7 @@ function main(): void {
   const reports = makeReports();
   const history = makeHistory();
   const admin = makeAdmin(pins);
-  const printing = makePrint(pins, memos, firmAccounts, reports);
+  const printing = makePrint(memos, firmAccounts, reports);
   const wasuli = makeWasuli(pins);
   const dashboard = makeDashboard();
   const events = makeEvents();
@@ -139,6 +138,7 @@ function main(): void {
         const made = await makeBackup(open, backupDir);
         delete backup.failing;
         backup.lastAt = new Date().toISOString();
+        backup.lastBytes = made.bytes;
         log('backup-ok', { why, file: made.file, rows: made.rows, bytes: made.bytes });
         events.publish(['settings']); // the seats' status line shows the new time
         try {
@@ -172,13 +172,28 @@ function main(): void {
   // Called for every database the keeper opens: at start and after a restore, which may bring another setting.
   function adoptBackupFolder(open: Db): void {
     if (!backupDirFromEnv) backupDir = configuredBackupDir(open) ?? backupDir;
-    const newest = namesInBackupDir()[0]?.at;
-    if (newest) backup.lastAt = newest.toISOString();
+    const newest = namesInBackupDir()[0];
+    if (newest) {
+      backup.lastAt = newest.at.toISOString();
+      try {
+        backup.lastBytes = fs.statSync(path.join(backupDir, newest.file)).size;
+      } catch {
+        delete backup.lastBytes; // the size is a nicety: a file that cannot be read says nothing
+      }
+    }
   }
 
   // The database is open and migrated: write the guard's baseline, start the timers (once), serve.
   function becomeReady(): void {
     if (!db) throw new Error('becomeReady without a database');
+    // New LRs start from the fixed booking station (4.7): an old book, a restored backup or a closed station gets it back before anyone can book.
+    // A failure here (a full disk, a locked file) is logged, never fatal: the book is still readable, and the station is made at the next start.
+    try {
+      const station = lrs.ensureBookingStation(db, 'KEEPER');
+      if (!station.ok) log('booking-station-failed', { code: station.code });
+    } catch (e) {
+      log('booking-station-failed', { error: msg(e) });
+    }
     markedRows = businessRows(db);
     writeMarker(programDirPath, dataRoot, dbPath, markedRows);
     if (!timersStarted) {
@@ -237,6 +252,7 @@ function main(): void {
     schemaVersion = migrated.version;
     if (migrated.backup) {
       backup.lastAt = new Date().toISOString();
+      backup.lastBytes = migrated.backup.bytes;
       log('backup-ok', { why: 'before-migration', file: migrated.backup.file, rows: migrated.backup.rows, bytes: migrated.backup.bytes });
     }
     if (migrated.backupSkipped) log('backup-skipped', { why: 'before-migration', file: migrated.backupSkipped }); // a backup of this schema under an hour old is enough
@@ -470,6 +486,7 @@ function main(): void {
     backupDir = dir;
     delete backup.failing;
     backup.lastAt = new Date().toISOString();
+    backup.lastBytes = made.bytes;
     log('backup-ok', { why: 'new-folder', file: made.file, rows: made.rows, bytes: made.bytes });
     events.publish(['settings']);
     return ok({ dir, file: made.file });
@@ -699,7 +716,12 @@ function main(): void {
         if (url === '/memos/defaults') r = memos.defaults(db, date);
         else if (url === '/memos/by-date') r = memos.byDate(db, date);
         else if (url === '/memos/pending') r = memos.pending(db, asPendingFilters(body.filters), asCursor(body.cursor));
-        else if (url === '/memos/totals') r = memos.totals(db, asIds(body.ids));
+        else if (url === '/memos/pending-stations') r = memos.pendingStations(db, asPendingFilters(body.filters));
+        else if (url === '/memos/pending-names') {
+          const side = asSide(body.side);
+          if (!side) return send(res, 400, { error: 'side (consignor or consignee) required' });
+          r = memos.pendingNames(db, side, asPendingFilters(body.filters), asSearchText(body.text));
+        } else if (url === '/memos/totals') r = memos.totals(db, asIds(body.ids));
         else if (url === '/memos/settlement') r = memos.settlement(db, asIds(body.ids), typed(body.hamaliRate), typed(body.commission), whole(body.memoId) ? body.memoId : null);
         else if (url === '/memos/list') r = memos.list(db, asSavedFilters(body.filters), asCursor(body.cursor));
         else if (url === '/memos/create') {
@@ -887,11 +909,7 @@ function main(): void {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
       let r: KeeperResult<unknown>;
       try {
-        if (url === '/print/company') r = ok(printing.company(db));
-        else if (url === '/print/set-company') {
-          const input = body.input !== null && typeof body.input === 'object' && !Array.isArray(body.input) ? (body.input as PrintCompany) : ({} as PrintCompany);
-          r = printing.setCompany(db, seat, input, typeof body.adminPin === 'string' ? body.adminPin : '');
-        } else if (url === '/print/done') {
+        if (url === '/print/done') {
           const done = asPrintDone(body);
           if (!done) return send(res, 400, { error: 'kind, id and how required (a firm statement also its period and role)' });
           r = printing.done(db, seat, done);
@@ -910,16 +928,11 @@ function main(): void {
         log('print-failed', { url, seat, error: msg(e) });
         return sendResult(res, refuse('failed', msg(e)));
       }
-      // Never the PIN or the company lines: the route, the seat and the outcome.
       if (r.ok && url === '/print/done') log('print-done', { seat, kind: body.kind, id: body.id, how: body.how });
-      else if (r.ok && url === '/print/set-company') {
-        log('company-saved', { seat });
-        events.publish(['settings']);
-      } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) pinRefused(url, seat, r.code, r.detail);
       return sendResult(res, r);
     }
 
-    if (url.startsWith('/lrs/') || url.startsWith('/settings/')) {
+    if (url.startsWith('/lrs/')) {
       if (state !== 'ready' || !db || stopping) return sendResult(res, refuse('no-database'));
       const date = typeof body.date === 'string' ? body.date : null;
       let r: KeeperResult<unknown>;
@@ -928,7 +941,6 @@ function main(): void {
         const pin = typeof body.systemPin === 'string' ? body.systemPin : '';
         if (url === '/lrs/defaults') r = ok(lrs.defaults(db, date));
         else if (url === '/lrs/by-date') r = lrs.byDate(db, date);
-        else if (url === '/settings/set-lr-defaults') r = lrs.setDefaults(db, seat, asDefaultsInput(body.input), typeof body.adminPin === 'string' ? body.adminPin : '');
         else if (url === '/lrs/find') {
           if (!whole(body.no)) return send(res, 400, { error: 'no required' });
           r = lrs.find(db, body.no);
@@ -972,8 +984,6 @@ function main(): void {
         const done = r.value as LrDetail;
         log(url === '/lrs/cancel' ? 'lr-cancelled' : 'lr-restored', { seat, id: done.id, no: done.lrNo });
         events.publish(tablesOf(false, done.wasuliPaise > 0), [done.id]);
-      } else if (r.ok && url === '/settings/set-lr-defaults') {
-        events.publish(['settings']);
       } else if (!r.ok && (r.code === 'wrong-pin' || r.code === 'pin-locked')) {
         pinRefused(url, seat, r.code, r.detail);
       }

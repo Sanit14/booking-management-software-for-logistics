@@ -25,9 +25,6 @@
 .dateBox input::-webkit-calendar-picker-indicator {
   display: none; /* the 10 characters of the date need the room; the keyboard types it */
 }
-.stationBox {
-  flex: 0 0 116px;
-}
 .partyBox {
   flex: 1 1 0;
 }
@@ -41,29 +38,6 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
-}
-.listAside {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--text-2);
-  font-size: var(--fs-14);
-  font-weight: 600;
-}
-.tickedTag {
-  display: inline-flex;
-  height: 24px;
-  align-items: center;
-  padding: 0 10px;
-  border-radius: 12px;
-  background: var(--orange-tint);
-  color: var(--orange-ink);
-  font-weight: 700;
-}
-.keyHint {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 /* The table's own scroll box fills what is left of the card and keeps its header in view. */
 .tableBox {
@@ -88,14 +62,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tick {
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  accent-color: var(--teal-dark);
-  vertical-align: middle;
-  pointer-events: none; /* the row takes the click, so a click on the box ticks once */
-}
 .more {
   display: flex;
   flex-shrink: 0;
@@ -104,29 +70,6 @@
   border-top: 1px solid var(--line);
 }
 
-/* ---- the memo panel ---- */
-.panel {
-  flex-shrink: 0;
-}
-.panelHead {
-  display: flex;
-  height: 44px;
-  align-items: center;
-  gap: 12px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--tint-edge);
-  background: var(--tint);
-}
-.panelTitle {
-  font-size: var(--fs-17);
-  color: var(--teal-dark);
-}
-.panelNote {
-  min-width: 0;
-  color: var(--text-2);
-  font-size: var(--fs-14);
-  font-weight: 600;
-}
 .warn {
   min-width: 0;
   overflow: hidden;
@@ -136,137 +79,34 @@
   font-size: var(--fs-14);
   font-weight: 700;
 }
-.panelTotals {
-  display: flex;
-  align-items: baseline;
-  gap: 18px;
-  margin-left: auto;
-  color: var(--text-2);
-  font-size: var(--fs-14);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.panelTotals strong {
-  color: var(--teal-dark);
-  font-family: var(--font-num);
-  font-size: 20px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.panelForm {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 6px 12px 4px;
-}
-/* A box's own message is read by screen readers but not drawn: the head says what is wrong. */
-.panelForm [role='alert'] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-.row {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-}
-.row > * {
-  min-width: 0;
-}
-.dateField {
-  flex: 0 0 172px;
-}
-.dateField input {
-  padding-right: 44px;
-}
-.dateField input::-webkit-calendar-picker-indicator {
-  display: none; /* the button inside the box is the one calendar icon */
-}
-.dateButton {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  display: flex;
+.dateIcon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
   border: 0;
   border-radius: var(--r-md);
   background: transparent;
   color: var(--teal-dark);
   cursor: pointer;
 }
-.dateButton:hover {
+.dateIcon:hover:not(:disabled) {
   background: var(--readonly-bg);
 }
-.grow {
-  flex: 1 1 0;
-}
-.stationField {
-  flex: 0 0 128px;
-}
-.hire {
-  flex: 0 0 112px;
-}
-.hamali {
-  flex: 0 0 124px;
-}
-.create {
-  flex: 1 1 0;
-}
-.noteLine {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--text-2);
-  font-size: var(--fs-14);
-  line-height: 18px;
-}
-.noteLine svg {
-  flex-shrink: 0;
-}
-.today {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px 6px;
-  border-top: 1px solid var(--line);
-  background: var(--readonly-bg);
-}
-.today .panelNote {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.todayTitle {
-  flex-shrink: 0;
-  color: var(--text-2);
-  font-size: var(--fs-14);
-  font-weight: 700;
-}
-.todayChip {
-  min-width: 0;
-  height: 28px;
-  flex: 0 1 auto;
-  padding: 0 10px;
-  overflow: hidden;
-  border: 1px solid var(--border-soft);
-  border-radius: 14px;
-  background: var(--surface);
-  color: var(--teal-dark);
+.dateInput {
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--input-bg);
+  color: var(--text);
   font-family: var(--font-num);
-  font-size: var(--fs-14);
+  font-size: var(--fs-15);
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
 }
-.todayChip:hover {
-  background: var(--tint);
+.dateInput::-webkit-calendar-picker-indicator {
+  display: none; /* the button next to it is the one calendar icon */
 }
 .takenList {
   margin: 4px 0 8px;
@@ -349,39 +189,6 @@
   font-weight: 700;
 }
 
-/* ---- the two tabs ---- */
-.tabs {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-}
-.tab {
-  height: 38px;
-  padding: 0 18px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  color: var(--teal-dark);
-  font-size: var(--fs-16);
-  font-weight: 700;
-  cursor: pointer;
-}
-.tab[aria-selected='true'] {
-  border-color: var(--teal-dark);
-  background: var(--teal-dark);
-  color: #ffffff;
-}
-/* Both tabs stay mounted (the ticks and a half-typed memo survive a look at the saved ones). */
-.tabBody {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-}
-.tabBody[hidden] {
-  display: none;
-}
 .chips {
   display: inline-flex;
   gap: 6px;
@@ -453,4 +260,39 @@
 }
 .historyHead span {
   color: var(--text-2);
+}
+
+/* ---- "Next: memo details", at the foot of the filters (4.7) ---- */
+.next {
+  flex-shrink: 0;
+  border: 2px solid var(--teal-dark);
+}
+.nextBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+}
+.nextTitle {
+  color: var(--teal-dark);
+  font-size: var(--fs-16);
+  font-weight: 800;
+}
+.nextFigures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  color: var(--text-2);
+  font-size: var(--fs-14);
+  font-weight: 600;
+}
+.nextFigures strong {
+  color: var(--text);
+  font-family: var(--font-num);
+  font-size: var(--fs-15);
+  font-variant-numeric: tabular-nums;
+}
+.nextButton {
+  width: 100%;
+  padding: 0 8px;
 }

@@ -127,7 +127,6 @@ function seed(o) {
     const truckIds = Array.from({ length: 60 }, (_, i) => make('trucks', { number: `MH 29 BE ${1000 + i * 7}` }));
     const driverIds = Array.from({ length: 30 }, (_, i) => make('drivers', { name: `${FIRST[i % 10]} ${LAST[Math.floor(i / 10)]}`, phone: `98${String(10000000 + i * 1234567).slice(0, 8)}` }));
     const agentIds = AGENTS.map((name) => make('agents', { name }));
-    must(lrs.setDefaults(db, 'SEED', { bookingStationId: from }, '1111'), 'defaults');
     backdate(iso(new Date(dayAt(0).getTime() - 86400000)));
 
     const walkIns = Array.from({ length: 300 }, (_, i) => `${FIRST[i % 10]} ${FIRM_B[(i * 7) % 20]} & Sons ${100 + i}`);

@@ -1,6 +1,6 @@
 // What makes a loading memo acceptable. Pure: no database, no clock (the caller passes today). Money arrives as the
 // TEXT the clerk typed; this is where it becomes paise, so the screen never has to.
-import { MAX_MEMO_LRS, type MemoCursor, type MemoField, type MemoFieldError, type MemoFilters, type MemoHeaderInput, type MemoInput, type PartyFilter, type SavedMemoFilters } from '../shared';
+import { MAX_MEMO_LRS, type MemoCursor, type MemoField, type MemoFieldError, type MemoFilters, type MemoHeaderInput, type MemoInput, type NameKey, type SavedMemoFilters } from '../shared';
 import { isDate, MAX_PAISE, obj } from './lrRules';
 import { parseRupees } from './money';
 
@@ -179,21 +179,37 @@ export function asSavedFilters(v: unknown): SavedMemoFilters {
 
 const day = (v: unknown): string | null => (typeof v === 'string' && isDate(v) ? v : null);
 
-/** A consignor / consignee filter: a picked firm, else typed text (trimmed, at most 100 characters), else no filter. */
-function party(v: unknown): PartyFilter | null {
-  const o = obj(v);
-  if (!o) return null;
-  const firmId = int(o, 'firmId');
-  if (firmId !== null) return { firmId, text: '' };
-  const typed = text(o, 'text').trim().slice(0, MAX_TEXT);
-  return typed === '' ? null : { firmId: null, text: typed };
+/** A filter takes at most this many picked values (a clerk picks a handful; the query binds one value each). */
+const MAX_PICKED = 50;
+const MAX_NAME = 200;
+
+/** The picked names of one filter: a firm by id, or a walk-in's text as booked (kept as it is: it is matched exactly). A bad entry is left out, never an error. */
+function names(v: unknown): NameKey[] {
+  const out: NameKey[] = [];
+  for (const item of Array.isArray(v) ? v : []) {
+    const o = obj(item);
+    if (!o) continue;
+    const firmId = int(o, 'firmId');
+    const name = text(o, 'name').slice(0, MAX_NAME);
+    if (firmId !== null) out.push({ firmId, name: '' });
+    else if (name.trim() !== '') out.push({ firmId: null, name });
+    if (out.length === MAX_PICKED) break;
+  }
+  return out;
 }
 
-/** The pending-list filters from a request body. A bad date or station means "no bound", never an error: it only shows more. */
+/** The pending-list filters from a request body. A bad value means "no filter", never an error: it only shows more. */
 export function asPendingFilters(v: unknown): MemoFilters {
   const o = obj(v) ?? {};
-  return { from: day(o.from), to: day(o.to), toStationId: int(o, 'toStationId'), consignor: party(o.consignor), consignee: party(o.consignee) };
+  const stations = (Array.isArray(o.toStationIds) ? o.toStationIds : []).filter((x): x is number => Number.isInteger(x)).slice(0, MAX_PICKED);
+  return { toStationIds: stations, consignors: names(o.consignors), consignees: names(o.consignees) };
 }
+
+/** Which side the name search is for; anything else is a bad request. */
+export const asSide = (v: unknown): 'consignor' | 'consignee' | null => (v === 'consignor' || v === 'consignee' ? v : null);
+
+/** The text typed in a name search: trimmed, at most 100 characters. */
+export const asSearchText = (v: unknown): string => (typeof v === 'string' ? v.trim().slice(0, MAX_TEXT) : '');
 
 /** Where the next page of pending LRs starts, or null for the first page. */
 export function asCursor(v: unknown): MemoCursor | null {

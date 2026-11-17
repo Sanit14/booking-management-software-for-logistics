@@ -2,7 +2,7 @@
 // better-sqlite3 build only loads under Electron's Node, not the Node that runs these tests.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -45,6 +45,15 @@ const run = async (body: () => Promise<void>): Promise<void> => {
 interface Running {
   child: ChildProcess;
   exited: Promise<number | null>;
+}
+
+/** A statement run on a book under Electron's Node, the only one that better-sqlite3 is built for (the keeper must be stopped). */
+function sql(dbPath: string, statement: string): void {
+  const driver = JSON.stringify(require.resolve('better-sqlite3'));
+  execFileSync(electronExe, ['-e', `const D=require(${driver});const db=new D(${JSON.stringify(dbPath)});db.exec(${JSON.stringify(statement)});db.close()`], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    windowsHide: true,
+  });
 }
 
 function startKeeper(root: string, port: number, programData: string, backupDir: string, extraEnv: Record<string, string> = {}): Running {
@@ -127,7 +136,7 @@ test('keeper: start, one keeper per port, shutdown leaves an intact database', (
   assert.equal(fs.existsSync(s.dbPath + '-wal'), false, 'WAL folded into the database on clean close');
   assert.match(fs.readFileSync(path.join(s.programDir, 'logs', 'keeper.log'), 'utf8'), /\tstop\t/);
   // A clean stop leaves the guard its baseline: how many records the database held.
-  assert.equal(JSON.parse(fs.readFileSync(markerPath(s.programDir, s.root), 'utf8')).businessRows, 0);
+  assert.equal(JSON.parse(fs.readFileSync(markerPath(s.programDir, s.root), 'utf8')).businessRows, 1, 'the one station the keeper made: Yavatmal (4.7)');
 }));
 
 test('keeper: marker says records existed but the database has none = safe mode, nothing is touched', () => run(async () => {
@@ -137,6 +146,7 @@ test('keeper: marker says records existed but the database has none = safe mode,
   await waitUp(port);
   assert.equal(await shutdown(port), true);
   await within(first.exited, 10000);
+  sql(s.dbPath, 'DELETE FROM stations'); // the keeper made Yavatmal at its first start (4.7): take it out, so the book is the empty one this test is about
 
   // Pretend the database held 5 records when it was last closed, so the empty one now looks swapped or wiped.
   const marker = markerPath(s.programDir, s.root);
@@ -670,23 +680,24 @@ test('keeper: a master saved through the real route raises the guard marker, and
   assert.equal((await waitUp(port)).state, 'ready');
   const marker = markerPath(s.programDir, s.root);
   const rows = () => JSON.parse(fs.readFileSync(marker, 'utf8')).businessRows as number;
-  assert.equal(rows(), 0);
+  assert.equal(rows(), 1, 'a new book already holds the fixed booking station, Yavatmal, which the keeper made at start (4.7)');
 
-  const made = await masters(port, 'create', { kind: 'stations', fields: { name: 'Yavatmal' } });
-  assert.deepEqual([made.status, made.ok, made.value.name], [200, true, 'Yavatmal']);
+  const made = await masters(port, 'create', { kind: 'stations', fields: { name: 'Nagpur' } });
+  assert.deepEqual([made.status, made.ok, made.value.name], [200, true, 'Nagpur']);
+  assert.equal((await masters(port, 'create', { kind: 'stations', fields: { name: 'Yavatmal' } })).code, 'master-exists', 'Yavatmal is there already');
   assert.equal((await masters(port, 'create', { kind: 'trucks', fields: { number: 'MH 29 BE 1234' } })).ok, true);
   // The keeper is still running: it is the timer that raised the baseline, not a clean stop.
-  for (let i = 0; i < 50 && rows() < 2; i++) await sleep(100);
-  assert.equal(rows(), 2, 'the marker rose by itself while the keeper ran');
+  for (let i = 0; i < 50 && rows() < 3; i++) await sleep(100);
+  assert.equal(rows(), 3, 'the marker rose by itself while the keeper ran');
   assert.match(logOf(s), /\tmaster-saved\t/);
 
   assert.equal(await shutdown(port), true);
   assert.equal(await within(k.exited, 10000), 0);
-  assert.equal(rows(), 2, 'the clean stop keeps it');
+  assert.equal(rows(), 3, 'the clean stop keeps it');
   startKeeper(s.root, port, s.programData, s.backupDir);
   assert.equal((await waitUp(port)).state, 'ready');
   const all = (await masters(port, 'all', {})).value;
-  assert.deepEqual([all.stations.length, all.trucks.length], [1, 1], 'everything is still there after a restart');
+  assert.deepEqual([all.stations.length, all.trucks.length], [2, 1], 'everything is still there after a restart, and Yavatmal was not made twice');
   assert.equal(await shutdown(port), true);
 }));
 
@@ -705,7 +716,7 @@ test('keeper: two seats saving the same station at the same moment save it once;
   assert.equal(won.length, 1);
   assert.deepEqual([lost.length, lost[0].status, lost[0].code], [1, 409, 'master-exists']);
   assert.equal(lost[0].row.id, won[0].value.id, 'the loser is shown the row that won');
-  assert.equal((await masters(port, 'all', {})).value.stations.length, 1);
+  assert.equal((await masters(port, 'all', {})).value.stations.length, 2, 'Nagpur once, and the booking station the keeper made');
 
   assert.equal(await shutdown(port), true);
   await within(k.exited, 10000);
@@ -753,7 +764,11 @@ let uidSerial = 0;
 /** PINs, two stations and a firm, through the real routes. */
 async function seed(port: number) {
   const setup = await lrCall(port, '/pins/setup', { adminPin: '4831', systemPin: '7295' });
-  const station = async (name: string) => (await masters(port, 'create', { kind: 'stations', fields: { name } })).value.id as number;
+  // Yavatmal is already there (the keeper makes it at start): the refusal names the row that exists.
+  const station = async (name: string) => {
+    const made = await masters(port, 'create', { kind: 'stations', fields: { name } });
+    return (made.ok ? made.value.id : made.row.id) as number;
+  };
   const from = await station('Yavatmal');
   const to = await station('Nagpur');
   const firm = (await masters(port, 'create', { kind: 'firms', fields: { name: 'Shree Ganesh Traders' } })).value.id as number;
@@ -1234,7 +1249,7 @@ test('keeper: one seat takes an LR off a memo while another adds it to a differe
 
 // --- printing ----------------------------------------------------------------------------------------------------
 
-test('keeper: printing over the real routes - the memo and LR as printed, the company lines behind the Admin PIN, the audit of a print that went through; reads and prints raise no event; no PIN or company text in the log', () => run(async () => {
+test('keeper: printing over the real routes - the memo and LR as printed, the two fixed company lines, the audit of a print that went through; reads and prints raise no event; no PIN in the log', () => run(async () => {
   const s = sandbox();
   const port = await freePort();
   const k = startKeeper(s.root, port, s.programData, s.backupDir);
@@ -1246,7 +1261,6 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
   for (let i = 0; i < 2; i++) lrIds.push((await lrCall(port, '/lrs/create', { input: input() })).value.row.id);
   const memo = (await lrCall(port, '/memos/create', { input: { uid: 'print-memo', date: null, truckId: truck, driverId: driver, fromStationId: from, toStationId: to, truckHire: '4,500', loadingHamali: '', hamaliRate: '0.40', commission: '10', lrIds } })).value;
   const call = (url: string, body: Record<string, unknown>, seat = 'counter-1') => lrCall(port, url, body, seat);
-  const COMPANY = { name: 'Sundeep Freight Movers', address: 'Station Road, Yavatmal', phone: '07232 245678', gstin: '' };
 
   const a = listen(port, 'counter-1');
   const b = listen(port, 'counter-2');
@@ -1256,7 +1270,7 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
     b.got.length = 0;
 
     const printed = await call('/print/memo', { id: memo.id });
-    assert.deepEqual([printed.ok, printed.value.rows.length, printed.value.totals, printed.value.truckHire, printed.value.company.name], [true, 2, { lrs: 2, qty: 6, toPay: '3,600.00', paid: '0.00', wasuli: '0.00' }, '4,500.00', 'Sundeep Freight Movers']);
+    assert.deepEqual([printed.ok, printed.value.rows.length, printed.value.totals, printed.value.truckHire, printed.value.company.name], [true, 2, { lrs: 2, qty: 6, toPay: '3,600.00', paid: '0.00', hamali: '60.00', total: '3,660.00', wasuli: '0.00' }, '4,500.00', 'Sundeep Freight Movers']);
     const lr = await call('/print/lr', { id: lrIds[0] });
     // 1,800 freight + 30 hamali = 1,830; the paper has no charge or tax line
     assert.deepEqual([lr.value.mode, lr.value.freight, lr.value.hamali, lr.value.total, lr.value.consignee], ['topay', '1,800.00', '30.00', '1,830.00', 'Kale Brothers']);
@@ -1269,22 +1283,11 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
     assert.equal((await call('/print/done', { kind: 'memo', id: memo.id, how: 'print' }, 'counter-2')).ok, true);
     assert.equal((await call('/print/done', { kind: 'lr', id: lrIds[0], how: 'pdf' }, 'counter-2')).ok, true);
 
-    // The company lines: Admin PIN only; a refusal changes nothing and raises no event.
-    assert.equal((await call('/print/set-company', { input: COMPANY, adminPin: '0000' })).code, 'wrong-pin');
-    assert.equal((await call('/print/set-company', { input: COMPANY, adminPin: '7295' })).code, 'wrong-pin', 'the System PIN is not the Admin PIN');
-    const bad = await call('/print/set-company', { input: { ...COMPANY, name: '  ' }, adminPin: '4831' });
-    assert.deepEqual([bad.status, bad.code, bad.detail], [409, 'company-invalid', 'name']);
-    assert.equal((await call('/print/set-company', { adminPin: '4831' })).code, 'company-invalid', 'a body without lines is refused, not saved');
-    assert.equal((await call('/print/company', {})).value.address, '');
+    // The company lines are fixed (4.7): the printout carries them, and there is no route to change or read them.
+    assert.deepEqual((await call('/print/memo', { id: memo.id })).value.company, { name: 'Sundeep Freight Movers', location: 'Yavatmal' });
+    for (const gone of ['/print/company', '/print/set-company', '/settings/set-lr-defaults']) assert.equal((await call(gone, {})).status, 404, gone);
     await sleep(400);
     assert.deepEqual([a.got.length, b.got.length], [0, 0], 'reads, prints and refusals raise no event');
-
-    const saved = await call('/print/set-company', { input: COMPANY, adminPin: '4831' }, 'counter-2');
-    assert.deepEqual([saved.ok, saved.value], [true, COMPANY]);
-    await until('the settings event on both seats', () => a.got.length >= 1 && b.got.length >= 1);
-    assert.deepEqual([a.got[0].tables, b.got[0].tables], [['settings'], ['settings']]);
-    assert.equal((await call('/print/memo', { id: memo.id })).value.company.address, 'Station Road, Yavatmal');
-    assert.equal((await call('/print/company', {})).value.phone, '07232 245678');
   } finally {
     a.stop();
     b.stop();
@@ -1293,8 +1296,7 @@ test('keeper: printing over the real routes - the memo and LR as printed, the co
   await within(k.exited, 10000);
   const log = logOf(s);
   assert.match(log, /\tprint-done\t/);
-  assert.match(log, /\tcompany-saved\t/);
-  for (const secret of ['4831', '7295', 'Station Road', '07232', 'Kale Brothers']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
+  for (const secret of ['4831', '7295', 'Kale Brothers']) assert.ok(!leaks(log, secret), `keeper.log holds ${secret}`);
 }));
 
 // --- wasuli (3.4) ------------------------------------------------------------------------------------------------
@@ -1542,8 +1544,8 @@ const NO_PIN_ROUTES = [
   '/masters/all', '/masters/create',
   '/lrs/defaults', '/lrs/preview', '/lrs/by-date', '/lrs/get', '/lrs/find', '/lrs/history',
   '/dashboard/summary', '/dashboard/pending-by-station', '/dashboard/recent', '/search',
-  '/memos/defaults', '/memos/pending', '/memos/totals', '/memos/settlement', '/memos/get', '/memos/by-date', '/memos/list', '/memos/history',
-  '/print/memo', '/print/lr', '/print/done', '/print/company', '/print/firm-statement', '/print/report',
+  '/memos/defaults', '/memos/pending', '/memos/pending-stations', '/memos/pending-names', '/memos/totals', '/memos/settlement', '/memos/get', '/memos/by-date', '/memos/list', '/memos/history',
+  '/print/memo', '/print/lr', '/print/done', '/print/firm-statement', '/print/report',
   '/wasuli/list', '/wasuli/find', '/wasuli/agent-stats', '/wasuli/assign', '/wasuli/reassign', '/wasuli/to-pool', '/wasuli/collect',
   '/firms/accounts', '/firms/statement', '/firms/top', '/firms/kpis', '/firms/months',
   '/reports/date-wise', '/reports/station-wise', '/reports/party-wise', '/reports/truck-wise', '/reports/firm-wise', '/reports/wasuli', '/reports/lrs',
@@ -1640,10 +1642,6 @@ test('keeper: PIN coverage - every route that checks a PIN writes its audit row 
         await collect(); // the last route put the collection back to Assigned: a remark belongs to a collected one
         return { row: seen(await collection()), remark: 'paid by cheque', systemPin: pin.system };
       } },
-    { url: '/settings/set-lr-defaults', kind: 'admin', audit: 'settings.lr-defaults', wrong: () => ({ input: { bookingStationId: from }, adminPin: WRONG }),
-      right: () => ({ input: { bookingStationId: from }, adminPin: pin.admin }) },
-    { url: '/print/set-company', kind: 'admin', audit: 'settings.company', wrong: () => ({ input: { name: 'Test Co', address: '', phone: '', gstin: '' }, adminPin: WRONG }),
-      right: () => ({ input: { name: 'Test Co', address: '', phone: '', gstin: '' }, adminPin: pin.admin }) },
     { url: '/memos/recalculate', kind: 'admin', audit: 'memos.recalculate', wrong: () => ({ id: m3, version: 1, adminPin: WRONG }),
       right: async () => ({ id: m3, version: (await memo(m3)).version, adminPin: pin.admin }) },
     { url: '/memos/cancel', kind: 'admin', audit: 'memos.cancel', wrong: () => ({ id: m2, version: 1, reason: 'wrong truck', adminPin: WRONG }),

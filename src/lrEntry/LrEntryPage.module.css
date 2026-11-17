@@ -160,6 +160,9 @@
   border-bottom: 1px solid var(--line);
   background: var(--readonly-bg);
 }
+.headTools {
+  margin-left: auto;
+}
 .headTitle {
   font-size: var(--fs-17);
   color: var(--teal-dark);

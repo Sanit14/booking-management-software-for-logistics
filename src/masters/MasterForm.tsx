@@ -196,7 +196,6 @@ export default function MasterForm({ kind, editing, stations, onDone, onStale, o
         {kind === 'firms' && (
           <TypeAhead
             label={t.fields.firmStation}
-            hint={t.fields.firmStationHint}
             error={errors.station}
             listLabel={t.fields.stationList}
             value={station.text}
@@ -206,7 +205,7 @@ export default function MasterForm({ kind, editing, stations, onDone, onStale, o
           />
         )}
         {(kind === 'firms' || kind === 'drivers' || kind === 'agents') && (
-          <Field label={t.fields.phone} hint={t.fields.phoneHint} error={errors.phone} inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <Field label={t.fields.phone} error={errors.phone} inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
         )}
         <div className={styles.actions}>
           <Button type="submit" disabled={busy}>

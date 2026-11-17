@@ -49,7 +49,7 @@ const raw = (s: Pick<Set, 'db'>, at: string, over: Partial<{ seat: string; actio
 function world() {
   const s = setUp();
   const wasuli = makeWasuli(s.pins, now);
-  const print = makePrint(s.pins, s.memos, makeFirmAccounts(now), makeReports());
+  const print = makePrint(s.memos, makeFirmAccounts(now), makeReports());
   const ramesh = got(s.masters.create(s.db, 'seat-1', 'agents', { name: 'Ramesh' })).id;
   const suresh = got(s.masters.create(s.db, 'seat-1', 'agents', { name: 'Suresh' })).id;
 
@@ -102,8 +102,6 @@ function world() {
   got(s.masters.update(s.db, 'PC02', 'drivers', 1, 1, { name: 'Ramesh Pawar Sr', phone: '' }, SYSTEM));
   got(s.masters.update(s.db, 'PC02', 'agents', suresh, 1, { name: 'Suresh Kale', phone: '' }, SYSTEM));
 
-  got(s.lrs.setDefaults(s.db, 'PC02', { bookingStationId: s.yavatmal }, ADMIN));
-  got(print.setCompany(s.db, 'PC02', { name: 'Sundeep Freight Movers', address: 'Station Road', phone: '', gstin: '' }, ADMIN));
   got(print.done(s.db, 'PC03', { kind: 'lr', id: a.id, how: 'print' }));
   got(print.done(s.db, 'PC03', { kind: 'memo', id: m1.id, how: 'pdf' }));
   got(print.done(s.db, 'PC03', { kind: 'firm', id: s.ganesh, how: 'pdf', from: '2026-10-01', to: '2026-10-31', role: 'consignee' }));
@@ -111,6 +109,12 @@ function world() {
   got(s.pins.changeSystem(s.db, 'PC02', ADMIN, '4444'));
   // What the keeper's own routes write (4.2): the shapes the rows are read by.
   s.db.transaction(() => {
+    // The two Settings cards that 4.7 removed no longer have a route: the rows they wrote in older books are written by hand here, and must still read.
+    writeAudit(s.db, { seat: 'PC02', action: 'settings.lr-defaults', entity: 'settings', entityId: 'lr-defaults', before: { bookingStationId: null }, after: { bookingStationId: s.yavatmal } });
+    writeAudit(s.db, {
+      seat: 'PC02', action: 'settings.company', entity: 'settings', entityId: 'company',
+      before: { name: 'Sundeep Freight Movers', address: '', phone: '', gstin: '' }, after: { name: 'Sundeep Freight Movers', address: 'Station Road', phone: '', gstin: '' },
+    });
     writeAudit(s.db, { seat: 'PC02', action: 'pins.locked', entity: 'settings', entityId: 'pins', after: { kind: 'system' } });
     writeAudit(s.db, { seat: 'PC02', action: 'settings.backup-dir', entity: 'settings', entityId: 'backup-dir', before: { dir: 'D:\\BookingManagerBackups' }, after: { dir: 'E:\\BM' } });
     writeAudit(s.db, { seat: 'PC02', action: 'seat.rename', entity: 'seats', entityId: 'PC02', before: { name: 'PC02' }, after: { name: 'Counter 2' } });

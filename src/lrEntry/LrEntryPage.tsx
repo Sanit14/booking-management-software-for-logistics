@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Keyboard } from 'lucide-react';
 import type { ChangeTable, KeeperResult, LrDay, LrDefaults, LrDetail, LrListRow, MastersAll } from '../../shared';
 import { clearDraft, loadDraft } from '../logic/drafts';
 import { matches } from '../logic/keymap';
@@ -17,6 +18,7 @@ import { useKeeperData } from '../useKeeperData';
 import { useKeys } from '../useKeys';
 import { useShowMore } from '../useShowMore';
 import LrForm from './LrForm';
+import ShortcutsDialog from './ShortcutsDialog';
 import styles from './LrEntryPage.module.css';
 
 const t = strings.lr;
@@ -54,6 +56,7 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }:
   const [openId, setOpenId] = useState<number | null>(null); // the saved LR in the form; null = a new LR
   const [pushed, setPushed] = useState<LrDetail | null>(null); // the LR as a change or a click just answered, until the refetch catches up
   const [findNo, setFindNo] = useState('');
+  const [showKeys, setShowKeys] = useState(false); // the Shortcuts dialog
   const holding = useRef(false); // the form holds work that opening another LR would throw away
   const [ask, setAsk] = useState<{ run: () => void } | null>(null);
   const listDate = viewDate ?? date;
@@ -146,6 +149,11 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }:
             onOpen={onOpen}
             onOpenMemo={onOpenMemo}
             draftSlot="lrEntry"
+            tools={
+              <Button small variant="outline" icon={<Keyboard size={16} aria-hidden="true" />} onClick={() => setShowKeys(true)}>
+                {strings.keys.open}
+              </Button>
+            }
             onGuard={(h) => {
               holding.current = h;
               onEditing(h && lr !== null); // an opened LR that holds work is being edited; a typed new LR is kept as a draft instead
@@ -223,6 +231,7 @@ export default function LrEntryPage({ onEditing, jump, onJumpUsed, onOpenMemo }:
           </div>
         </Card>
       </div>
+      <ShortcutsDialog open={showKeys} onClose={() => setShowKeys(false)} />
       <Dialog
         open={ask !== null}
         title={t.discardTitle}

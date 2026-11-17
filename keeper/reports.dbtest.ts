@@ -646,7 +646,7 @@ test('speed: 20,000 LRs in a month, 3,000 firms — the first page of every repo
 
 // ---- as printed ----
 
-const printer = (w: World) => makePrint(w.pins, w.memos, makeFirmAccounts(now), w.reports);
+const printer = (w: World) => makePrint(w.memos, makeFirmAccounts(now), w.reports);
 
 test('print.report: the whole report as formatted text — the screen\'s rows and totals, an amount that is nothing as a dash', () => {
   const w = world();

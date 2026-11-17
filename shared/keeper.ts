@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 22;
+export const KEEPER_VERSION = 23;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -11,6 +11,8 @@ export type GuardReason = 'marker-without-database' | 'marker-with-empty-databas
 /** Backups as the status line needs them: when the last good one was made, or why they are failing. */
 export interface BackupStatus {
   lastAt?: string; // ISO
+  /** The size of that backup (Settings says it: "Backed up today 14:00 · 11.1 MB"). */
+  lastBytes?: number;
   failing?: string;
 }
 
@@ -298,9 +300,6 @@ export interface LrDefaults {
   /** The number the next LR dated `date` will most likely get (a hint: another seat may take it first). */
   nextNo: number;
 }
-export interface LrDefaultsInput {
-  bookingStationId: number | null;
-}
 
 /** The Dashboard's counts for one day (null = today). Counts only, never money: nothing here is an amount. */
 export interface DashboardSummary {
@@ -320,6 +319,8 @@ export interface DashboardSummary {
   /** Saved memos of the day (0 until 3.1) and the trucks on them. */
   memos: number;
   trucksOut: number;
+  /** Collections nobody has been given yet (the Wasuli badge). */
+  wasuliUnassigned: number;
 }
 export interface PendingStation {
   stationId: number;
@@ -404,18 +405,34 @@ export type MemoField = 'date' | 'reason' | 'truck' | 'driver' | 'fromStation' |
 /** required · amount (not a rupee amount / not a % with at most 2 decimals) · percent (a % over 100) · same (from = to) · future / date (the date) · year (an edit moved the date out of the challan's year) · missing (no such, or inactive, truck / driver / station; an LR id that does not exist) · many (over 500 LRs). */
 export type MemoFieldError = 'required' | 'amount' | 'percent' | 'same' | 'future' | 'date' | 'year' | 'missing' | 'many';
 
-/** A firm picked for a pending-LR filter, or text typed: any part of the name an LR was booked with (a walk-in's or a firm's). */
-export interface PartyFilter {
+/** A name picked for a Consignor / Consignee filter (4.7): a master firm by its id, or a walk-in by the exact text it was booked with (`firmId` null). */
+export interface NameKey {
   firmId: number | null;
-  text: string;
+  name: string;
 }
-/** Dates are ISO; null = no bound. Only booked LRs are ever listed. */
+/**
+ * The pending-list filters. Different filters must all match (AND); several values inside one filter mean any of them (OR). An empty list is no
+ * filter. Only booked LRs are ever listed.
+ */
 export interface MemoFilters {
-  from: string | null;
-  to: string | null;
-  toStationId: number | null;
-  consignor: PartyFilter | null;
-  consignee: PartyFilter | null;
+  toStationIds: number[];
+  consignors: NameKey[];
+  consignees: NameKey[];
+}
+/** A station that has pending LRs, with how many (the other filters applied, its own not). */
+export interface PendingStationCount {
+  stationId: number;
+  station: string;
+  lrs: number;
+}
+/** A name that has pending LRs, with how many. */
+export interface PendingName extends NameKey {
+  lrs: number;
+}
+/** At most 5 names, busiest first; `more` is how many further names match ("and N more · keep typing"). */
+export interface PendingNames {
+  names: PendingName[];
+  more: number;
 }
 /** Where the next page starts: after this LR, in (date, number) order. */
 export interface MemoCursor {
@@ -600,14 +617,12 @@ export type MemoRefusal =
   | 'memo-last-lr' // taking these LRs off would leave the memo with none: cancel the memo instead
   | 'memo-target'; // the memo to move LRs to is missing, cancelled, or the same memo
 
-/** The company lines printed at the top of every printout (Settings, Admin PIN). The name is required; the other lines may be empty. */
+/** The two fixed lines at the top of every printout (`shared/company.ts`). */
 export interface PrintCompany {
   name: string;
-  address: string;
-  phone: string;
-  gstin: string;
+  location: string;
 }
-/** One LR line of a printed memo (the old software's table: no serial number, no destination). Amounts are text, already formatted by the keeper ('–' = nothing). */
+/** One LR line of a printed memo, in DM's columns (4.7): the hamali and the total (freight + hamali) come from `lrAmounts`. Amounts are text, already formatted by the keeper ('–' = nothing). */
 export interface PrintMemoRow {
   lrNo: number;
   consignor: string;
@@ -616,6 +631,8 @@ export interface PrintMemoRow {
   qty: number;
   toPay: string;
   paid: string;
+  hamali: string;
+  total: string;
   wasuli: string;
 }
 /**
@@ -654,7 +671,7 @@ export interface PrintMemo {
   differs: boolean;
   /** By LR number. */
   rows: PrintMemoRow[];
-  totals: { lrs: number; qty: number; toPay: string; paid: string; wasuli: string };
+  totals: { lrs: number; qty: number; toPay: string; paid: string; hamali: string; total: string; wasuli: string };
   /** null for a memo saved before 4.6 and for a cancelled memo: no block is printed. */
   settlement: PrintSettlement | null;
 }
@@ -750,7 +767,6 @@ export interface PrintDone {
   filters?: ReportFilters;
 }
 export type PrintRefusal =
-  | 'company-invalid' // `detail`: the box to fix (name, address, phone, gstin)
   | 'print-too-long' // a statement over MAX_STATEMENT_PRINT_ROWS LRs; `detail`: how many it has
   | 'report-too-long'; // a report with more than MAX_REPORT_PRINT_ROWS rows
 
@@ -1437,10 +1453,6 @@ export interface KeeperApi {
     /** Newest first, at most 50. */
     history(id: number): Promise<KeeperResult<LrHistoryEntry[]>>;
   };
-  settings: {
-    /** Admin PIN to change. */
-    setLrDefaults(input: LrDefaultsInput, adminPin: string): Promise<KeeperResult<LrDefaults>>;
-  };
   /** Dashboard counts (`date` null = today). Reads only: they never publish an event. */
   dashboard: {
     summary(date: string | null): Promise<KeeperResult<DashboardSummary>>;
@@ -1454,6 +1466,10 @@ export interface KeeperApi {
     defaults(date: string | null): Promise<KeeperResult<MemoDefaults>>;
     /** Booked LRs by (date, number), 100 a page: pass the previous page's `next` for the following one. */
     pending(filters: MemoFilters, cursor: MemoCursor | null): Promise<KeeperResult<PendingPage>>;
+    /** The To-station tick list: stations that have pending LRs and how many, with the Consignor and Consignee filters applied. */
+    pendingStations(filters: MemoFilters): Promise<KeeperResult<PendingStationCount[]>>;
+    /** The Consignor / Consignee search box: at most 5 names with pending LRs (the other filters applied, this side's own picks left out), busiest first, and how many more match. */
+    pendingNames(side: 'consignor' | 'consignee', filters: MemoFilters, text: string): Promise<KeeperResult<PendingNames>>;
     totals(ids: number[]): Promise<KeeperResult<PendingTotals>>;
     /**
      * "Details of report" live: the ticked LRs that are still booked, added up, and the steps for the typed rate and %, or the field errors. With `memoId`
@@ -1483,12 +1499,6 @@ export interface KeeperApi {
     cancel(id: number, version: number, reason: string, adminPin: string): Promise<KeeperResult<MemoDetail>>;
     /** Newest first, at most 50. */
     history(id: number): Promise<KeeperResult<MemoHistoryEntry[]>>;
-  };
-  /** The company lines on printouts. What is printed, and the print itself, is main's job (`PrintApi`): the screen cannot name those routes. */
-  print: {
-    company(): Promise<KeeperResult<PrintCompany>>;
-    /** Admin PIN. */
-    setCompany(input: PrintCompany, adminPin: string): Promise<KeeperResult<PrintCompany>>;
   };
   /**
    * Wasuli. Every change sends the rows as they were seen (`WasuliSeen`) and is refused with the current rows if one has moved on; a batch

@@ -28,8 +28,6 @@ th{font-weight:bold}
 .memo th{height:6.5mm}
 .memo td{height:5.6mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .memo td.n{overflow:visible;text-overflow:clip}
-.memo .tot{display:flex;gap:6mm;align-items:center;height:6.5mm;padding:0 1.2mm;border:.2mm solid #000;border-top:0}
-.memo .tot .l{flex:1;font-weight:bold}
 .memo .none{height:8mm;text-align:center;font-style:italic}
 .memo .note{margin-top:2mm;font-style:italic}
 .lr .co{margin-bottom:2mm}
@@ -44,6 +42,8 @@ th{font-weight:bold}
 .lr .tot td{font-weight:bold;font-size:11pt;border-top:.5mm solid #000}
 .lr .sign{position:absolute;right:10mm;bottom:12mm;width:60mm;border-top:.3mm solid #000;text-align:center;padding-top:1mm}
 
+.memo th.n,.memo td.n{padding:0 .8mm}
+.memo tfoot td{height:6.5mm;font-weight:bold;border-top:.4mm solid #000}
 .set{width:112mm;margin:5mm auto 0;font-size:10pt}
 .set .h{text-align:center;font-weight:bold;font-size:11pt;letter-spacing:.4mm;text-decoration:underline;margin-bottom:2mm}
 .set .r{display:flex;justify-content:space-between;height:5.2mm;line-height:5.2mm;white-space:nowrap}
@@ -58,9 +58,7 @@ th{font-weight:bold}
 <section class="page memo">
 <div class="co">
 <div class="name">Sundeep Freight Movers</div>
-<div>Station Road, Yavatmal 445001</div>
-<div>Ph 07232 245678</div>
-<div>GSTIN 27ABCDE1234F1Z5</div>
+<div>Yavatmal</div>
 </div>
 <div class="head">LOADING MEMO</div>
 <div class="det">
@@ -83,14 +81,16 @@ th{font-weight:bold}
 </div>
 <table>
 <colgroup>
-<col style="width:36mm">
-<col style="width:36mm">
-<col style="width:14mm">
-<col style="width:28mm">
-<col style="width:11mm">
-<col style="width:21mm">
-<col style="width:22mm">
-<col style="width:22mm">
+<col style="width:25mm">
+<col style="width:25mm">
+<col style="width:12.5mm">
+<col style="width:19.5mm">
+<col style="width:15.5mm">
+<col style="width:18.5mm">
+<col style="width:18.5mm">
+<col style="width:18.5mm">
+<col style="width:18.5mm">
+<col style="width:18.5mm">
 </colgroup>
 <thead>
 <tr>
@@ -98,10 +98,12 @@ th{font-weight:bold}
 <th>Consignee</th>
 <th>LR No</th>
 <th>Particulars</th>
-<th class="n">Pak</th>
-<th class="n">Paid (₹)</th>
-<th class="n">To pay (₹)</th>
-<th class="n">Wasuli (₹)</th>
+<th class="n">Quantity</th>
+<th class="n">To pay</th>
+<th class="n">Paid</th>
+<th class="n">Hamali</th>
+<th class="n">Total</th>
+<th class="n">Wasuli</th>
 </tr>
 </thead>
 <tbody>
@@ -111,27 +113,29 @@ th{font-weight:bold}
 <td>1200</td>
 <td>Cloth bales</td>
 <td class="n">3</td>
-<td class="n">–</td>
 <td class="n">1,800.00</td>
+<td class="n">–</td>
+<td class="n">10.50</td>
+<td class="n">1,810.50</td>
 <td class="n">1,200.00</td>
 </tr>
 </tbody>
+<tfoot>
+<tr class="tot">
+<td colspan="4">Total · LRs: 1</td>
+<td class="n">3</td>
+<td class="n">1,23,456.00</td>
+<td class="n">9,87,654.50</td>
+<td class="n">1,234.50</td>
+<td class="n">1,34,345.00</td>
+<td class="n">4,076.00</td>
+</tr>
+</tfoot>
 </table>
-<div class="tot">
-<span class="l">Total · LRs: 1</span>
-<span>Pak <b>3</b>
-</span>
-<span>Paid (₹) <b>9,87,654.50</b>
-</span>
-<span>To pay (₹) <b>1,23,456.00</b>
-</span>
-<span>Wasuli (₹) <b>4,076.00</b>
-</span>
-</div>
 <div class="set">
 <div class="h">DETAILS OF REPORT</div>
 <div class="r">
-<span>Total articles</span>
+<span>Total quantity</span>
 <span>177</span>
 </div>
 <div class="r">

@@ -184,6 +184,12 @@ async function main() {
     // ---- Dashboard ----
     await timed('Dashboard open (summary + pending by station + recent)', 300, () => Promise.all([ok('/dashboard/summary', {}), ok('/dashboard/pending-by-station'), ok('/dashboard/recent')]));
 
+    // ---- the new memo page (4.7): what the filters ask while the clerk clicks and types ----
+    await timed('New memo: pending list, one To station, first page', 100, () => ok('/memos/pending', { filters: { toStationIds: [towns[0].id] }, cursor: null }));
+    await timed('New memo: station list with counts', 100, () => ok('/memos/pending-stations', { filters: {} }));
+    // The search reads every booked LR that the other filters leave (no index holds the names; 23,000 of them are ~200 ms of row reads on this stress file, a real book has hundreds). Typing is debounced 120 ms, so 300 ms feels immediate.
+    await timed('New memo: name search, 3 letters, every pending LR', 300, (i) => ok('/memos/pending-names', { side: i % 2 ? 'consignee' : 'consignor', filters: {}, text: ['shr', 'sai', 'om '][i % 3] }));
+
     // ---- a 100-LR memo ----
     const batches = [];
     let cursor = null;

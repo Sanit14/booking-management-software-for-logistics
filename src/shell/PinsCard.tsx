@@ -1,12 +1,13 @@
 import { useState } from 'react';
+import { ShieldCheck } from 'lucide-react';
 import type { KeeperResult } from '../../shared';
 import { PinSetupFlow } from '../PinSetup';
 import { strings } from '../strings';
 import Button from '../ui/Button';
-import { Card } from '../ui/Card';
 import Dialog from '../ui/Dialog';
 import { PinEntry } from '../ui/PinDialog';
 import { useToast } from '../ui/Toast';
+import SettingsSection from './SettingsSection';
 import styles from './SettingsPage.module.css';
 
 const t = strings.pins;
@@ -21,20 +22,17 @@ export default function PinsCard() {
     setLocked(false);
   };
   return (
-    <Card title={t.cardTitle}>
-      <div className={styles.body}>
-        <p>{t.cardText}</p>
-        <div className={styles.buttons}>
-          <Button variant="secondary" small onClick={() => setOpen('system')}>
-            {t.changeSystem}
-          </Button>
-          <Button variant="secondary" small onClick={() => setOpen('admin')}>
-            {t.changeAdmin}
-          </Button>
-          <Button variant="outline" small onClick={() => setOpen('forgot')}>
-            {t.forgot}
-          </Button>
-        </div>
+    <SettingsSection icon={ShieldCheck} title={t.cardTitle} adminOnly>
+      <div className={styles.row}>
+        <Button small variant="outline" onClick={() => setOpen('system')}>
+          {t.changeSystem}
+        </Button>
+        <Button small variant="outline" onClick={() => setOpen('admin')}>
+          {t.changeAdmin}
+        </Button>
+        <Button small variant="ghost" onClick={() => setOpen('forgot')}>
+          {t.forgot}
+        </Button>
       </div>
       <Dialog open={open === 'system'} title={t.changeSystem} onCancel={close}>
         <ChangePin kind="system" onClose={close} />
@@ -45,7 +43,7 @@ export default function PinsCard() {
       <Dialog open={open === 'forgot'} title={t.recoverTitle} onCancel={locked ? () => undefined : close} hideCancel={locked}>
         <PinSetupFlow mode="recover" onDone={close} onLock={setLocked} />
       </Dialog>
-    </Card>
+    </SettingsSection>
   );
 }
 

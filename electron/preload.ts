@@ -60,9 +60,6 @@ const keeper: KeeperApi = {
     restore: (id, version, systemPin) => ipcRenderer.invoke('keeper:lrs-restore', id, version, systemPin),
     history: (id) => ipcRenderer.invoke('keeper:lrs-history', id),
   },
-  settings: {
-    setLrDefaults: (input, adminPin) => ipcRenderer.invoke('keeper:settings-set-lr-defaults', input, adminPin),
-  },
   dashboard: {
     summary: (date) => ipcRenderer.invoke('keeper:dashboard-summary', date),
     pendingByStation: () => ipcRenderer.invoke('keeper:dashboard-pending'),
@@ -71,6 +68,8 @@ const keeper: KeeperApi = {
   memos: {
     defaults: (date) => ipcRenderer.invoke('keeper:memos-defaults', date),
     pending: (filters, cursor) => ipcRenderer.invoke('keeper:memos-pending', filters, cursor),
+    pendingStations: (filters) => ipcRenderer.invoke('keeper:memos-pending-stations', filters),
+    pendingNames: (side, filters, text) => ipcRenderer.invoke('keeper:memos-pending-names', side, filters, text),
     totals: (ids) => ipcRenderer.invoke('keeper:memos-totals', ids),
     settlement: (ids, hamaliRate, commission, memoId) => ipcRenderer.invoke('keeper:memos-settlement', ids, hamaliRate, commission, memoId),
     create: (input) => ipcRenderer.invoke('keeper:memos-create', input),
@@ -85,10 +84,6 @@ const keeper: KeeperApi = {
     recalculate: (id, version, pin) => ipcRenderer.invoke('keeper:memos-recalculate', id, version, pin),
     cancel: (id, version, reason, pin) => ipcRenderer.invoke('keeper:memos-cancel', id, version, reason, pin),
     history: (id) => ipcRenderer.invoke('keeper:memos-history', id),
-  },
-  print: {
-    company: () => ipcRenderer.invoke('keeper:print-company'),
-    setCompany: (input, adminPin) => ipcRenderer.invoke('keeper:print-set-company', input, adminPin),
   },
   wasuli: {
     list: (filters, cursor) => ipcRenderer.invoke('keeper:wasuli-list', filters, cursor),

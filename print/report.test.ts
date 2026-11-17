@@ -89,7 +89,7 @@ test('reportHtml: 60 rows are two sheets, each with its own header row and "Page
 test('reportHtml: the first sheet carries the company, the heading, the period and the filters; later sheets only say which report they continue', () => {
   const p = sampleReport('dateWise', 60, { filters: { station: 'Nagpur', text: 'kale', truck: null, agent: null } });
   const [first, second] = sheetsOf(reportHtml(p));
-  for (const text of ['Sundeep Freight Movers', 'Station Road, Yavatmal 445001', 'DATE-WISE REPORT', '01-10-2026 to 31-10-2026', '<b>To station</b> Nagpur', '<b>Name contains</b> kale']) assert.ok(first.includes(text), text);
+  for (const text of ['Sundeep Freight Movers', 'DATE-WISE REPORT', '01-10-2026 to 31-10-2026', '<b>To station</b> Nagpur', '<b>Name contains</b> kale']) assert.ok(first.includes(text), text);
   assert.ok(!second.includes('DATE-WISE REPORT'));
   assert.match(second, /Date-wise report \(continued\)/);
   assert.ok(!first.includes('<b>Truck</b>') && !first.includes('<b>Agent</b>'), 'a filter that is not set is not named');
@@ -118,7 +118,7 @@ test('reportHtml: a report with no rows says so and still prints its totals', ()
 
 test('reportHtml: names, company lines and filters are escaped, so nothing typed can open a tag', () => {
   const evil = '<script>alert(1)</script> & "q" \'x\'';
-  const p = sampleReport('consignorWise', 3, { company: { name: evil, address: '', phone: '', gstin: '' }, filters: { station: evil, text: evil, truck: null, agent: null } });
+  const p = sampleReport('consignorWise', 3, { company: { name: evil, location: 'Yavatmal' }, filters: { station: evil, text: evil, truck: null, agent: null } });
   p.rows[0][0] = evil;
   const html = reportHtml(p);
   assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;q&quot; &#39;x&#39;'));

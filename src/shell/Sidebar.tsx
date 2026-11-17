@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
 import { Plus, Truck } from 'lucide-react';
+import { COMPANY_LOCATION, COMPANY_NAME } from '../../shared';
 import { keyLabel, type ActionId } from '../logic/keymap';
 import { strings } from '../strings';
 import Button from '../ui/Button';
 import { useKeys } from '../useKeys';
-import { adminPages, mainPages, pageIcons, type PageId } from './pages';
+import { ADMIN_PAGES, MAIN_PAGES } from '../logic/sidebar';
+import { pageIcons, type PageId } from './pages';
 import styles from './Sidebar.module.css';
 
 // The pages that have a key of their own (Settings > Keyboard shortcuts); the tooltip names it.
@@ -53,18 +55,18 @@ export default function Sidebar({ page, onSelect, onQuickLr, badges = {}, childr
     <aside className={styles.sidebar} aria-label={strings.navLabel}>
       <div className={styles.brand}>
         <div className={styles.logo}>
-          <Truck size={24} strokeWidth={2.2} color="var(--orange)" aria-hidden="true" />
+          <Truck size={22} strokeWidth={2.2} color="#ffffff" aria-hidden="true" />
         </div>
         <div>
-          <div className={styles.name}>{strings.appTitle}</div>
-          <div className={styles.company}>{strings.company}</div>
+          <div className={styles.name}>{COMPANY_NAME}</div>
+          <div className={styles.company}>{COMPANY_LOCATION}</div>
         </div>
       </div>
       <Button className={styles.quick} icon={<Plus size={18} strokeWidth={2.4} aria-hidden="true" />} keyCap={keyLabel(keys.quickLr)} title={`${strings.quickLr} (${keyLabel(keys.quickLr)})`} onClick={onQuickLr}>
         {strings.quickLr}
       </Button>
-      {group(strings.nav.main, mainPages)}
-      {group(strings.nav.admin, adminPages)}
+      {group(strings.nav.main, MAIN_PAGES)}
+      {group(strings.nav.admin, ADMIN_PAGES)}
       {children}
     </aside>
   );

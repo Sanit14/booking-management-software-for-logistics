@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_MEMO_LRS, type MemoHeaderInput, type MemoInput } from '../shared';
-import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters, cleanHeader, cleanIds, cleanMemo, cleanSettlement } from './memoRules';
+import { asCursor, asHeaderInput, asIds, asLrIds, asMemoInput, asPendingFilters, asSavedFilters, asSearchText, asSide, cleanHeader, cleanIds, cleanMemo, cleanSettlement } from './memoRules';
 
 const TODAY = '2026-10-31';
 const good: MemoInput = {
@@ -102,16 +102,28 @@ test('1 to 500 distinct LRs; an id that cannot be an LR is refused', () => {
   assert.deepEqual(cleanMemo({ ...good, lrIds: [10, 0] }, TODAY).errors, { lrs: 'missing' });
 });
 
-test('filters: bad dates mean no bound; a picked firm beats typed text; empty text is no filter', () => {
-  assert.deepEqual(asPendingFilters({}), { from: null, to: null, toStationId: null, consignor: null, consignee: null });
+test('filters: lists of stations and names; a picked firm is its id, a walk-in its text as it is; a bad entry is left out, never an error', () => {
+  const none = { toStationIds: [], consignors: [], consignees: [] };
+  assert.deepEqual(asPendingFilters({}), none);
+  assert.deepEqual(asPendingFilters('x'), none);
+  assert.deepEqual(asPendingFilters({ toStationIds: 'Nagpur', consignors: { firmId: 1 } }), none, 'a value that is not a list is no filter');
   const f = asPendingFilters({
-    from: '2026-10-01', to: 'soon', toStationId: 4.5,
-    consignor: { firmId: 9, text: 'ignored' }, consignee: { firmId: null, text: '  Kale  ' },
+    toStationIds: [4, 4.5, 'x', null, 7],
+    consignors: [{ firmId: 9, name: 'ignored' }, { firmId: null, name: '  Road Side  Traders ' }, { firmId: null, name: '   ' }, 'Kale', null, { name: '' }],
+    consignees: [{ firmId: null, name: 'KALE & Sons' }],
   });
-  assert.deepEqual(f, { from: '2026-10-01', to: null, toStationId: null, consignor: { firmId: 9, text: '' }, consignee: { firmId: null, text: 'Kale' } });
-  assert.equal(asPendingFilters({ consignor: { firmId: null, text: '   ' } }).consignor, null);
-  assert.equal(asPendingFilters({ consignee: 'Kale' }).consignee, null);
-  assert.equal(asPendingFilters({ consignee: { firmId: null, text: 'k'.repeat(300) } }).consignee?.text.length, 100);
+  assert.deepEqual(f.toStationIds, [4, 7]);
+  assert.deepEqual(f.consignors, [{ firmId: 9, name: '' }, { firmId: null, name: '  Road Side  Traders ' }], 'the text of a walk-in is matched exactly, so it is not trimmed or changed');
+  assert.deepEqual(f.consignees, [{ firmId: null, name: 'KALE & Sons' }]);
+  assert.equal(asPendingFilters({ consignees: [{ firmId: null, name: 'k'.repeat(300) }] }).consignees[0].name.length, 200);
+  assert.equal(asPendingFilters({ toStationIds: Array.from({ length: 80 }, (_, i) => i + 1) }).toStationIds.length, 50, 'at most 50 picks per filter');
+});
+
+test('the name search: a side is consignor or consignee; the typed text is trimmed and kept to 100 characters', () => {
+  assert.deepEqual([asSide('consignor'), asSide('consignee'), asSide('station'), asSide(undefined)], ['consignor', 'consignee', null, null]);
+  assert.equal(asSearchText('  shr  '), 'shr');
+  assert.equal(asSearchText('k'.repeat(300)).length, 100);
+  assert.equal(asSearchText(7), '');
 });
 
 test('a cursor is a real date and a whole number above 0, or nothing', () => {

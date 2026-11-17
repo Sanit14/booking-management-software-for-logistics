@@ -255,7 +255,6 @@ export default function ReportsPage({ today, onPick }: Props) {
                 </Button>
               </span>
             )}
-            <span className={styles.hint}>{view.kind === 'firmWise' ? t.firmNote : t.openHint[view.kind]}</span>
           </div>
         </Card>
       </div>

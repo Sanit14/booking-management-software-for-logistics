@@ -8,7 +8,7 @@ test('lrHtml: one A5 landscape sheet with the company, LORRY RECEIPT, the number
   assert.equal(html.split('<section').length - 1, 1);
   assert.match(html, /@page\{size:A5 landscape;margin:0\}/);
   for (const text of [
-    'Sundeep Freight Movers', 'Station Road, Yavatmal 445001', 'LORRY RECEIPT', 'LR No.', '1248', '31-10-2026', 'Yavatmal', 'Nagpur', 'Shree Ganesh Traders', 'Kale Brothers', 'Cloth bales', '>7<',
+    'Sundeep Freight Movers', 'LORRY RECEIPT', 'LR No.', '1248', '31-10-2026', 'Yavatmal', 'Nagpur', 'Shree Ganesh Traders', 'Kale Brothers', 'Cloth bales', '>7<',
     'Freight (To pay)', '1,800.00', 'Hamali', '12.50', 'Total', '1,812.50', 'Signature',
   ]) {
     assert.ok(html.includes(text), text);

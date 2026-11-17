@@ -1,7 +1,9 @@
 // Printing (3.3): the keeper answers with exactly what is printed, every amount already formatted (`inr`), so the template
 // does no maths. Memo totals are the ones frozen when the memo was saved. Reads write nothing; a print or a saved PDF that
-// went through is written to the audit log by `done`, and the company lines are changed with the Admin PIN.
+// went through is written to the audit log by `done`. The two company lines are constants (`shared/company.ts`).
 import {
+  COMPANY_LOCATION,
+  COMPANY_NAME,
   MAX_MEMO_LRS,
   MAX_REPORT_PRINT_ROWS,
   MAX_STATEMENT_PRINT_ROWS,
@@ -28,7 +30,6 @@ import { asRange, asRole } from './firmRules';
 import type { makeMemos } from './memos';
 import { percentText, signedInr, signedRupees } from './memoSettlement';
 import { inr, lrAmounts, type LrMoney } from './money';
-import type { makePins } from './pins';
 import type { makeReports } from './reports';
 import { asReportKind, asReportQuery } from './reportRules';
 
@@ -36,17 +37,10 @@ type Refusal = Extract<KeeperResult<never>, { ok: false }>;
 const refuse = (code: ResultCode, extra: Omit<Refusal, 'ok' | 'code'> = {}): Refusal => ({ ok: false, code, ...extra });
 const ok = <T>(value: T): KeeperResult<T> => ({ ok: true, value });
 
-const DEFAULT_NAME = 'Sundeep Freight Movers';
-const MAX_LINE = 100;
-const COMPANY_KEYS = { name: 'company_name', address: 'company_address', phone: 'company_phone', gstin: 'company_gstin' } as const;
-const BOXES = ['name', 'address', 'phone', 'gstin'] as const;
-
 /** 2026-10-31 -> 31-10-2026 */
 const display = (iso: string): string => iso.split('-').reverse().join('-');
 /** A row's amount: nothing is a dash. */
 const dash = (paise: number): string => (paise > 0 ? inr(paise) : '–');
-/** One printed line: trimmed, runs of spaces (and any line break) made one space. */
-const line = (v: unknown): string | null => (typeof v === 'string' ? v.normalize('NFC').replace(/\s+/g, ' ').trim() : null);
 
 interface LrPrintRow extends LrMoney {
   lr_no: number;
@@ -99,38 +93,14 @@ function everyRow<R, T>(read: (cursor: ReportCursor | null) => KeeperResult<Repo
 }
 
 export function makePrint(
-  pins: Pick<ReturnType<typeof makePins>, 'verify'>,
   memos: Pick<ReturnType<typeof makeMemos>, 'get'>,
   firms: Pick<ReturnType<typeof makeFirmAccounts>, 'statement'>,
   reports: ReturnType<typeof makeReports>,
 ) {
-  const company = (db: Db): PrintCompany => {
-    const get = (key: string) => (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
-    return { name: get(COMPANY_KEYS.name) || DEFAULT_NAME, address: get(COMPANY_KEYS.address) ?? '', phone: get(COMPANY_KEYS.phone) ?? '', gstin: get(COMPANY_KEYS.gstin) ?? '' };
-  };
+  /** The two fixed lines at the top of every printout (4.7: no longer a setting, so no database and no PIN). */
+  const company = (): PrintCompany => ({ name: COMPANY_NAME, location: COMPANY_LOCATION });
 
   return {
-    company,
-
-    /** Admin PIN. The name is required (1 to 100 characters), the other lines may be empty; saving what is already there writes nothing. */
-    setCompany(db: Db, seat: string, input: PrintCompany, adminPin: string): KeeperResult<PrintCompany> {
-      const gate = pins.verify(db, 'admin', adminPin);
-      if (!gate.ok) return gate;
-      const next = {} as PrintCompany;
-      for (const box of BOXES) {
-        const text = line((input as unknown as Record<string, unknown>)[box]);
-        if (text === null || text.length > MAX_LINE || (box === 'name' && text === '')) return refuse('company-invalid', { detail: box });
-        next[box] = text;
-      }
-      return db.transaction((): KeeperResult<PrintCompany> => {
-        const before = company(db);
-        if (BOXES.every((box) => before[box] === next[box])) return ok(before);
-        const put = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
-        for (const box of BOXES) put.run(COMPANY_KEYS[box], next[box]);
-        writeAudit(db, { seat, action: 'settings.company', entity: 'settings', entityId: 'company', before, after: next });
-        return ok(next);
-      })();
-    },
 
     /** A memo as printed: the header, its LRs by LR number (year, then number), the frozen totals, "Details of report" and whether its LRs still add up to them. */
     memo(db: Db, id: number): KeeperResult<PrintMemo> {
@@ -140,14 +110,14 @@ export function makePrint(
       const rows = db
         .prepare(
           `SELECT l.lr_no AS lrNo, l.consignor_name AS consignor, l.consignee_name AS consignee, l.particular, l.qty,
-             l.topay_paise AS toPay, l.paid_paise AS paid, l.wasuli_paise AS wasuli
+             l.topay_paise, l.paid_paise, l.hamali_paise, l.wasuli_paise
            FROM lrs l WHERE l.memo_id = ? ORDER BY l.lr_year, l.lr_no LIMIT ${MAX_MEMO_LRS}`,
         )
-        .all(id) as { lrNo: number; consignor: string; consignee: string; particular: string; qty: number; toPay: number; paid: number; wasuli: number }[];
+        .all(id) as ({ lrNo: number; consignor: string; consignee: string; particular: string; qty: number; wasuli_paise: number } & LrMoney)[];
       // The settlement block comes from the memo's FROZEN totals and the rate and % it was saved with; a cancelled memo, and one saved before 4.6, print none.
       const st = m.status === 'saved' ? m.settlement : null;
       return ok({
-        company: company(db),
+        company: company(),
         challanNo: m.challanNo,
         challanYear: m.challanYear,
         date: display(m.date),
@@ -159,8 +129,18 @@ export function makePrint(
         loadingHamali: inr(m.loadingHamaliPaise),
         cancelled: m.status === 'cancelled',
         differs: m.differs,
-        rows: rows.map((r) => ({ ...r, toPay: dash(r.toPay), paid: dash(r.paid), wasuli: dash(r.wasuli) })),
-        totals: { lrs: m.frozen.lrs, qty: m.frozen.qty, toPay: inr(m.frozen.toPayPaise), paid: inr(m.frozen.paidPaise), wasuli: inr(m.frozen.wasuliPaise) },
+        rows: rows.map((r) => {
+          const a = lrAmounts(r); // freight, hamali and the total of an LR are worked out in one place
+          return {
+            lrNo: r.lrNo, consignor: r.consignor, consignee: r.consignee, particular: r.particular, qty: r.qty,
+            toPay: dash(r.topay_paise), paid: dash(r.paid_paise), hamali: dash(a.hamali), total: dash(a.total), wasuli: dash(r.wasuli_paise),
+          };
+        }),
+        // the totals are the ones frozen with the memo; the Total column adds up each LR's freight + hamali
+        totals: {
+          lrs: m.frozen.lrs, qty: m.frozen.qty, toPay: inr(m.frozen.toPayPaise), paid: inr(m.frozen.paidPaise), hamali: inr(m.frozen.hamaliPaise),
+          total: inr(m.frozen.toPayPaise + m.frozen.paidPaise + m.frozen.hamaliPaise), wasuli: inr(m.frozen.wasuliPaise),
+        },
         settlement: st && {
           articles: st.articles,
           paid: inr(st.paidPaise),
@@ -189,7 +169,7 @@ export function makePrint(
       if (!r) return refuse('lr-missing');
       const a = lrAmounts(r);
       return ok({
-        company: company(db),
+        company: company(),
         lrNo: r.lr_no,
         lrYear: r.lr_year,
         date: display(r.lr_date),
@@ -226,7 +206,7 @@ export function makePrint(
         next = more.value.next;
       }
       return ok({
-        company: company(db),
+        company: company(),
         firm: firm.name,
         role: q.role,
         from: display(q.from),
@@ -253,7 +233,7 @@ export function makePrint(
       const n = String;
       const build = (rows: string[][], totals: string[], anyDiffers = false): KeeperResult<PrintReport> =>
         ok({
-          company: company(db),
+          company: company(),
           report: kind,
           from: display(q.from),
           to: display(q.to),

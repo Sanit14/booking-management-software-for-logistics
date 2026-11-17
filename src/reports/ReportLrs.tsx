@@ -116,7 +116,6 @@ export default function ReportLrs({ drill, onBack, onPick }: { drill: Drill; onB
               {t.loadMore}
             </Button>
           )}
-          <span className={styles.hint}>{t.lrsOpenHint}</span>
         </div>
       </Card>
     </div>

@@ -35,7 +35,7 @@ const header = (m: MemoDetail, over: Partial<MemoHeaderInput> = {}): MemoHeaderI
 });
 const lrStatus = (s: Set, id: number) => s.db.prepare('SELECT status, memo_id AS memoId, version FROM lrs WHERE id = ?').get(id) as { status: string; memoId: number | null; version: number };
 const pendingNos = (s: Set) => {
-  const r = got(s.memos.pending(s.db, { from: null, to: null, toStationId: null, consignor: null, consignee: null }, null));
+  const r = got(s.memos.pending(s.db, { toStationIds: [], consignors: [], consignees: [] }, null));
   return r.rows.map((x) => x.lrNo);
 };
 const lastAudit = (s: Set, count = 1) =>

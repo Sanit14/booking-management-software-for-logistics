@@ -2,7 +2,9 @@
 // every figure out (`keeper/memoSettlement.ts`); this only picks the words and places the decimal point and the minus sign.
 import type { MemoFieldError, MemoSettlement, PendingTotals, SettlementPreview } from '../../shared';
 import { strings } from '../strings';
+import type { Box } from './memoPick';
 import { formatFixed, formatWhole } from './rupees';
+import { matchKey } from './typeAhead';
 
 const t = strings.memo.details;
 
@@ -86,3 +88,75 @@ export function settlementRefusal(fields: Partial<Record<string, MemoFieldError>
   const rate = fields?.hamaliRate;
   return rate ? (t.fieldError.rate[rate] ?? rate) : (t.fieldError.commission[fields?.commission ?? 'amount'] ?? 'amount');
 }
+
+// ---- the truck boxes of a new memo, now inside the window (4.7) ----
+
+/** A master row offered in a box. */
+interface Opt {
+  id: string;
+  label: string;
+}
+export interface HeaderBoxes {
+  truck: Box;
+  driver: Box;
+  from: Box;
+  to: Box;
+}
+export interface HeaderOptions {
+  trucks: Opt[];
+  drivers: Opt[];
+  stations: Opt[];
+}
+export interface HeaderIds {
+  truckId: number;
+  driverId: number;
+  fromId: number;
+  toId: number;
+}
+export type HeaderField = 'truck' | 'driver' | 'fromStation' | 'toStation';
+
+/**
+ * The four boxes as master rows: the one picked, else a name typed in full that is exactly in the list. A box that is empty is `required`, one that is
+ * typed but is not in its list is `missing` (the clerk fixes it before anything is sent). Nothing is sent from here.
+ */
+export function resolveHeader(b: HeaderBoxes, o: HeaderOptions): { ok: true; ids: HeaderIds } | { ok: false; problems: Partial<Record<HeaderField, 'required' | 'missing'>> } {
+  const find = (box: Box, options: Opt[]): number | null => {
+    if (box.id !== null) return box.id;
+    const hit = options.find((x) => matchKey(x.label) === matchKey(box.text));
+    return hit ? Number(hit.id) : null;
+  };
+  const ids = { truckId: find(b.truck, o.trucks), driverId: find(b.driver, o.drivers), fromId: find(b.from, o.stations), toId: find(b.to, o.stations) };
+  const problems: Partial<Record<HeaderField, 'required' | 'missing'>> = {};
+  const need = (field: HeaderField, box: Box, id: number | null) => {
+    if (id === null) problems[field] = box.text.trim() === '' ? 'required' : 'missing';
+  };
+  need('truck', b.truck, ids.truckId);
+  need('driver', b.driver, ids.driverId);
+  need('fromStation', b.from, ids.fromId);
+  need('toStation', b.to, ids.toId);
+  if (ids.truckId === null || ids.driverId === null || ids.fromId === null || ids.toId === null) return { ok: false, problems };
+  return { ok: true, ids: { truckId: ids.truckId, driverId: ids.driverId, fromId: ids.fromId, toId: ids.toId } };
+}
+
+/** What the screen does with the keeper's refusal of a save from the window. */
+export type RefusalStep =
+  | 'recheck' // only the rate or the % was refused: the window stays and asks for its figures again
+  | 'mark' // a header box was refused: the window stays open and the boxes are marked
+  | 'taken' // another seat loaded a ticked LR first: the window closes and says which
+  | 'open' // the memo was saved already: show it
+  | 'forget-date' // the PIN that unlocked the date no longer works: back to today
+  | 'toast';
+
+export function refusalStep(code: string, memoFields?: Partial<Record<string, MemoFieldError>>): RefusalStep {
+  if (code === 'memo-already-saved') return 'open';
+  if (code === 'memo-conflict') return 'taken';
+  if (code === 'wrong-pin' || code === 'pin-locked') return 'forget-date';
+  if (code === 'memo-invalid') {
+    const keys = Object.keys(memoFields ?? {});
+    return keys.length > 0 && keys.every((k) => k === 'hamaliRate' || k === 'commission') ? 'recheck' : 'mark';
+  }
+  return 'toast';
+}
+
+/** "Next: memo details" works only with at least one LR ticked (and not past what a memo can carry: the caller says). */
+export const nextEnabled = (ticked: number, limit: number): boolean => ticked > 0 && ticked <= limit;

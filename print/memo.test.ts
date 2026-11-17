@@ -42,16 +42,17 @@ test('memoHtml: every sheet has its own header row and "Page n of m"; the totals
   assert.equal(count(html, '<thead>'), 2, 'the header row is repeated');
   sheets.forEach((s, i) => {
     assert.match(s, new RegExp(`Page ${i + 1} of 2`));
-    assert.match(s, /<th>Consignor<\/th><th>Consignee<\/th><th>LR No<\/th><th>Particulars<\/th><th class="n">Pak<\/th><th class="n">Paid \(₹\)<\/th><th class="n">To pay \(₹\)<\/th><th class="n">Wasuli \(₹\)<\/th>/);
+    assert.match(s, /<th>Consignor<\/th><th>Consignee<\/th><th>LR No<\/th><th>Particulars<\/th><th class="n">Quantity<\/th><th class="n">To pay<\/th><th class="n">Paid<\/th><th class="n">Hamali<\/th><th class="n">Total<\/th><th class="n">Wasuli<\/th>/);
     assert.equal(count(s, 'class="tot"'), i === 1 ? 1 : 0, `sheet ${i + 1}`);
   });
   assert.match(sheets[1], /Total · LRs: 60/);
-  assert.match(sheets[1], /To pay \(₹\) <b>1,23,456\.00<\/b>/);
-  assert.match(sheets[1], /Wasuli \(₹\) <b>4,076\.00<\/b>/);
+  // the totals row stands in the table's own columns: Quantity, To pay, Paid, Hamali, Total, Wasuli, in the order of the headings
+  assert.ok(sheets[1].includes('<td colspan="4">Total · LRs: 60</td>'));
+  assert.match(sheets[1], /<tfoot><tr class="tot">.*<td class="n">\d+<\/td><td class="n">1,23,456\.00<\/td><td class="n">9,87,654\.50<\/td><td class="n">1,234\.50<\/td><td class="n">1,34,345\.00<\/td><td class="n">4,076\.00<\/td><\/tr><\/tfoot>/);
   assert.equal(count(html, /<tr><td(?! class="none")/g), 60, 'every LR once');
 });
 
-const BLOCK = ['DETAILS OF REPORT', 'Total articles', 'Paid amount', 'To pay amount', 'Hamali less amount', 'Commission less amount', 'Wasuli amount', 'Net amount Rs.', 'Round figure Rs.'];
+const BLOCK = ['DETAILS OF REPORT', 'Total quantity', 'Paid amount', 'To pay amount', 'Hamali less amount', 'Commission less amount', 'Wasuli amount', 'Net amount Rs.', 'Round figure Rs.'];
 
 test('memoHtml: "Details of report" follows the last row, on the last sheet only, with the two notes next to their amounts', () => {
   const [first, second] = sheetsOf(memoHtml(sampleMemo(60)));
@@ -59,7 +60,7 @@ test('memoHtml: "Details of report" follows the last row, on the last sheet only
   for (const t of BLOCK) assert.ok(second.includes(t), t);
   assert.ok(second.includes('(177 × 0.40)') && second.includes('(10 %)'), 'hamali and commission say how they were worked out');
   assert.ok(second.indexOf('DETAILS OF REPORT') > second.indexOf('</table>'), 'after the last row');
-  assert.ok(second.indexOf('Total articles') < second.indexOf('Net amount Rs.') && second.indexOf('Net amount Rs.') < second.indexOf('Round figure Rs.'), 'in the order of the old paper');
+  assert.ok(second.indexOf('Total quantity') < second.indexOf('Net amount Rs.') && second.indexOf('Net amount Rs.') < second.indexOf('Round figure Rs.'), 'in the order of the old paper');
   assert.match(second, /Round figure Rs\.<\/span><span>10,241</);
 });
 
@@ -86,17 +87,17 @@ test('memoHtml: the block needs room, so it never sits alone on a sheet: one row
 
 test('memoHtml: the first sheet carries the company, LOADING MEMO and the header; later sheets only say which memo they continue', () => {
   const [first, second] = sheetsOf(memoHtml(sampleMemo(60)));
-  for (const text of ['Sundeep Freight Movers', 'Station Road, Yavatmal 445001', 'Ph 07232 245678', 'GSTIN 27ABCDE1234F1Z5', 'LOADING MEMO', 'Challan No.', '13', '31-10-2026', 'MH 29 BE 1234', 'Ramesh Pawar', 'Yavatmal', 'Nagpur', '4,500.00', '250.75']) {
+  for (const text of ['Sundeep Freight Movers', 'LOADING MEMO', 'Challan No.', '13', '31-10-2026', 'MH 29 BE 1234', 'Ramesh Pawar', 'Yavatmal', 'Nagpur', '4,500.00', '250.75']) {
     assert.ok(first.includes(text), text);
   }
   assert.ok(!second.includes('LOADING MEMO'));
   assert.match(second, /Sundeep Freight Movers — Loading memo 13 \(continued\)/);
 });
 
-test('memoHtml: empty company lines are left out, not printed as blank lines', () => {
-  const html = memoHtml(sampleMemo(1, { company: { name: 'Sundeep Freight Movers', address: '', phone: '', gstin: '' } }));
+test('memoHtml: the company block is the name and the location, nothing else (no address, phone or GSTIN lines)', () => {
+  const html = memoHtml(sampleMemo(1));
   assert.equal(count(html, '<div class="co">'), 1);
-  assert.ok(!html.includes('<div></div>'));
+  assert.ok(html.includes('<div class="co"><div class="name">Sundeep Freight Movers</div><div>Yavatmal</div></div>'));
 });
 
 test('memoHtml: the "changed after saving" line appears on the last sheet, only when the memo differs', () => {
@@ -115,14 +116,14 @@ test('memoHtml: a cancelled memo has the CANCELLED mark on every sheet; one that
 });
 
 test('memoHtml: a memo with no rows (a cancelled one) says so and still prints its frozen totals', () => {
-  const html = memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null, totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00', wasuli: '0.00' } }));
+  const html = memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null, totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00', hamali: '0.00', total: '1,000.00', wasuli: '0.00' } }));
   assert.equal(sheetsOf(html).length, 1);
   assert.match(html, /No LRs on this memo/);
   assert.match(html, /Total · LRs: 3/);
 });
 
 test('memoHtml: names and company lines are escaped, so nothing typed can open a tag', () => {
-  const memo = sampleMemo(6, { company: { name: '<b>Sundeep</b> & Sons', address: '"quoted" \'line\'', phone: '', gstin: '' }, driver: '<img src=x onerror=alert(1)>' });
+  const memo = sampleMemo(6, { company: { name: '<b>Sundeep</b> & Sons', location: '"quoted" \'line\'' }, driver: '<img src=x onerror=alert(1)>' });
   const html = memoHtml(memo);
   assert.ok(html.includes('&lt;b&gt;Sundeep&lt;/b&gt; &amp; Sons'));
   assert.ok(html.includes('&quot;quoted&quot; &#39;line&#39;'));
@@ -146,5 +147,5 @@ test('memoFileName: Challan-<number>-<year>.pdf', () => {
 test('memoHtml: snapshots', () => {
   matchSnapshot('memo-1', memoHtml(sampleMemo(1)));
   matchSnapshot('memo-40', memoHtml(sampleMemo(40, { differs: true })));
-  matchSnapshot('memo-cancelled', memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null, totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00', wasuli: '0.00' } })));
+  matchSnapshot('memo-cancelled', memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null, totals: { lrs: 3, qty: 9, toPay: '1,000.00', paid: '0.00', hamali: '0.00', total: '1,000.00', wasuli: '0.00' } })));
 });

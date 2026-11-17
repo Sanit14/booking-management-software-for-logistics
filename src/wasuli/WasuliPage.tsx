@@ -491,7 +491,6 @@ export default function WasuliPage({ jump, onJumpUsed }: { jump: Jump | null; on
             <Field
               data-autofocus=""
               label={t.remarkField}
-              hint={t.remarkHint}
               error={remarkError}
               value={remarking.text}
               onChange={(e) => {

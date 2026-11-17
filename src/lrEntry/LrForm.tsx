@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { CalendarDays, Undo2 } from 'lucide-react';
 import type { Firm, KeeperResult, LrDefaults, LrDetail, LrField, LrInput, LrParty, LrPreview, LrSaved, Station } from '../../shared';
 import { clearDraft, hasTyped, keepDraft, loadDraft, type DraftSlot } from '../logic/drafts';
@@ -63,6 +63,8 @@ interface Props {
   draftSlot: DraftSlot;
   /** A new LR was saved (not a retry of an earlier save). */
   onSaved?: (saved: LrSaved) => void;
+  /** Buttons at the right end of the form's head (LR Entry: Shortcuts). */
+  tools?: ReactNode;
 }
 
 /**
@@ -70,7 +72,7 @@ interface Props {
  * amounts come back from lrs.preview, and the number comes back from the save. The form shows what it is given and
  * never adds anything up.
  */
-export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onOpenMemo, onGuard, draftSlot, onSaved }: Props) {
+export default function LrForm({ stations, firms, defaults, date, onDate, lr, onOpen, onOpenMemo, onGuard, draftSlot, onSaved, tools }: Props) {
   const toast = useToast();
   const print = usePrint();
   const { keys } = useKeys();
@@ -409,12 +411,12 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
       ? { hint: t.dateInYear, props: { type: 'date', min: `${lr.lrYear}-01-01`, max: defaults.today < yearEnd ? defaults.today : yearEnd, value: editDate, onChange: (e: ChangeEvent<HTMLInputElement>) => { setEditDate(e.target.value || lr.date); setErrors((er) => ({ ...er, date: undefined })); } } }
       : { hint: undefined, props: { readOnly: true, value: isoToDisplay(lr.date) } }
     : isToday
-      ? { hint: t.dateHint, props: { readOnly: true, value: isoToDisplay(defaults.today) } }
+      ? { hint: undefined, props: { readOnly: true, value: isoToDisplay(defaults.today) } }
       : { hint: t.dateBackdated, props: { type: 'date', max: defaults.today, value: date ?? '', onChange: (e: ChangeEvent<HTMLInputElement>) => onDate(e.target.value || defaults.today) } };
   return (
     <Card className={styles.formCard}>
       {lr ? (
-        <LrActions lr={lr} editing={editing} changedElsewhere={editing && lr.version !== editBase} problem={problem} onEdit={startEdit} onDiscard={discardEdit} onOpen={onOpen} onOpenMemo={onOpenMemo} />
+        <LrActions tools={tools} lr={lr} editing={editing} changedElsewhere={editing && lr.version !== editBase} problem={problem} onEdit={startEdit} onDiscard={discardEdit} onOpen={onOpen} onOpenMemo={onOpenMemo} />
       ) : (
         <div className={styles.head}>
           <strong className={styles.headTitle}>{t.formLabel}</strong>
@@ -425,6 +427,7 @@ export default function LrForm({ stations, firms, defaults, date, onDate, lr, on
               {problem}
             </span>
           )}
+          {tools && <span className={styles.headTools}>{tools}</span>}
         </div>
       )}
       <form ref={form} className={styles.form} aria-label={lr ? t.lrTitle(lr.lrNo) : t.formLabel} onSubmit={submit} onKeyDown={enterToNext} noValidate>
