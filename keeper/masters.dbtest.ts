@@ -288,3 +288,36 @@ test('an agent who still has collections assigned cannot be deactivated', () => 
   s.db.prepare("UPDATE wasuli SET status = 'collected', collected_date = '2026-10-25', collected_paise = 5000, mode = 'cash' WHERE id = ?").run(w);
   assert.equal(saved(setActive(s, 'agents', agent, false)).active, false);
 });
+
+test('the booking station (Yavatmal) cannot be closed or renamed: booking-station-locked after the PIN, nothing written; any other station still can', () => {
+  const s = setUp();
+  const yavatmal = saved(create(s, 'stations', { name: 'Yavatmal' }));
+  const nagpur = saved(create(s, 'stations', { name: 'Nagpur' }));
+  const written = audits(s).length;
+
+  assert.equal(refused(setActive(s, 'stations', yavatmal, false, '0000')).code, 'wrong-pin', 'the PIN is checked first, as for every refusal');
+  assert.equal(refused(setActive(s, 'stations', yavatmal, false)).code, 'booking-station-locked');
+  for (const typed of ['Yavatmal City', 'Yavatmal 2', 'YAVATMAL', 'Nagpur East']) {
+    assert.equal(refused(update(s, 'stations', yavatmal, { name: typed })).code, 'booking-station-locked', typed);
+  }
+  assert.deepEqual(s.m.all(s.db).stations.find((r) => r.id === yavatmal.id), yavatmal, 'the row is as it was');
+  assert.equal(audits(s).length, written, 'a refusal writes nothing');
+
+  // Saving it as it is (nothing renamed) and opening it again are not a rename or a closure.
+  assert.equal(saved(update(s, 'stations', yavatmal, { name: 'Yavatmal' })).active, true);
+  s.db.prepare('UPDATE stations SET active = 0 WHERE id = ?').run(yavatmal.id); // an old book that closed it before the rule
+  const closed = s.m.all(s.db).stations.find((r) => r.id === yavatmal.id) as MasterRow;
+  assert.equal(saved(setActive(s, 'stations', closed, true, '')).active, true);
+
+  // A book where it was typed another way (the keeper accepts it by name key) may correct it to the exact name, and to nothing else.
+  s.db.prepare("UPDATE stations SET name = 'yavatmal' WHERE id = ?").run(yavatmal.id);
+  const lower = s.m.all(s.db).stations.find((r) => r.id === yavatmal.id) as MasterRow;
+  assert.equal(refused(update(s, 'stations', lower, { name: 'YAVATMAL' })).code, 'booking-station-locked');
+  assert.equal((saved(update(s, 'stations', lower, { name: 'Yavatmal' })) as { name: string }).name, 'Yavatmal');
+
+  // Every other station closes, opens and renames as before.
+  const renamed = saved(update(s, 'stations', nagpur, { name: 'Nagpur East' }));
+  const off = saved(setActive(s, 'stations', renamed, false));
+  assert.equal(off.active, false);
+  assert.equal(saved(setActive(s, 'stations', off, true)).active, true);
+});

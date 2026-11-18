@@ -4,7 +4,7 @@
 // The tables are small and the screen holds them all (all()), so name checks that SQL cannot do alone
 // (similar names, driver duplicates) read the other rows of one kind inside the transaction: nothing else can
 // write meanwhile, the keeper being the only process that touches the database.
-import type { KeeperResult, MasterFields, MasterKind, MasterRow, MastersAll, ResultCode } from '../shared';
+import { BOOKING_STATION, type KeeperResult, type MasterFields, type MasterKind, type MasterRow, type MastersAll, type ResultCode } from '../shared';
 import { writeAudit } from './audit';
 import type { Db } from './db';
 import { cleanName, cleanPhone, cleanTruck, findSimilar, truckKey } from './masterRules';
@@ -16,6 +16,9 @@ const refuse = (code: ResultCode, extra: Omit<Refusal, 'ok' | 'code'> = {}): Ref
 const ok = <T>(value: T): KeeperResult<T> => ({ ok: true, value });
 
 const NOW = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
+
+/** The booking station (4.7-closing) is the From of every new LR: it cannot be closed or renamed (`booking-station-locked`). Found by name, as `lrs.defaults` does. */
+const isBookingStation = (kind: MasterKind, row: MasterRow): boolean => kind === 'stations' && 'name' in row && nameKey(row.name) === nameKey(BOOKING_STATION);
 
 // What a row looks like to the screen. Business-key order, never by id.
 const SELECT: Record<MasterKind, string> = {
@@ -170,6 +173,7 @@ export function makeMasters(pins: Pick<ReturnType<typeof makePins>, 'verify'>) {
         if (before.version !== version) return refuse('master-stale', { row: before });
         const c = clean(db, kind, fields, kind === 'firms' ? (before as { stationId: number | null }).stationId : null);
         if ('ok' in c) return c;
+        if (isBookingStation(kind, before) && c.name !== BOOKING_STATION) return refuse('booking-station-locked'); // only "Yavatmal" itself: a book that spelt it otherwise may correct it
         // Correcting a phone or station must not make the clerk confirm a name that was already there (two drivers called
         // Ramesh, "Shree Ganesh" next to "Shree Ganesh Traders"): similar names are asked about only when the name changes.
         const sameName = 'name' in before && nameKey(before.name) === c.key;
@@ -193,6 +197,7 @@ export function makeMasters(pins: Pick<ReturnType<typeof makePins>, 'verify'>) {
         if (!before) return refuse('master-missing');
         if (before.version !== version) return refuse('master-stale', { row: before });
         if (before.active === active) return ok(before);
+        if (!active && isBookingStation(kind, before)) return refuse('booking-station-locked');
         // Collections still assigned to an agent would be stranded: the Wasuli page offers active agents only.
         if (!active && kind === 'agents') {
           const open = (db.prepare("SELECT COUNT(*) AS n FROM wasuli WHERE agent_id = ? AND status = 'assigned'").get(id) as { n: number }).n;

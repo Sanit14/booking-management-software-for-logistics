@@ -157,7 +157,6 @@ export default function LrActions({ tools, lr, editing, changedElsewhere, proble
         <Field
           data-autofocus=""
           label={t.cancelReason}
-          hint={t.cancelReasonHint}
           error={reasonError}
           required
           maxLength={200}

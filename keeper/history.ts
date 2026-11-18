@@ -93,7 +93,7 @@ const UNIT: Record<string, HistoryUnit> = {
   toPay: 'paise', paid: 'paise', hamali: 'paise', wasuli: 'paise', truckHire: 'paise', loadingHamali: 'paise', amount: 'paise', date: 'date',
   // Only the rows saved before 4.5 name these: the charges and service tax of an LR and of a memo recalculation, and the LR defaults.
   godownBhada: 'paise', godownInsurance: 'paise', deliveryCharges: 'paise', charges: 'paise', stax: 'paise', staxPercent: 'percent', chargeOption: 'option',
-  // The memo settlement (4.6): the rate per article in paise, the round figure in whole rupees; the commission is turned into its % text below.
+  // The memo settlement (4.6): the rate per unit of quantity in paise, the round figure in whole rupees; the commission is turned into its % text below.
   hamaliRate: 'paise', roundFigure: 'rupees',
 };
 const percentOf = (v: HistoryChange['from']): HistoryChange['from'] => (typeof v === 'number' ? percentText(v) : v);

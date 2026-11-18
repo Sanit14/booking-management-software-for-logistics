@@ -88,7 +88,7 @@ export function cleanHeader(i: MemoHeaderInput, today: string): CleanHeader {
 
 export interface CleanSettlement {
   errors: MemoErrors;
-  /** The hamali rate per article in paise, 0 when it is wrong. */
+  /** The hamali rate per unit of quantity in paise, 0 when it is wrong. */
   ratePaise: number;
   /** The commission % × 100, 0 when it is wrong. */
   commissionBp: number;

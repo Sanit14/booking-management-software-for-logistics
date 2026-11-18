@@ -319,7 +319,6 @@ export default function MemoView({ id, masters, today }: Props) {
           {t.actions.history}
         </Button>
       </div>
-      {!cancelled && <p className={styles.changeBar}>{t.pickToChange}</p>}
       </div>
       <SettlementCard memo={memo} onEdit={() => { setRateDraft(null); setStep('rate'); }} />
       </div>
@@ -347,7 +346,6 @@ export default function MemoView({ id, masters, today }: Props) {
               type="date"
               min={`${year}-01-01`}
               max={today}
-              hint={t.editSameYear}
               error={errors.date}
               value={draft.date}
               onChange={(e: ChangeEvent<HTMLInputElement>) => {
@@ -461,7 +459,6 @@ export default function MemoView({ id, masters, today }: Props) {
         <Field
           data-autofocus=""
           label={t.cancelReason}
-          hint={t.cancelReasonHint}
           error={reasonError}
           required
           maxLength={200}

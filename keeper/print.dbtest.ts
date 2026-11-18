@@ -44,9 +44,9 @@ test('print.memo: the header, the rows in LR-number order and the totals frozen 
   assert.deepEqual([p.rows[1].toPay, p.rows[1].paid, p.rows[1].wasuli, p.rows[1].consignor], ['–', '2,500.50', '100.00', 'Patil Hardware']);
   assert.deepEqual([p.rows[1].hamali, p.rows[1].total], ['12.25', '2,512.75'], 'the total of an LR is freight + hamali, to pay or paid alike');
   assert.deepEqual(p.totals, { lrs: 2, qty: 6, toPay: '1,800.00', paid: '2,500.50', hamali: '22.75', total: '4,323.25', wasuli: '100.00' });
-  // "Details of report" (4.6): 6 articles x 0.40 = 2.40 off a to pay of 1,800; commission 10 % of to pay + paid (4,300.50) = 430.05; then the wasuli is added.
+  // "Details of report" (4.6): 6 qty x 0.40 = 2.40 off a to pay of 1,800; commission 10 % of to pay + paid (4,300.50) = 430.05; then the wasuli is added.
   assert.deepEqual(p.settlement, {
-    articles: 6, paid: '2,500.50', toPay: '1,800.00', hamaliLess: '2.40', hamaliHow: '6 × 0.40', total1: '1,797.60', commissionLess: '430.05', commissionHow: '10 %',
+    qty: 6, paid: '2,500.50', toPay: '1,800.00', hamaliLess: '2.40', hamaliHow: '6 × 0.40', total1: '1,797.60', commissionLess: '430.05', commissionHow: '10 %',
     total2: '1,367.55', wasuli: '100.00', net: '1,467.55', round: '1,468',
   });
 });

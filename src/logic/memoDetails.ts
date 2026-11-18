@@ -30,7 +30,7 @@ export interface SettlementLine {
 export function settlementLines(s: MemoSettlement): SettlementLine[] {
   return [
     { key: 'toPay', label: t.toPay, how: null, value: formatFixed(s.toPayPaise), weight: 'plain' },
-    { key: 'hamaliLess', label: t.hamaliLess, how: t.hamaliHow(s.articles, formatFixed(s.ratePaise)), value: formatFixed(s.hamaliLessPaise), weight: 'rule' },
+    { key: 'hamaliLess', label: t.hamaliLess, how: t.hamaliHow(s.qty, formatFixed(s.ratePaise)), value: formatFixed(s.hamaliLessPaise), weight: 'rule' },
     { key: 'total1', label: t.total, how: null, value: formatFixed(s.total1Paise), weight: 'total' },
     { key: 'commissionLess', label: t.commissionLess, how: t.commissionHow(percentText(s.commissionBp)), value: formatFixed(s.commissionLessPaise), weight: 'rule' },
     { key: 'total2', label: t.total, how: null, value: formatFixed(s.total2Paise), weight: 'total' },
@@ -42,7 +42,7 @@ export function settlementLines(s: MemoSettlement): SettlementLine[] {
 /** The window before any figure has come back (or while the text is not a number): the known totals, every step a dash. */
 export function blankLines(totals: PendingTotals): SettlementLine[] {
   const zero: MemoSettlement = {
-    articles: totals.qty, paidPaise: totals.paidPaise, toPayPaise: totals.toPayPaise, wasuliPaise: totals.wasuliPaise, ratePaise: 0, commissionBp: 0, commissionBasePaise: 0,
+    qty: totals.qty, paidPaise: totals.paidPaise, toPayPaise: totals.toPayPaise, wasuliPaise: totals.wasuliPaise, ratePaise: 0, commissionBp: 0, commissionBasePaise: 0,
     hamaliLessPaise: 0, total1Paise: 0, commissionLessPaise: 0, total2Paise: 0, netPaise: 0, roundRupees: 0,
   };
   return settlementLines(zero).map((l) => (l.key === 'toPay' || l.key === 'wasuli' ? l : { ...l, how: null, value: strings.memo.none }));

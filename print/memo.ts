@@ -1,8 +1,8 @@
-// The loading memo on A4, in DM's columns (4.7): company, LOADING MEMO, the header, one ruled line per LR, the frozen totals row and "Details of report" on the
+// The loading memo on A4 landscape (4.7-closing; DM's columns since 4.7): company, LOADING MEMO, the header, one ruled line per LR, the frozen totals row and "Details of report" on the
 // last sheet only. The sheets are split here, so "Page n of m", the header row on every sheet and the totals on the last one are exact.
 import type { PrintMemo, PrintMemoRow, PrintSettlement } from '../shared';
 import { strings } from '../src/strings';
-import { A4, companyBlock, esc, pageDocument, stamp } from './template';
+import { A4_LANDSCAPE, companyBlock, esc, pageDocument, stamp } from './template';
 
 const t = strings.paper;
 
@@ -10,8 +10,8 @@ const t = strings.paper;
  * Rows that fit under the header on the first sheet, on each next sheet, and the room the last sheet keeps (in rows): the totals line alone for a memo with no
  * settlement, the totals line and "Details of report" (4.6) for one that has it. Proven by the real-PDF test.
  */
-export const FIRST_ROWS = 35;
-export const NEXT_ROWS = 43;
+export const FIRST_ROWS = 23;
+export const NEXT_ROWS = 29;
 export const TOTALS_ROWS = 3;
 export const SETTLEMENT_ROWS = 14;
 
@@ -36,10 +36,11 @@ export function paginate(rows: number, firstRows = FIRST_ROWS, nextRows = NEXT_R
 }
 
 /**
- * Column widths in mm (Consignor, Consignee, LR No, Particulars, Quantity, To pay, Paid, Hamali, Total, Wasuli); they add up to the 190 mm between the margins. Each amount column
+ * Column widths in mm (Consignor, Consignee, LR No, Particulars, Quantity, To pay, Paid, Hamali, Total, Wasuli); they add up to the 277 mm between the margins of A4 landscape. The two names
+ * get what landscape adds (a 30-character name prints whole at 9 pt; the real-PDF test measures it). Each amount column
  * holds 12,34,567.89 whole (the widest total a memo can carry), the LR No column a 6-digit number and Quantity a 5-digit one (the real-PDF test measures all three).
  */
-const WIDTHS = [25, 25, 12.5, 19.5, 15.5, 18.5, 18.5, 18.5, 18.5, 18.5];
+const WIDTHS = [64, 64, 13, 28, 15.5, 18.5, 18.5, 18.5, 18.5, 18.5];
 const RIGHT = [false, false, false, false, true, true, true, true, true, true];
 
 const head = () => {
@@ -72,7 +73,7 @@ const settlementBlock = (s: PrintSettlement): string => {
     `<div class="r${cls}"><span>${esc(label)}${how ? ` <span class="how">${esc(d.how(how))}</span>` : ''}</span><span>${esc(value)}</span></div>`;
   return (
     `<div class="set"><div class="h">${esc(d.title)}</div>` +
-    line(d.articles, String(s.articles)) +
+    line(d.qty, String(s.qty)) +
     line(d.paid, s.paid) +
     line(d.toPay, s.toPay) +
     line(d.hamaliLess, s.hamaliLess, ' rule', s.hamaliHow) +
@@ -127,7 +128,7 @@ export function memoHtml(p: PrintMemo): string {
     const note = last && p.differs ? `<div class="note">${esc(t.memo.differs)}</div>` : '';
     return `<section class="page memo">${top}<table>${head()}<tbody>${body}</tbody>${last ? totals(p) : ''}</table>${note}${last && p.settlement ? settlementBlock(p.settlement) : ''}<div class="foot">${esc(t.pageOf(i + 1, sizes.length))}</div>${p.cancelled ? stamp(t.cancelled) : ''}</section>`;
   });
-  return pageDocument(t.memo.title(p.challanNo), A4, sheets.join(''), CSS);
+  return pageDocument(t.memo.title(p.challanNo), A4_LANDSCAPE, sheets.join(''), CSS);
 }
 
 export const memoFileName = (p: PrintMemo): string => `Challan-${p.challanNo}-${p.challanYear}.pdf`;

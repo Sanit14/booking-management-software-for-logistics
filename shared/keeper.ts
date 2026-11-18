@@ -3,7 +3,7 @@
 export const APP_ID = 'booking-manager';
 export const KEEPER_PORT = 47715;
 // Bump when a running keeper must be replaced by the one this build ships (schema, routes, behaviour).
-export const KEEPER_VERSION = 23;
+export const KEEPER_VERSION = 24;
 
 export type RootRefusal = 'bare-drive' | 'user-profile' | 'delivery-manager';
 export type GuardReason = 'marker-without-database' | 'marker-with-empty-database' | 'marker-with-no-rows' | 'damaged';
@@ -148,6 +148,7 @@ export type MasterRefusal =
   | 'master-stale' // `row`: the current row, to show what changed
   | 'master-missing'
   | 'master-busy' // an agent who still has collections assigned cannot be deactivated; detail: how many
+  | 'booking-station-locked' // Yavatmal, the From of every LR, cannot be closed or renamed
   | 'master-bad'; // detail: the field that is not acceptable (name, number, phone, station)
 
 /** The tables a change event can name. A view refetches only when one of its tables is named. */
@@ -397,7 +398,7 @@ export interface MemoInput extends MemoHeaderInput {
   uid: string;
   systemPin?: string;
   lrIds: number[];
-  /** "Details of report" (4.6), typed text like the money above: the hamali rate per article in rupees and the commission %. Both must be typed (0 is allowed, empty is refused). */
+  /** "Details of report" (4.6), typed text like the money above: the hamali rate per unit of quantity in rupees and the commission %. Both must be typed (0 is allowed, empty is refused). */
   hamaliRate: string;
   commission: string;
 }
@@ -502,11 +503,11 @@ export interface MemoTotals {
  * .50 away from zero.
  */
 export interface MemoSettlement {
-  articles: number;
+  qty: number;
   paidPaise: number;
   toPayPaise: number;
   wasuliPaise: number;
-  /** Hamali rate per article. */
+  /** Hamali rate per unit of quantity. */
   ratePaise: number;
   /** Commission % × 100. */
   commissionBp: number;
@@ -536,7 +537,7 @@ export interface MemoDetail extends MemoListRow {
   toStationId: number;
   truckHirePaise: number;
   loadingHamaliPaise: number;
-  /** Hamali rate per article and commission % × 100 typed with the memo; null for a memo saved before 4.6 until Edit rate / commission gives it one. */
+  /** Hamali rate per unit of quantity and commission % × 100 typed with the memo; null for a memo saved before 4.6 until Edit rate / commission gives it one. */
   hamaliRatePaise: number | null;
   commissionBp: number | null;
   /** The steps from the FROZEN totals and the rate and %; null when the memo has none. */
@@ -640,7 +641,7 @@ export interface PrintMemoRow {
  * keep their minus sign; `round` is whole rupees. `hamaliHow` is "177 × 0.40" and `commissionHow` is "10 %": the template puts them in brackets next to the amounts.
  */
 export interface PrintSettlement {
-  articles: number;
+  qty: number;
   paid: string;
   toPay: string;
   hamaliLess: string;

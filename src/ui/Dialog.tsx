@@ -63,6 +63,9 @@ export default function Dialog({ open, title, onCancel, onConfirm, confirmLabel,
       className={xwide ? `${styles.dialog} ${styles.xwide}` : wide ? `${styles.dialog} ${styles.wide}` : styles.dialog}
       aria-labelledby={titleId}
       onCancel={(e) => {
+        // The browser sends Esc's `cancel` to the topmost dialog only and it does not bubble, but React passes it up the component tree: a dialog that is a
+        // child of another one (a saved memo's windows) would close the dialog under it too. So a dialog acts only on a `cancel` that is its own.
+        if (e.target !== e.currentTarget) return;
         e.preventDefault(); // the caller closes it by clearing `open`
         onCancel();
       }}

@@ -16,7 +16,7 @@ import { lrFileName, lrHtml } from '../print/lr';
 import { memoFileName, memoHtml } from '../print/memo';
 import { reportFileName, reportHtml } from '../print/report';
 import { statementFileName, statementHtml } from '../print/statement';
-import { A4, A5_LANDSCAPE, type PageSpec } from '../print/template';
+import { A4, A4_LANDSCAPE, A5_LANDSCAPE, type PageSpec } from '../print/template';
 import { strings } from '../src/strings';
 import type { KeeperBridge } from './keeperBridge';
 
@@ -103,7 +103,7 @@ export function initPrint(bridge: Pick<KeeperBridge, 'call'>) {
       if (kind === 'memo') {
         const data = await bridge.call<PrintMemo>('POST', '/print/memo', { id });
         if (!data.ok) return data;
-        page = { html: memoHtml(data.value), spec: A4, fileName: memoFileName(data.value) };
+        page = { html: memoHtml(data.value), spec: A4_LANDSCAPE, fileName: memoFileName(data.value) };
       } else if (kind === 'lr') {
         const data = await bridge.call<PrintLr>('POST', '/print/lr', { id });
         if (!data.ok) return data;

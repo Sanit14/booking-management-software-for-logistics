@@ -136,9 +136,6 @@
   font-size: var(--fs-14);
   font-weight: 600;
 }
-.hint {
-  margin-left: auto;
-}
 
 /* ---- the details of one row ---- */
 .details {

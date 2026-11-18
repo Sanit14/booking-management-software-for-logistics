@@ -1,6 +1,7 @@
 // Runs as a real Electron app (not as Node) via scripts/test-electron.cjs, as part of `npm run check`: the real print engine turns
 // real pages into real PDFs. The sheet count of each PDF must be the number of sheets the template made (a row that did not fit
-// would spill onto an extra sheet), and the paper size must be A4 portrait for a memo, A4 landscape for the Truck-wise report and A5 landscape for an LR. Not shipped.
+// would spill onto an extra sheet), and the paper size must be A4 landscape for a memo and for the Truck-wise report, A4 portrait for the other reports and the
+// statement, and A5 landscape for an LR. Not shipped.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -104,19 +105,20 @@ async function cutReportCells(html: string, texts: number[]): Promise<string[]> 
   }
 }
 /**
- * The cells of a loading memo that were cut, and the lines of "Details of report" that run past their box. In a row only the three text columns
- * (Consignor, Consignee, Particulars) may end in "…"; the LR number, Quantity, To pay, Paid, Hamali, Total and Wasuli must show whole (the totals row too), and so must every heading and every figure of the block.
+ * The cells of a loading memo that were cut, and the lines of "Details of report" that run past their box. In a row only the text columns in `texts` (by default
+ * Consignor, Consignee, Particulars) may end in "…"; the LR number, Quantity, To pay, Paid, Hamali, Total and Wasuli must show whole (the totals row too), and so must every heading and every figure of the block.
  */
-async function cutMemoCells(html: string): Promise<string[]> {
+async function cutMemoCells(html: string, texts: number[] = [0, 1, 3]): Promise<string[]> {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   try {
     await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     return (await win.webContents.executeJavaScript(`(() => {
+      const texts = ${JSON.stringify(texts)};
       const cut = (e) => e.scrollWidth > e.clientWidth + 0.5;
       const heads = [...document.querySelectorAll('.memo thead th')].filter(cut).map((th) => 'heading:' + th.textContent);
       const cells = [...document.querySelectorAll('.memo tbody tr')]
         .flatMap((tr) => [...tr.children].map((td, i) => ({ td, i })))
-        .filter(({ td, i }) => ![0, 1, 3].includes(i) && !td.classList.contains('none') && cut(td))
+        .filter(({ td, i }) => !texts.includes(i) && !td.classList.contains('none') && cut(td))
         .map(({ td, i }) => i + ':' + td.textContent);
       // the totals row: every figure (the label in front of them is one cell across four columns)
       const totals = [...document.querySelectorAll('.memo tfoot td.n')].filter(cut).map((td) => 'totals:' + td.textContent);
@@ -158,19 +160,20 @@ async function pdfOf(name: string, html: string, spec: PageSpec): Promise<Buffer
 }
 
 void app.whenReady().then(async () => {
-  await check('a 1-LR memo is one A4 portrait sheet', async () => {
-    const pdf = await pdfOf('memo-1', memoHtml(sampleMemo(1)), A4);
+  await check('a 1-LR memo is one A4 landscape sheet', async () => {
+    const pdf = await pdfOf('memo-1', memoHtml(sampleMemo(1)), A4_LANDSCAPE);
     assert.equal(sheets(pdf), 1);
     const [w, h] = size(pdf);
-    near(w, 595);
-    near(h, 842);
+    near(w, 842);
+    near(h, 595);
     await noOverrun('memo-1', memoHtml(sampleMemo(1)));
   });
 
-  await check('a 60-LR memo is two sheets (header row on each, totals on the last)', async () => {
-    const pdf = await pdfOf('memo-60', memoHtml(sampleMemo(60)), A4);
-    assert.equal(paginate(60).length, 2);
-    assert.equal(sheets(pdf), 2);
+  await check('a 60-LR memo is as many sheets as the template made (header row on each, totals and Details of report on the last)', async () => {
+    const pdf = await pdfOf('memo-60', memoHtml(sampleMemo(60)), A4_LANDSCAPE);
+    const made = paginate(60, FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS).length;
+    assert.ok(made >= 2);
+    assert.equal(sheets(pdf), made);
   });
 
   // The edges of every sheet: a full sheet must not spill onto one more, one row over must start the next. A memo with "Details of report" keeps SETTLEMENT_ROWS
@@ -181,21 +184,22 @@ void app.whenReady().then(async () => {
       const sizes = paginate(n, FIRST_ROWS, NEXT_ROWS, last);
       await check(`a memo of ${n} LRs ${what}: the PDF has the ${sizes.length} sheet(s) the template made, and nothing runs into the footer`, async () => {
         const html = memoHtml(sampleMemo(n, plain ? { settlement: null } : {}));
-        const pdf = await pdfOf(`memo-${n}${plain ? '-plain' : ''}`, html, A4);
+        const pdf = await pdfOf(`memo-${n}${plain ? '-plain' : ''}`, html, A4_LANDSCAPE);
         assert.equal(sheets(pdf), sizes.length);
         await noOverrun(`memo-${n}${plain ? '-plain' : ''}`, html);
       });
     }
   }
 
-  await check('a memo shows a 6-digit LR number, a 5-digit Quantity and amounts up to 9,99,999.99 whole (totals up to 12,34,567.89), and so does every line of Details of report (a negative net too)', async () => {
+  await check('a memo shows a 6-digit LR number, a 5-digit Quantity and 12,34,567.89 in every amount column (rows and totals) whole, and so does every line of Details of report (a negative net too)', async () => {
     const base = sampleMemo(12);
+    const widest = '12,34,567.89';
     const wide = {
       ...base,
-      rows: base.rows.map((r) => ({ ...r, lrNo: 109999, qty: 99999, paid: '9,99,999.99', toPay: '9,99,999.99', hamali: '9,99,999.99', total: '9,99,999.99', wasuli: '9,99,999.99' })),
+      rows: base.rows.map((r) => ({ ...r, lrNo: 109999, qty: 99999, paid: widest, toPay: widest, hamali: widest, total: widest, wasuli: widest })),
       totals: { lrs: 12, qty: 99999, toPay: '12,34,567.89', paid: '12,34,567.89', hamali: '12,34,567.89', total: '12,34,567.89', wasuli: '12,34,567.89' },
       settlement: {
-        ...(base.settlement as NonNullable<typeof base.settlement>), articles: 999999, paid: '12,34,567.89', toPay: '12,34,567.89', hamaliLess: '12,34,567.89', total1: '-12,34,567.89',
+        ...(base.settlement as NonNullable<typeof base.settlement>), qty: 999999, paid: '12,34,567.89', toPay: '12,34,567.89', hamaliLess: '12,34,567.89', total1: '-12,34,567.89',
         commissionLess: '12,34,567.89', total2: '-12,34,567.89', wasuli: '12,34,567.89', net: '-12,34,567.89', round: '-12,34,568',
       },
     };
@@ -207,9 +211,20 @@ void app.whenReady().then(async () => {
     assert.ok((await cutMemoCells(narrowAmount)).length > 0, 'a 14 mm To pay column is cut');
   });
 
+  // The room landscape adds goes to the two names (4.7-closing): a consignor and a consignee of 30 characters print whole at 9 pt, in every row. Only Particulars may still end in "…".
+  await check('a consignor and a consignee of 30 characters print whole in every row of the memo, on every sheet', async () => {
+    const name = 'Deshmukh Agro Industries Co-op'; // 30 characters, capitals and wide letters in it
+    assert.equal(name.length, 30);
+    const base = sampleMemo(60);
+    const html = memoHtml({ ...base, rows: base.rows.map((r) => ({ ...r, consignor: name, consignee: name })) });
+    assert.deepEqual(await cutMemoCells(html, [3]), []);
+    // the check can see a cut: the first version of the columns (portrait, 25 mm) cut it
+    assert.ok((await cutMemoCells(html.replace(/<col style="width:\d+(\.\d+)?mm">/, '<col style="width:25mm">'), [3])).length > 0, 'a 25 mm Consignor column is cut');
+  });
+
   await check('a cancelled memo with no rows is one sheet; a cancelled 60-LR memo keeps its two', async () => {
-    assert.equal(sheets(await pdfOf('memo-cancelled-0', memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null })), A4)), 1);
-    assert.equal(sheets(await pdfOf('memo-cancelled-60', memoHtml(sampleMemo(60, { cancelled: true, differs: true, settlement: null })), A4)), 2);
+    assert.equal(sheets(await pdfOf('memo-cancelled-0', memoHtml(sampleMemo(0, { cancelled: true, rows: [], settlement: null })), A4_LANDSCAPE)), 1);
+    assert.equal(sheets(await pdfOf('memo-cancelled-60', memoHtml(sampleMemo(60, { cancelled: true, differs: true, settlement: null })), A4_LANDSCAPE)), paginate(60, FIRST_ROWS, NEXT_ROWS, TOTALS_ROWS).length);
   });
 
   await check('an LR is one A5 landscape sheet; a cancelled paid LR too', async () => {
@@ -230,7 +245,7 @@ void app.whenReady().then(async () => {
   for (const n of [FIRST_ROWS - SETTLEMENT_ROWS, FIRST_ROWS + 1, FIRST_ROWS + NEXT_ROWS + 1]) {
     await check(`a memo of ${n} LRs with 100-character company, driver and station lines still fits its sheets`, async () => {
       const html = memoHtml(sampleMemo(n, { ...worst, differs: true }));
-      assert.equal(sheets(await pdfOf(`memo-long-${n}`, html, A4)), paginate(n, FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS).length);
+      assert.equal(sheets(await pdfOf(`memo-long-${n}`, html, A4_LANDSCAPE)), paginate(n, FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS).length);
       await noOverrun(`memo-long-${n}`, html);
     });
   }

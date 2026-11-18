@@ -3,7 +3,7 @@
 // (the memo freezes net and round figure when it is saved, so SQL only reads them) and no copy in the screen (CLAUDE.md rule 2).
 //
 // Everything is whole paise. Only this function and its formatters may be negative: `money.ts` still refuses a negative amount.
-//   hamali less = articles × rate         total 1 = to pay − hamali less          (paid is NOT added)
+//   hamali less = qty × rate         total 1 = to pay − hamali less          (paid is NOT added)
 //   commission  = % × (to pay + paid), rounded half up to the paisa (DM's rule)    total 2 = total 1 − commission
 //   net         = total 2 + wasuli        round figure = net to the rupee, .50 away from zero (DM's `roundRupee`)
 import { MAX_MEMO_LRS, type MemoSettlement } from '../shared';
@@ -39,7 +39,7 @@ export function roundRupees(netPaise: number): number {
  * limit times 10 000 passes 2^53, where a plain number would round without saying so.
  */
 export function memoSettlement(t: SettlementInput, ratePaise: number, commissionBp: number): MemoSettlement | null {
-  const articles = whole(t.qty, 'quantity');
+  const qty = whole(t.qty, 'quantity');
   const toPay = whole(t.toPayPaise, 'to pay');
   const paid = whole(t.paidPaise, 'paid');
   const wasuli = whole(t.wasuliPaise, 'wasuli');
@@ -47,7 +47,7 @@ export function memoSettlement(t: SettlementInput, ratePaise: number, commission
   const bp = whole(commissionBp, 'commission');
   if (bp > 10000) throw new Error(`invalid commission: ${String(bp)}`);
 
-  const hamali = BigInt(articles) * BigInt(rate);
+  const hamali = BigInt(qty) * BigInt(rate);
   if (hamali > LIMIT) return null;
   const hamaliLess = Number(hamali);
   const base = BigInt(toPay) + BigInt(paid);
@@ -56,7 +56,7 @@ export function memoSettlement(t: SettlementInput, ratePaise: number, commission
   const total2 = total1 - commissionLess;
   const net = total2 + wasuli;
   return {
-    articles, paidPaise: paid, toPayPaise: toPay, wasuliPaise: wasuli, ratePaise: rate, commissionBp: bp, commissionBasePaise: Number(base),
+    qty, paidPaise: paid, toPayPaise: toPay, wasuliPaise: wasuli, ratePaise: rate, commissionBp: bp, commissionBasePaise: Number(base),
     hamaliLessPaise: hamaliLess, total1Paise: total1, commissionLessPaise: commissionLess, total2Paise: total2, netPaise: net, roundRupees: roundRupees(net),
   };
 }

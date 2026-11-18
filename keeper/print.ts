@@ -142,11 +142,11 @@ export function makePrint(
           total: inr(m.frozen.toPayPaise + m.frozen.paidPaise + m.frozen.hamaliPaise), wasuli: inr(m.frozen.wasuliPaise),
         },
         settlement: st && {
-          articles: st.articles,
+          qty: st.qty,
           paid: inr(st.paidPaise),
           toPay: inr(st.toPayPaise),
           hamaliLess: inr(st.hamaliLessPaise),
-          hamaliHow: `${st.articles} × ${inr(st.ratePaise)}`,
+          hamaliHow: `${st.qty} × ${inr(st.ratePaise)}`,
           total1: signedInr(st.total1Paise),
           commissionLess: inr(st.commissionLessPaise),
           commissionHow: `${percentText(st.commissionBp)} %`,

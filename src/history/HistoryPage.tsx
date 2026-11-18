@@ -182,7 +182,6 @@ export default function HistoryPage({ today, onPick }: Props) {
               {t.loadMore}
             </Button>
           )}
-          <span className={styles.hint}>{t.hint}</span>
         </div>
       </Card>
 

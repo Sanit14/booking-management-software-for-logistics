@@ -37,7 +37,7 @@ const lrSums = (s: Set, memoId: number) => {
   const rows = s.db.prepare('SELECT qty, topay_paise AS t, paid_paise AS p, wasuli_paise AS w FROM lrs WHERE memo_id = ?').all(memoId) as { qty: number; t: number; p: number; w: number }[];
   return { qty: rows.reduce((a, r) => a + r.qty, 0), toPayPaise: rows.reduce((a, r) => a + r.t, 0), paidPaise: rows.reduce((a, r) => a + r.p, 0), wasuliPaise: rows.reduce((a, r) => a + r.w, 0) };
 };
-/** A memo of two booked LRs with round amounts: 10 + 5 articles, to pay 1,000 and paid 500, wasuli 300. */
+/** A memo of two booked LRs with round amounts: 10 + 5 qty, to pay 1,000 and paid 500, wasuli 300. */
 function twoLrs(s: Set, over: Parameters<typeof create>[2] = {}) {
   const a = book(s, { qty: '10', toPay: '1,000', wasuli: '300' });
   const b = book(s, { qty: '5', toPay: '', paid: '500' });
@@ -51,7 +51,7 @@ const editLr = (s: Set, id: number, over: Partial<LrInput>) => {
 
 // ---- create ----
 
-test('the old paper\'s example through a real save: 177 articles, paid 220, to pay 6,953, wasuli 4,076, rate 0.40, 10 % -> net 10,240.90, round figure 10,241', () => {
+test('the old paper\'s example through a real save: 177 qty, paid 220, to pay 6,953, wasuli 4,076, rate 0.40, 10 % -> net 10,240.90, round figure 10,241', () => {
   const s = setUp();
   const a = book(s, { qty: '100', toPay: '6,953', wasuli: '4,076' });
   const b = book(s, { qty: '77', toPay: '', paid: '220' });
@@ -61,7 +61,7 @@ test('the old paper\'s example through a real save: 177 articles, paid 220, to p
   assert.deepEqual([d.hamaliRatePaise, d.commissionBp], [40, 1000]);
   assert.deepEqual(d.frozen, { lrs: 2, qty: 177, toPayPaise: 695300, paidPaise: 22000, hamaliPaise: 0, wasuliPaise: 407600 });
   assert.deepEqual(d.settlement, {
-    articles: 177, paidPaise: 22000, toPayPaise: 695300, wasuliPaise: 407600, ratePaise: 40, commissionBp: 1000,
+    qty: 177, paidPaise: 22000, toPayPaise: 695300, wasuliPaise: 407600, ratePaise: 40, commissionBp: 1000,
     commissionBasePaise: 717300, hamaliLessPaise: 7080, total1Paise: 688220, commissionLessPaise: 71730, total2Paise: 616490, netPaise: 1024090, roundRupees: 10241,
   });
 });
@@ -116,7 +116,7 @@ test('a rate no memo could settle is refused as an amount, never stored: the num
   const s = setUp();
   const a = book(s, { qty: '999999' });
   const before = footprint(s);
-  // 999,999 articles at Rs 1 crore each: inside the rate limit, but past what 500 LRs can add up to, so the refusal comes from inside the saving transaction
+  // 999,999 qty at Rs 1 crore each: inside the rate limit, but past what 500 LRs can add up to, so the refusal comes from inside the saving transaction
   const r = refused(create(s, [a.id], { hamaliRate: '1,00,00,000', commission: '1' }));
   assert.deepEqual([r.code, r.memoFields], ['memo-invalid', { hamaliRate: 'amount' }]);
   assert.equal(footprint(s), before, 'nothing written, no challan number used, the LR still booked');
@@ -177,7 +177,7 @@ test('the live preview: the ticked LRs that are still booked, the steps, or the 
 test('the live preview of a SAVED memo (Edit rate / commission) is worked from its frozen totals, not from the LRs now; an unknown memo is refused', () => {
   const s = setUp();
   const m = twoLrs(s, { hamaliRate: '0.40', commission: '10' });
-  editLr(s, m.lrs[0].id, { qty: '40', toPay: '1,000', wasuli: '300' }); // the LRs now add up to 45 articles; the memo was printed with 15
+  editLr(s, m.lrs[0].id, { qty: '40', toPay: '1,000', wasuli: '300' }); // the LRs now add up to 45 qty; the memo was printed with 15
   const p = got(s.memos.settlement(s.db, [], '0.50', '8', m.id));
   assert.deepEqual(p.totals, { lrs: 2, qty: 15, toPayPaise: 100000, paidPaise: 50000, wasuliPaise: 30000 });
   assert.deepEqual(p.settlement, memoSettlement({ qty: 15, toPayPaise: 100000, paidPaise: 50000, wasuliPaise: 30000 }, 50, 800));
@@ -244,7 +244,7 @@ test('editSettlement uses what was printed: an LR edited since does not change t
   assert.equal(d.differs, true);
   const r = got(s.memos.editSettlement(s.db, 'seat-1', m.id, d.version, '0.50', '8', SYSTEM));
   assert.equal(r.memo.frozen.qty, 15, 'frozen totals untouched');
-  assert.equal(r.memo.settlement?.articles, 15);
+  assert.equal(r.memo.settlement?.qty, 15);
   assert.equal(r.memo.differs, true);
 });
 

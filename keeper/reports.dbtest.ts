@@ -213,9 +213,9 @@ test('Truck-wise: saved memos of the period with their FROZEN figures (wasuli an
   assert.deepEqual(
     rows.map((r) => [r.date, r.challanNo, r.truck, r.toStation, r.lrs, r.toPayPaise, r.paidPaise, r.wasuliPaise, r.roundRupees, r.truckHirePaise, r.loadingHamaliPaise, r.differs]),
     [
-      // 7 articles x 0.40 off 533.33, 10 % of it as commission, then the 600.00 of wasuli: net 1,077.20 -> 1,077
+      // 7 qty x 0.40 off 533.33, 10 % of it as commission, then the 600.00 of wasuli: net 1,077.20 -> 1,077
       ['2026-10-12', 2, 'MH 29 AB 1', 'Nagpur', 2, 53433, 0, 60000, 1077, 300000, 10000, true],
-      // 5 articles x 0.40 off 1,800.00, 10 % of (1,800.00 + 2,000.50), no wasuli: net 1,417.95 -> 1,418
+      // 5 qty x 0.40 off 1,800.00, 10 % of (1,800.00 + 2,000.50), no wasuli: net 1,417.95 -> 1,418
       ['2026-10-31', 1, 'MH 29 BE 1234', 'Nagpur', 2, 180000, 200050, 0, 1418, 500000, 25050, false],
     ],
     'challan 3 is September, challan 4 is cancelled; challan 2 shows what was frozen (53,433), not what its LRs add up to now (53,333)',

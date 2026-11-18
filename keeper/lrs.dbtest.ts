@@ -348,15 +348,13 @@ test('ensureBookingStation: makes Yavatmal in a book without it, reopens it when
   assert.deepEqual(lrs.ensureBookingStation(db, 'KEEPER'), { ok: true, value: null }, 'already there');
   assert.equal(audits().length, 1, 'and nothing was written');
 
-  // Closed by hand (System PIN): a new LR has no From until the keeper starts again.
-  assert.ok(pins.setup(db, 'seat-1', ADMIN, SYSTEM).ok);
-  const row = masters.all(db).stations[0];
-  assert.ok(masters.setActive(db, 'seat-1', 'stations', id, row.version, false, SYSTEM).ok);
+  // Closed in a book from before the keeper refused it (Master Data cannot close it any more, so the test does it in the file): a new LR has no From until the keeper starts again.
+  db.prepare('UPDATE stations SET active = 0, version = version + 1 WHERE id = ?').run(id);
   assert.equal(lrs.defaults(db, null).bookingStationId, null);
   const back = lrs.ensureBookingStation(db, 'KEEPER');
   assert.ok(back.ok && back.value?.active === true);
   assert.equal(lrs.defaults(db, null).bookingStationId, id);
-  assert.deepEqual(audits().map((a) => a.action), ['masters.create', 'masters.deactivate', 'masters.activate']);
+  assert.deepEqual(audits().map((a) => a.action), ['masters.create', 'masters.activate']);
   assert.equal(masters.all(db).stations.length, 1, 'never a second Yavatmal');
 });
 

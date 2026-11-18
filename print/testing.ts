@@ -35,9 +35,9 @@ export function sampleMemo(count: number, over: Partial<PrintMemo> = {}): PrintM
     differs: false,
     rows,
     totals: { lrs: count, qty: rows.reduce((s, r) => s + r.qty, 0), toPay: '1,23,456.00', paid: '9,87,654.50', hamali: '1,234.50', total: '1,34,345.00', wasuli: '4,076.00' },
-    // the old paper's own example: 177 articles at 0.40 and 10 % -> net 10,240.90, round figure 10,241
+    // the old paper's own example: 177 qty at 0.40 and 10 % -> net 10,240.90, round figure 10,241
     settlement: {
-      articles: 177, paid: '220.00', toPay: '6,953.00', hamaliLess: '70.80', hamaliHow: '177 × 0.40', total1: '6,882.20', commissionLess: '717.30', commissionHow: '10 %',
+      qty: 177, paid: '220.00', toPay: '6,953.00', hamaliLess: '70.80', hamaliHow: '177 × 0.40', total1: '6,882.20', commissionLess: '717.30', commissionHow: '10 %',
       total2: '6,164.90', wasuli: '4,076.00', net: '10,240.90', round: '10,241',
     },
     ...over,

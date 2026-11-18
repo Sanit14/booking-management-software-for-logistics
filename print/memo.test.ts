@@ -5,6 +5,12 @@ import { matchSnapshot, sampleMemo, smallestPt } from './testing';
 
 const count = (html: string, what: string | RegExp): number => html.split(what).length - 1;
 const sheetsOf = (html: string): string[] => html.split('<section').slice(1);
+/** The sheets of a 60-LR sample memo (it has a settlement, so the last sheet keeps SETTLEMENT_ROWS free) and the one it ends on. */
+const sixty = () => {
+  const sheets = sheetsOf(memoHtml(sampleMemo(60)));
+  assert.equal(sheets.length, paginate(60, FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS).length);
+  return sheets;
+};
 
 test('paginate: no rows is one sheet; the totals fit on the first sheet up to FIRST_ROWS - TOTALS_ROWS rows', () => {
   assert.deepEqual(paginate(0), [0]);
@@ -30,32 +36,35 @@ test('paginate: for any number of rows the sizes add up, every sheet is within i
   }
 });
 
-test('paginate: 60 rows are two sheets and the most a memo carries, 500, is a dozen or so', () => {
-  assert.deepEqual(paginate(60), [35, 25]);
-  assert.equal(paginate(500).length, 12);
+test('paginate: A4 landscape holds fewer rows than portrait did: 60 rows are three sheets and the most a memo carries, 500, is eighteen', () => {
+  assert.deepEqual(paginate(60), [23, 29, 8]);
+  assert.equal(paginate(500).length, 18);
 });
 
 test('memoHtml: every sheet has its own header row and "Page n of m"; the totals row is on the last sheet only', () => {
   const html = memoHtml(sampleMemo(60));
-  const sheets = sheetsOf(html);
-  assert.equal(sheets.length, 2);
-  assert.equal(count(html, '<thead>'), 2, 'the header row is repeated');
+  const sheets = sixty();
+  assert.ok(sheets.length >= 2);
+  assert.equal(count(html, '<thead>'), sheets.length, 'the header row is repeated');
   sheets.forEach((s, i) => {
-    assert.match(s, new RegExp(`Page ${i + 1} of 2`));
+    assert.match(s, new RegExp(`Page ${i + 1} of ${sheets.length}`));
     assert.match(s, /<th>Consignor<\/th><th>Consignee<\/th><th>LR No<\/th><th>Particulars<\/th><th class="n">Quantity<\/th><th class="n">To pay<\/th><th class="n">Paid<\/th><th class="n">Hamali<\/th><th class="n">Total<\/th><th class="n">Wasuli<\/th>/);
-    assert.equal(count(s, 'class="tot"'), i === 1 ? 1 : 0, `sheet ${i + 1}`);
+    assert.equal(count(s, 'class="tot"'), i === sheets.length - 1 ? 1 : 0, `sheet ${i + 1}`);
   });
-  assert.match(sheets[1], /Total · LRs: 60/);
+  const last = sheets[sheets.length - 1];
+  assert.match(last, /Total · LRs: 60/);
   // the totals row stands in the table's own columns: Quantity, To pay, Paid, Hamali, Total, Wasuli, in the order of the headings
-  assert.ok(sheets[1].includes('<td colspan="4">Total · LRs: 60</td>'));
-  assert.match(sheets[1], /<tfoot><tr class="tot">.*<td class="n">\d+<\/td><td class="n">1,23,456\.00<\/td><td class="n">9,87,654\.50<\/td><td class="n">1,234\.50<\/td><td class="n">1,34,345\.00<\/td><td class="n">4,076\.00<\/td><\/tr><\/tfoot>/);
+  assert.ok(last.includes('<td colspan="4">Total · LRs: 60</td>'));
+  assert.match(last, /<tfoot><tr class="tot">.*<td class="n">\d+<\/td><td class="n">1,23,456\.00<\/td><td class="n">9,87,654\.50<\/td><td class="n">1,234\.50<\/td><td class="n">1,34,345\.00<\/td><td class="n">4,076\.00<\/td><\/tr><\/tfoot>/);
   assert.equal(count(html, /<tr><td(?! class="none")/g), 60, 'every LR once');
 });
 
 const BLOCK = ['DETAILS OF REPORT', 'Total quantity', 'Paid amount', 'To pay amount', 'Hamali less amount', 'Commission less amount', 'Wasuli amount', 'Net amount Rs.', 'Round figure Rs.'];
 
 test('memoHtml: "Details of report" follows the last row, on the last sheet only, with the two notes next to their amounts', () => {
-  const [first, second] = sheetsOf(memoHtml(sampleMemo(60)));
+  const sheets = sixty();
+  const [first, second] = [sheets[0], sheets[sheets.length - 1]]; // "second" is the last sheet
+  for (const sheet of sheets.slice(0, -1)) for (const t of BLOCK) assert.ok(!sheet.includes(t), `only on the last sheet: ${t}`);
   for (const t of BLOCK) assert.ok(!first.includes(t), `not on the first sheet: ${t}`);
   for (const t of BLOCK) assert.ok(second.includes(t), t);
   assert.ok(second.includes('(177 × 0.40)') && second.includes('(10 %)'), 'hamali and commission say how they were worked out');
@@ -102,16 +111,15 @@ test('memoHtml: the company block is the name and the location, nothing else (no
 
 test('memoHtml: the "changed after saving" line appears on the last sheet, only when the memo differs', () => {
   assert.ok(!memoHtml(sampleMemo(5)).includes('LRs changed after saving'));
-  const html = memoHtml(sampleMemo(60, { differs: true }));
-  const [first, second] = sheetsOf(html);
-  assert.ok(!first.includes('LRs changed after saving'));
-  assert.ok(second.includes('LRs changed after saving — recalculate to update totals'));
+  const sheets = sheetsOf(memoHtml(sampleMemo(60, { differs: true })));
+  for (const sheet of sheets.slice(0, -1)) assert.ok(!sheet.includes('LRs changed after saving'));
+  assert.ok(sheets[sheets.length - 1].includes('LRs changed after saving — recalculate to update totals'));
 });
 
 test('memoHtml: a cancelled memo has the CANCELLED mark on every sheet; one that is not has none', () => {
   assert.ok(!memoHtml(sampleMemo(60)).includes('CANCELLED'));
   const sheets = sheetsOf(memoHtml(sampleMemo(60, { cancelled: true })));
-  assert.equal(sheets.length, 2);
+  assert.equal(sheets.length, paginate(60, FIRST_ROWS, NEXT_ROWS, SETTLEMENT_ROWS).length);
   for (const s of sheets) assert.match(s, /<div class="stamp">CANCELLED<\/div>/);
 });
 
@@ -132,9 +140,9 @@ test('memoHtml: names and company lines are escaped, so nothing typed can open a
   assert.ok(!/<b>Sundeep|<img|<Steel>|<script/i.test(html));
 });
 
-test('memoHtml: the page is black and white, A4 portrait with no margin of its own, and does not use @media print', () => {
+test('memoHtml: the page is black and white, A4 landscape with no margin of its own, and does not use @media print', () => {
   const html = memoHtml(sampleMemo(2));
-  assert.match(html, /@page\{size:A4 portrait;margin:0\}/);
+  assert.match(html, /@page\{size:A4 landscape;margin:0\}/);
   assert.ok(!html.includes('@media'));
   assert.ok(!/#[0-9a-f]{3,6}\b/i.test(html.replace(/#fff\b|#000\b/gi, '')), 'only black and white');
   assert.ok(smallestPt(html) >= 9, 'nothing under 9 pt');

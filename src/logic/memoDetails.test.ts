@@ -5,7 +5,7 @@ import { blankLines, nextEnabled, percentText, previewReady, refusalStep, resolv
 
 // The old paper's example, as the keeper sends it.
 const PAPER: MemoSettlement = {
-  articles: 177, paidPaise: 22000, toPayPaise: 695300, wasuliPaise: 407600, ratePaise: 40, commissionBp: 1000,
+  qty: 177, paidPaise: 22000, toPayPaise: 695300, wasuliPaise: 407600, ratePaise: 40, commissionBp: 1000,
   commissionBasePaise: 717300, hamaliLessPaise: 7080, total1Paise: 688220, commissionLessPaise: 71730, total2Paise: 616490, netPaise: 1024090, roundRupees: 10241,
 };
 const TOTALS = { lrs: 23, qty: 177, toPayPaise: 695300, paidPaise: 22000, wasuliPaise: 407600 };

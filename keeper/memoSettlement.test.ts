@@ -11,14 +11,14 @@ const must = (t: SettlementInput, ratePaise: number, bp: number): MemoSettlement
   return s;
 };
 
-// The old paper's own example (docs/reference/old-memo-last-page.jpg): 177 articles, paid 220, to pay 6,953, wasuli 4,076,
+// The old paper's own example (docs/reference/old-memo-last-page.jpg): 177 qty, paid 220, to pay 6,953, wasuli 4,076,
 // hamali rate 0.40, commission 10 %  ->  70.80, 6,882.20, 717.30, 6,164.90, 10,240.90, round figure 10,241.
 const PAPER: SettlementInput = { qty: 177, paidPaise: 22000, toPayPaise: 695300, wasuliPaise: 407600 };
 
 test('the old paper\'s example gives every step and exactly 10,241', () => {
   const s = must(PAPER, 40, 1000);
   assert.deepEqual(s, {
-    articles: 177, paidPaise: 22000, toPayPaise: 695300, wasuliPaise: 407600, ratePaise: 40, commissionBp: 1000,
+    qty: 177, paidPaise: 22000, toPayPaise: 695300, wasuliPaise: 407600, ratePaise: 40, commissionBp: 1000,
     commissionBasePaise: 717300, hamaliLessPaise: 7080, total1Paise: 688220, commissionLessPaise: 71730, total2Paise: 616490, netPaise: 1024090, roundRupees: 10241,
   });
 });
@@ -58,7 +58,7 @@ test('commission 100 %: the whole of to pay + paid; paid is in the base but neve
 });
 
 test('a negative total 1 and a negative net are kept, not clamped', () => {
-  // 100 articles at 0.20 = 20.00 off a to pay of 10.00; no wasuli.
+  // 100 qty at 0.20 = 20.00 off a to pay of 10.00; no wasuli.
   const s = must({ qty: 100, paidPaise: 0, toPayPaise: 1000, wasuliPaise: 0 }, 20, 0);
   assert.equal(s.hamaliLessPaise, 2000);
   assert.equal(s.total1Paise, -1000);

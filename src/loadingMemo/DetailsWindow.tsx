@@ -42,7 +42,7 @@ interface Props {
 }
 
 /**
- * "Details of report" (4.6): the totals of the ticked LRs, the two boxes the clerk types (hamali rate per article, commission %) and, as they type, the
+ * "Details of report" (4.6): the totals of the ticked LRs, the two boxes the clerk types (hamali rate per unit of quantity, commission %) and, as they type, the
  * settlement and the round figure. The keeper works every figure out and checks both boxes; this only asks it after each change and shows the answer.
  * Nothing is saved here: the two buttons and the seat's save key hand the typed text to `onSave` once, and only when the answer is for exactly what is
  * typed now. Enter goes rate → commission → the Save & print button; Esc goes back.
@@ -136,7 +136,7 @@ function DetailsBody({ subtitle, ids, memoId = null, initialRate = '', initialCo
 
   const lines = settlement ? settlementLines(settlement) : blankLines(totals);
   const figures: [string, string][] = [
-    [t.articles, String(totals.qty)],
+    [t.qty, String(totals.qty)],
     [t.paid, `${rupee} ${formatFixed(totals.paidPaise)}`],
     [t.toPay, `${rupee} ${formatFixed(totals.toPayPaise)}`],
     [t.wasuli, `${rupee} ${formatFixed(totals.wasuliPaise)}`],
